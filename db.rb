@@ -52,4 +52,11 @@ DB.execute <<-SQL
     gruppo_id INTEGER
   );
 SQL
-
+DB.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS user_names (
+    user_id INTEGER PRIMARY KEY,
+    first_name TEXT,
+    last_name TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+SQL

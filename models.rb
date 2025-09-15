@@ -3,6 +3,12 @@
 require_relative 'db'
 
 class GroupManager
+
+	def self.salva_nome_utente(user_id, first_name, last_name = nil)
+	  DB.execute("INSERT OR REPLACE INTO user_names (user_id, first_name, last_name) VALUES (?, ?, ?)", 
+				[user_id, first_name, last_name])
+	end
+
   def self.crea_gruppo(bot, user_id, user_name)
     DB.execute("INSERT INTO gruppi (nome, creato_da) VALUES (?, ?)", ["Lista Spesa di #{user_name}", user_id])
     gruppo_id = DB.last_insert_row_id
@@ -47,9 +53,26 @@ class Lista
     end
   end
 
-  def self.tutti(gruppo_id)
-    DB.execute("SELECT * FROM items WHERE gruppo_id = ? ORDER BY comprato, nome", [gruppo_id])
+def self.tutti(gruppo_id)
+  items = DB.execute("SELECT i.* FROM items i WHERE i.gruppo_id = ? ORDER BY i.comprato, i.nome", [gruppo_id])
+  
+  # Aggiungi le iniziali per ogni item
+  items.map do |item|
+    user_id = item['creato_da']
+    if user_id
+      # Cerca il nome utente nella tabella user_names o usa un fallback
+      user_name = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id])
+      if user_name && !user_name.empty?
+        initials = user_name.split.map { |n| n[0] }.join.upcase
+        item.merge('user_initials' => initials)
+      else
+        item.merge('user_initials' => '??')
+      end
+    else
+      item.merge('user_initials' => '??')
+    end
   end
+end
 
   def self.cancella(gruppo_id, item_id, user_id)
     item = DB.get_first_row("SELECT comprato, creato_da FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
@@ -79,4 +102,3 @@ class Lista
     end
   end
 end
-
