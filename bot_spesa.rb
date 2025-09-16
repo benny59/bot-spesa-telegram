@@ -13,46 +13,61 @@ if token.nil? || token.to_s.strip.empty?
 end
 
 # Metodo spostato FUORI dal blocco Telegram::Bot::Client.run
-def genera_lista(bot, chat_id, gruppo_id, user_id, message_id = nil)
-  items = Lista.tutti(gruppo_id)
-  buttons = []
+def genera_lista(bot, chat_id, gruppo_id, user_id, message_id=nil)
+  lista = Lista.tutti(gruppo_id)
+  righe = lista.map do |item|
+    autore = item['user_initials'] ? "#{item['user_initials']}-" : "??-"
 
-  if items.empty?
-    text = "📝 *La lista della spesa è vuota!*"
-  else
-    text = "📝 *Lista della spesa:*"
-    items.each do |item|
-      item_text = item['comprato'] == 1 ? "~~#{item['nome']}~~" : item['nome']
-      emoji = item['comprato'] == 1 ? "✅" : "🛒"
-      user_badge = item['user_initials'] ? "#{item['user_initials']}-" : "??-"
-      
-      buttons << [
-        Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{emoji} #{user_badge}#{item_text}", callback_data: "comprato:#{item['id']}:#{gruppo_id}"),
-        Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌", callback_data: "cancella:#{item['id']}:#{gruppo_id}")
-      ]
-    end
+    testo_item = item['comprato'] == 1 ? "~#{item['nome']}~" : item['nome']
+    toggle_btn = item['comprato'] == 1 ? "✅ ℹ️" : "ℹ️"
+
+    [
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: testo_item,
+        callback_data: "comprato:#{item['id']}:#{gruppo_id}"
+      ),
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: toggle_btn,
+        callback_data: "toggle:#{item['id']}:#{gruppo_id}"
+      ),
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "#{autore[0,2].upcase}-❌",
+        callback_data: "cancella:#{item['id']}:#{gruppo_id}"
+      )
+    ]
   end
 
-  # pulsanti di controllo sempre presenti
-  buttons << [
-    Telegram::Bot::Types::InlineKeyboardButton.new(text: "➕ Aggiungi", callback_data: "aggiungi:#{gruppo_id}"),
-    Telegram::Bot::Types::InlineKeyboardButton.new(text: "🗑 Cancella Tutti", callback_data: "cancella_tutti:#{gruppo_id}")
+  righe << [
+    Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "➕ Aggiungi",
+      callback_data: "aggiungi:#{gruppo_id}"
+    ),
+    Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "🧹 Cancella tutti",
+      callback_data: "cancella_tutti:#{gruppo_id}"
+    )
   ]
 
-  markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: buttons)
+  markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe)
 
-  begin
-    if message_id
-      bot.api.edit_message_text(chat_id: chat_id, message_id: message_id, text: text, parse_mode: 'Markdown', reply_markup: markup)
-    else
-      bot.api.send_message(chat_id: chat_id, text: text, parse_mode: 'Markdown', reply_markup: markup)
-    end
-  rescue Telegram::Bot::Exceptions::ResponseError => e
-    # ignora "message is not modified"
-    raise unless e.message&.include?("message is not modified")
+  if message_id
+    bot.api.edit_message_text(
+      chat_id: chat_id,
+      message_id: message_id,
+      text: "Lista della spesa:",
+      reply_markup: markup,
+      parse_mode: "MarkdownV2"
+    )
+  else
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "Lista della spesa:",
+      reply_markup: markup,
+      parse_mode: "MarkdownV2"
+    )
   end
 end
-
+#-----------------------------
 Telegram::Bot::Client.run(token) do |bot|
   puts "🤖 Bot avviato!"
   bot_username = bot.api.get_me.username rescue nil
@@ -98,6 +113,7 @@ Telegram::Bot::Client.run(token) do |bot|
           else
             bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Non puoi cancellare questo elemento")
           end
+          
 
         elsif data =~ /^cancella_tutti:(\d+)$/
           gruppo_id = $1.to_i
@@ -107,6 +123,52 @@ Telegram::Bot::Client.run(token) do |bot|
           else
             bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Solo admin può cancellare tutti")
           end
+
+# Aggiungi questo caso nel blocco when Telegram::Bot::Types::CallbackQuery:
+elsif data =~ /^toggle:(\d+):(\d+)$/
+  item_id, gruppo_id = $1.to_i, $2.to_i
+  
+  # Recupera informazioni complete sull'item
+  item = DB.get_first_row("SELECT i.*, u.first_name, u.last_name 
+                          FROM items i 
+                          LEFT JOIN user_names u ON i.creato_da = u.user_id 
+                          WHERE i.id = ?", [item_id])
+  
+  if item
+    # Prepara il testo completo per il popup
+    nome_utente = item['first_name'] || "Utente"
+    testo_completo = "#{nome_utente} - #{item['nome']}"
+    
+    # Mostra il popup
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: testo_completo,
+      show_alert: true
+    )
+  else
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "❌ Item non trovato"
+    )
+  end
+
+
+elsif data =~ /^info:(\d+):(\d+)$/
+  item_id, gruppo_id = $1.to_i, $2.to_i
+  item = Lista.trova(item_id)
+  if item
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "📄 #{item['nome']}",
+      show_alert: true
+    )
+  else
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "❌ Articolo non trovato"
+    )
+  end
+
 
         elsif data =~ /^aggiungi:(\d+)$/
           gruppo_id = $1.to_i
@@ -143,24 +205,28 @@ Telegram::Bot::Client.run(token) do |bot|
         end
 
         # gestione in gruppi
-        if msg.chat.type == "group" || msg.chat.type == "supergroup"
-          gruppo = GroupManager.get_gruppo_by_chat_id(chat_id)
+if msg.chat.type == "group" || msg.chat.type == "supergroup"
+  gruppo = GroupManager.get_gruppo_by_chat_id(chat_id)
 
-          if msg.text == "/start"
-            if gruppo.nil?
-              GroupManager.associa_gruppo_automaticamente(bot, chat_id, user_id)
-              next
-            else
-              bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo già associato (ID: #{gruppo['id']}). Usa /lista.")
-              next
-            end
-          end
+  # Gestisci entrambe le versioni dei comandi
+  if msg.text == "/start" || msg.text == "/start@#{bot_username}"
+    if gruppo.nil?
+      GroupManager.associa_gruppo_automaticamente(bot, chat_id, user_id)
+      next
+    else
+      bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo già associato (ID: #{gruppo['id']}). Usa /lista.")
+      next
+    end
+  end
 
-          if gruppo
-            if msg.text == '/lista'
-              genera_lista(bot, chat_id, gruppo['id'], user_id)
-              next
-            end
+  if msg.text == '/lista' || msg.text == "/lista@#{bot_username}"
+    if gruppo
+      genera_lista(bot, chat_id, gruppo['id'], user_id)
+      next
+    else
+      bot.api.send_message(chat_id: chat_id, text: "❌ Gruppo non associato. In privato usa /newgroup.")
+      next
+    end
 
             # pending actions (aggiungi)
             pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ?", [chat_id])

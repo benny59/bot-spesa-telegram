@@ -4,10 +4,11 @@ require_relative 'db'
 
 class GroupManager
 
-	def self.salva_nome_utente(user_id, first_name, last_name = nil)
-	  DB.execute("INSERT OR REPLACE INTO user_names (user_id, first_name, last_name) VALUES (?, ?, ?)", 
-				[user_id, first_name, last_name])
-	end
+def self.salva_nome_utente(user_id, first_name, last_name = nil)
+  DB.execute("INSERT OR REPLACE INTO user_names (user_id, first_name, last_name) VALUES (?, ?, ?)", 
+            [user_id, first_name, last_name])
+end
+
 
   def self.crea_gruppo(bot, user_id, user_name)
     DB.execute("INSERT INTO gruppi (nome, creato_da) VALUES (?, ?)", ["Lista Spesa di #{user_name}", user_id])
@@ -53,26 +54,68 @@ class Lista
     end
   end
 
+def self.trova(item_id)
+  DB.get_first_row("SELECT * FROM items WHERE id = ?", [item_id])
+end
+
+
 def self.tutti(gruppo_id)
   items = DB.execute("SELECT i.* FROM items i WHERE i.gruppo_id = ? ORDER BY i.comprato, i.nome", [gruppo_id])
   
-  # Aggiungi le iniziali per ogni item
-  items.map do |item|
+  # Prima passata: raccogli tutti gli user_id e genera iniziali di base
+  user_initials_map = {}
+  user_count = {}
+  
+  items.each do |item|
     user_id = item['creato_da']
-    if user_id
-      # Cerca il nome utente nella tabella user_names o usa un fallback
-      user_name = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id])
-      if user_name && !user_name.empty?
-        initials = user_name.split.map { |n| n[0] }.join.upcase
-        item.merge('user_initials' => initials)
+    next unless user_id
+    
+    if !user_initials_map[user_id]
+      user_name = DB.get_first_value("SELECT first_name, last_name FROM user_names WHERE user_id = ?", [user_id])
+      
+      if user_name
+        name_parts = user_name.split
+        base_initials = if name_parts.size >= 2
+                          "#{name_parts[0][0]}#{name_parts[1][0]}".upcase
+                        else
+                          name_parts[0][0..1].upcase.ljust(2, '?')
+                        end
+        user_initials_map[user_id] = base_initials
       else
-        item.merge('user_initials' => '??')
+        user_initials_map[user_id] = "??"
       end
-    else
-      item.merge('user_initials' => '??')
     end
   end
+  
+  # Seconda passata: risolvi conflitti e assegna iniziali uniche
+  final_initials = {}
+  used_initials = {}
+  
+  user_initials_map.each do |user_id, base_initials|
+    if !used_initials[base_initials]
+      final_initials[user_id] = base_initials
+      used_initials[base_initials] = true
+    else
+      # Trova una variante unica
+      counter = 1
+      unique_initials = base_initials
+      while used_initials[unique_initials]
+        counter += 1
+        unique_initials = "#{base_initials[0]}#{counter}"
+      end
+      final_initials[user_id] = unique_initials
+      used_initials[unique_initials] = true
+    end
+  end
+  
+  # Terza passata: applica le iniziali agli items
+  items.map do |item|
+    user_id = item['creato_da']
+    initials = user_id ? final_initials[user_id] : '??'
+    item.merge('user_initials' => initials)
+  end
 end
+
 
   def self.cancella(gruppo_id, item_id, user_id)
     item = DB.get_first_row("SELECT comprato, creato_da FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
