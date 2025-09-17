@@ -68,7 +68,24 @@ def init_db
     );
   SQL
   
-  # Aggiungi questo a db.rb nella funzione init_db
+db.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS whitelist (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    full_name TEXT,
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+SQL
+  
+db.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS pending_requests (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    full_name TEXT,
+    requested_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+SQL
+
 db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS user_preferences (
     user_id INTEGER PRIMARY KEY,
