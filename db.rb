@@ -67,6 +67,15 @@ def init_db
       FOREIGN KEY (item_id) REFERENCES items (id)
     );
   SQL
+  
+  # Aggiungi questo a db.rb nella funzione init_db
+db.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY,
+    view_mode TEXT DEFAULT 'compact', -- 'compact' o 'text_only'
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+SQL
 
   puts "✅ Database inizializzato con schema corretto"
   db
