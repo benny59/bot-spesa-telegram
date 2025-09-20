@@ -28,6 +28,7 @@ Telegram::Bot::Client.run(token) do |bot|
       {command: 'start', description: 'Avvia il bot'},
       {command: 'newgroup', description: 'Crea gruppo virtuale'},
       {command: 'lista', description: 'Mostra la lista della spesa'},
+      {command: 'ss', description: 'Screenshot lista della spesa'},
       {command: 'help', description: 'Mostra i comandi disponibili'}
     ])
   rescue => e
