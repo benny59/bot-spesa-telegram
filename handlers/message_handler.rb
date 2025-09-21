@@ -288,6 +288,10 @@ def self.handle_screenshot_command(bot, msg, gruppo)
     handle_screenshot_text_fallback(bot, msg.chat.id, gruppo)
   end
 end# Metodo helper per trovare font disponibili
+
+
+
+
 def self.find_available_font
   # Font comuni su Android
   fonts_to_try = [
@@ -509,7 +513,8 @@ end
 # handlers/message_handler.rb - modifica handle_group_message
  def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
     puts "🔍 Gestione messaggio gruppo: #{msg.text}"
-    gruppo = GroupManager.get_gruppo_by_chat_id(chat_id)
+    gruppo = GroupManager.find_or_migrate_group(chat_id, msg.chat.title)
+
     puts "🔍 Gruppo trovato: #{gruppo.inspect}"
 
     if msg.text == "/start" || msg.text == "/start@#{bot_username}"
