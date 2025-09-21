@@ -58,6 +58,13 @@ def self.salva_nome_utente(user_id, first_name, last_name)
   puts "👤 Utente salvato: #{first_name} #{last_name} -> #{initials}"
 end
 
+  def self.approve_user(user_id, username, full_name)
+    # Rimuovi dalla lista pending e aggiungi alla whitelist
+    DB.execute("DELETE FROM pending_requests WHERE user_id = ?", [user_id])
+    DB.execute("INSERT INTO whitelist (user_id, username, full_name) VALUES (?, ?, ?)",
+              [user_id, username, full_name])
+  end
+
 
   def self.is_creator?(user_id)
     creator_id = get_creator_id

@@ -132,5 +132,12 @@ end
         parse_mode: "MarkdownV2"
       )
     end
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+    # Ignora l'errore "message is not modified"
+    if e.message&.include?("message is not modified")
+      puts "⚠️ Messaggio non modificato (nessun cambiamento)"
+    else
+      raise e # Rilancia altri errori
+    end
   end
 end

@@ -201,7 +201,6 @@ def self.handle_screenshot_command(bot, msg, gruppo)
     
     items = Lista.tutti(gruppo['id'])
     
-    # Se la lista è vuota, manda un messaggio
     if items.empty?
       bot.api.send_message(
         chat_id: msg.chat.id,
@@ -215,7 +214,7 @@ def self.handle_screenshot_command(bot, msg, gruppo)
     line_height = 40
     padding = 30
     title_height = 80
-    height = padding * 2 + title_height + (items.size * line_height) + 60
+    height = padding * 2 + title_height + (items.size * line_height) + 80
     
     # Crea immagine
     image = Magick::Image.new(width, height) do |options|
@@ -224,59 +223,60 @@ def self.handle_screenshot_command(bot, msg, gruppo)
     
     draw = Magick::Draw.new
     draw.gravity = Magick::NorthWestGravity
+    draw.font = find_available_font
     
-    # Prova diversi font
-    font = find_available_font
-    draw.font = font
-    
-    # Disegna titolo
+    # Disegna titolo (senza emoji)
     draw.fill('black')
     draw.pointsize = 32
     draw.font_weight = Magick::BoldWeight
-    draw.annotate(image, 0, 0, padding, padding, "🛒 LISTA DELLA SPESA")
+    draw.annotate(image, 0, 0, padding, padding, "LISTA DELLA SPESA")
     
     # Linea separatrice
     draw.line(padding, padding + 50, width - padding, padding + 50)
     
-    # Disegna items
+    # Disegna items con simboli ASCII
     draw.pointsize = 20
     draw.font_weight = Magick::NormalWeight
     y_position = padding + title_height
     
     items.each do |item|
-      status = item['comprato'] == 1 ? "✅" : "🛒"
+      # Usa simboli ASCII invece di emoji
+      status = item['comprato'] == 1 ? "[X]" : "[ ]"  # Simboli ASCII
       user_badge = item['user_initials'] ? "#{item['user_initials']}-" : "??-"
       text = "#{status} #{user_badge}#{item['nome']}"
       
-      # Colore per item completati
       if item['comprato'] == 1
-        draw.fill('#888888') # Grigio
+        draw.fill('#888888') # Grigio per completati
       else
-        draw.fill('#2c3e50') # Blu scuro
+        draw.fill('#2c3e50') # Blu scuro per non completati
       end
       
       draw.annotate(image, 0, 0, padding, y_position, text)
       y_position += line_height
     end
     
-    # Footer
+    # Footer con legenda
     draw.pointsize = 14
-    draw.fill('#7f8c8d') # Grigio medio
-    footer_text = "🔄 Aggiornato: #{Time.now.strftime('%d/%m/%Y %H:%M')}"
-    draw.annotate(image, 0, 0, padding, height - 50, footer_text)
+    draw.fill('#7f8c8d')
+    footer_text = "Aggiornato: #{Time.now.strftime('%d/%m/%Y %H:%M')}"
+    draw.annotate(image, 0, 0, padding, height - 60, footer_text)
+    
+    # Legenda
+    draw.pointsize = 12
+    draw.annotate(image, 0, 0, padding, height - 40, "Legenda: [X] = Comprato")
+    draw.annotate(image, 0, 0, padding, height - 20, "Legenda: [ ] = Da comprare")
     
     # Applica il disegno
     draw.draw(image)
     
-    # Salva immagine
+    # Salva e invia immagine
     filename = "/data/data/com.termux/files/home/spesa/lista_#{Time.now.to_i}.png"
     image.write(filename)
     
-    # Invia l'immagine
     bot.api.send_photo(
       chat_id: msg.chat.id,
       photo: Faraday::UploadIO.new(filename, 'image/png'),
-      caption: "📸 Clicca sull'immagine e scegli 'Condividi' per inviare via WhatsApp, Email, ecc."
+      caption: "📸 Clicca sull'immagine e scegli 'Condividi'"
     )
     
     # Pulisci
@@ -285,12 +285,9 @@ def self.handle_screenshot_command(bot, msg, gruppo)
     
   rescue => e
     puts "❌ Errore generazione immagine: #{e.message}"
-    puts e.backtrace
     handle_screenshot_text_fallback(bot, msg.chat.id, gruppo)
   end
-end
-
-# Metodo helper per trovare font disponibili
+end# Metodo helper per trovare font disponibili
 def self.find_available_font
   # Font comuni su Android
   fonts_to_try = [
@@ -310,6 +307,59 @@ def self.find_available_font
   
   'fixed' # Fallback
 end
+
+def self.handle_plus_command(bot, msg, chat_id, user_id, gruppo)
+  begin
+    text = msg.text.strip
+    
+    # Gestione PRIORITARIA di +? (help)
+    if text == '+?'
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "📋 <b>Help comando +</b>\n\n" \
+              "• <code>+</code> - Mostra prompt aggiunta articoli\n" \
+              "• <code>+ articolo</code> - Aggiungi un articolo\n" \
+              "• <code>+ art1, art2, art3</code> - Aggiungi multiple articoli\n" \
+              "• <code>+?</code> - Mostra questo help",
+        parse_mode: 'HTML'
+      )
+      return
+    end
+    
+    # Se c'è testo dopo il + (escluso il caso +? già gestito)
+    if text.length > 1
+      items_text = text[1..-1].strip
+      if items_text.empty?
+        # Solo + senza testo
+        DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id) VALUES (?, ?, ?)", 
+                  [chat_id, "add:#{msg.from.first_name}", gruppo['id']])
+        bot.api.send_message(chat_id: chat_id, text: "✍️ #{msg.from.first_name}, scrivi gli articoli separati da virgola:")
+      else
+        # + seguito da testo
+        Lista.aggiungi(gruppo['id'], user_id, items_text)
+        added_items = items_text.split(',').map(&:strip)
+        added_count = added_items.count
+        bot.api.send_message(
+          chat_id: chat_id,
+          text: "✅ #{msg.from.first_name} ha aggiunto #{added_count} articolo(i): #{added_items.join(', ')}"
+        )
+        KeyboardGenerator.genera_lista(bot, chat_id, gruppo['id'], user_id)
+      end
+    else
+      # Solo +
+      DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id) VALUES (?, ?, ?)", 
+                [chat_id, "add:#{msg.from.first_name}", gruppo['id']])
+      bot.api.send_message(chat_id: chat_id, text: "✍️ #{msg.from.first_name}, scrivi gli articoli separati da virgola:")
+    end
+  rescue => e
+    puts "❌ Errore nel comando +: #{e.message}"
+    bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'aggiunta degli articoli")
+  end
+end
+
+
+
+
   def self.handle_screenshot_text_fallback(bot, chat_id, gruppo)
     begin
       items = Lista.tutti(gruppo['id'])
@@ -480,9 +530,10 @@ end
     end
 
     if msg.text == '/lista' || msg.text == "/lista@#{bot_username}"
-      # ...
-      return
-    end
+  puts "🔍 Comando /lista ricevuto"
+  KeyboardGenerator.genera_lista(bot, chat_id, gruppo['id'], user_id)
+  return
+end
 
     if msg.text&.strip == '?'
       handle_question_command(bot, chat_id, user_id, gruppo)

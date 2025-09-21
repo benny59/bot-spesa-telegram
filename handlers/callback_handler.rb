@@ -31,11 +31,10 @@ class CallbackHandler
 
     when /^view_foto:(\d+):(\d+)$/
       handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i)
-
-    when /^approve_user:(\d+):(.+):(.+)$/
-      handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
-
-    when /^reject_user:(\d+)$/
+when /^approve_user:(\d+):([^:]*):(.+)$/
+  handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
+  
+      when /^reject_user:(\d+)$/
       handle_reject_user(bot, msg, chat_id, $1.to_i)
 
     when /^show_list:(\d+)$/
@@ -189,27 +188,38 @@ class CallbackHandler
     end
   end
 
-  def self.handle_approve_user(bot, msg, chat_id, user_id, username, full_name)
-    full_name = full_name.gsub('_', ' ')
-    
-    # Aggiungi alla whitelist
-    Whitelist.add_user(user_id, username, full_name)
-    Whitelist.remove_pending_request(user_id)
-    
-    bot.api.answer_callback_query(callback_query_id: msg.id, text: "✅ Utente approvato")
-    bot.api.edit_message_text(
-      chat_id: chat_id,
-      message_id: msg.message.message_id,
-      text: "✅ *Utente approvato*\\n\\n👤 #{full_name}\\n📧 @#{username}\\n🆔 #{user_id}",
-      parse_mode: 'Markdown'
-    )
-    
-    # Notifica l'utente
+def self.handle_approve_user(bot, msg, chat_id, user_id, username, full_name)
+  full_name = full_name.gsub('_', ' ')
+  username = nil if username == 'nessuno' || username.empty?
+  
+  # Usa il metodo CORRETTO: approve_user invece di add_user
+  Whitelist.approve_user(user_id, username, full_name)
+  Whitelist.remove_pending_request(user_id)
+  
+  bot.api.answer_callback_query(callback_query_id: msg.id, text: "✅ Utente approvato")
+  
+  # Messaggio di conferma
+  confirmation_text = "✅ *Utente approvato*\\n\\n👤 #{full_name}\\n"
+  confirmation_text += "📧 @#{username}\\n" if username && !username.empty?
+  confirmation_text += "🆔 #{user_id}"
+  
+  bot.api.edit_message_text(
+    chat_id: chat_id,
+    message_id: msg.message.message_id,
+    text: confirmation_text,
+    parse_mode: 'Markdown'
+  )
+  
+  # Notifica l'utente
+  begin
     bot.api.send_message(
       chat_id: user_id,
       text: "🎉 La tua richiesta di accesso è stata approvata! Ora puoi usare /newgroup per creare gruppi."
     )
+  rescue => e
+    puts "❌ Impossibile notificare l'utente: #{e.message}"
   end
+end
 
   def self.handle_reject_user(bot, msg, chat_id, user_id)
     Whitelist.remove_pending_request(user_id)
