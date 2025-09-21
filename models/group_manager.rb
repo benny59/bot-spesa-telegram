@@ -20,6 +20,8 @@ class GroupManager
       {success: false, error: e.message}
     end
   end
+  
+
 
   def self.associa_gruppo_automaticamente(bot, chat_id, user_id)
     begin
@@ -111,6 +113,7 @@ class GroupManager
     # Log per debug
     puts "👤 Utente salvato: #{first_name} #{last_name} -> #{initials}"
   end
+
 
   def self.pulizia_gruppi_orfani
     orfani = DB.execute("SELECT * FROM gruppi WHERE chat_id IS NULL")
