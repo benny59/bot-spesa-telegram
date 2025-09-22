@@ -57,11 +57,12 @@ end
     true
   end
 
-  def self.cancella_tutti(gruppo_id, user_id)
-    # Implementa la logica di controllo admin qui
-    DB.execute("DELETE FROM items WHERE gruppo_id = ? AND comprato = 1", [gruppo_id])
-    true
-  end
+def self.cancella_tutti(gruppo_id, user_id)
+  # Implementa la logica di controllo admin qui
+  DB.execute("DELETE FROM items WHERE gruppo_id = ? AND comprato IS NOT NULL AND TRIM(comprato) <> ''", [gruppo_id])
+  true
+end
+
 
   def self.aggiungi(gruppo_id, user_id, testo)
     articoli = testo.split(',').map(&:strip)

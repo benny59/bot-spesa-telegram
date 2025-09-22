@@ -86,14 +86,28 @@ when /^approve_user:(\d+):([^:]*):(.+)$/
     end
   end
 
-  def self.handle_cancella_tutti(bot, msg, chat_id, user_id, gruppo_id)
-    if Lista.cancella_tutti(gruppo_id, user_id)
-      bot.api.answer_callback_query(callback_query_id: msg.id, text: "Articoli comprati rimossi")
-      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
-    else
-      bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Solo admin può cancellare tutti")
-    end
+def self.handle_cancella_tutti(bot, msg, chat_id, user_id, gruppo_id)
+  if Lista.cancella_tutti(gruppo_id, user_id)
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "✅ Articoli comprati rimossi"
+    )
+
+    # aggiorna la lista dopo la cancellazione
+    KeyboardGenerator.genera_lista(
+      bot,
+      chat_id,
+      gruppo_id,
+      user_id,
+      msg.message.message_id
+    )
+  else
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "❌ Solo admin può cancellare tutti"
+    )
   end
+end
 
   def self.handle_azioni_menu(bot, msg, chat_id, user_id, item_id, gruppo_id)
     has_image = Lista.ha_immagine?(item_id)

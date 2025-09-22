@@ -256,10 +256,54 @@ end
   # ========================================
   # ➕ AGGIUNTA ARTICOLI
   # ========================================
-  def self.handle_plus_command(bot, msg, chat_id, user_id, gruppo)
-    # ... (il tuo codice originale rimane qui, invariato)
+ def self.handle_plus_command(bot, msg, chat_id, user_id, gruppo)
+  begin
+    text = msg.text.strip
+    
+    # Gestione PRIORITARIA di +? (help)
+    if text == '+?'
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "📋 <b>Help comando +</b>\n\n" \
+              "• <code>+</code> - Mostra prompt aggiunta articoli\n" \
+              "• <code>+ articolo</code> - Aggiungi un articolo\n" \
+              "• <code>+ art1, art2, art3</code> - Aggiungi multiple articoli\n" \
+              "• <code>+?</code> - Mostra questo help",
+        parse_mode: 'HTML'
+      )
+      return
+    end
+    
+    # Se c'è testo dopo il + (escluso il caso +? già gestito)
+    if text.length > 1
+      items_text = text[1..-1].strip
+      if items_text.empty?
+        # Solo + senza testo
+        DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id) VALUES (?, ?, ?)", 
+                  [chat_id, "add:#{msg.from.first_name}", gruppo['id']])
+        bot.api.send_message(chat_id: chat_id, text: "✍️ #{msg.from.first_name}, scrivi gli articoli separati da virgola:")
+      else
+        # + seguito da testo
+        Lista.aggiungi(gruppo['id'], user_id, items_text)
+        added_items = items_text.split(',').map(&:strip)
+        added_count = added_items.count
+        bot.api.send_message(
+          chat_id: chat_id,
+          text: "✅ #{msg.from.first_name} ha aggiunto #{added_count} articolo(i): #{added_items.join(', ')}"
+        )
+        KeyboardGenerator.genera_lista(bot, chat_id, gruppo['id'], user_id)
+      end
+    else
+      # Solo +
+      DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id) VALUES (?, ?, ?)", 
+                [chat_id, "add:#{msg.from.first_name}", gruppo['id']])
+      bot.api.send_message(chat_id: chat_id, text: "✍️ #{msg.from.first_name}, scrivi gli articoli separati da virgola:")
+    end
+  rescue => e
+    puts "❌ Errore nel comando +: #{e.message}"
+    bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'aggiunta degli articoli")
   end
-
+end
   # ========================================
   # PENDING ACTIONS
   # ========================================
