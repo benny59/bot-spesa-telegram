@@ -392,7 +392,8 @@ def self.handle_screenshot_command(bot, msg, gruppo)
       # Tabella items
       table_data = [["Stato", "Articolo", "Aggiunto da"]]
       items.each do |it|
-        status = it['comprato'] == 1 ? "[X]" : "[ ]"
+        #status = it['comprato'] == 1 ? "[X]" : "[ ]"
+        status = it['comprato'] && !it['comprato'].empty? ? " [X](#{it['comprato']})" : "[ ]"
         nome = sanitize_pdf_text(it['nome'])
         initials = sanitize_pdf_text(it['user_initials'] || '')
         table_data << [status, nome, initials]
