@@ -36,13 +36,12 @@ This fork adds barcode scanning + OpenFoodFacts integration, product storage, nu
 - Ruby 2.7+ (recommended 3.x)
 - Bundler
 - SQLite3 (used by the app)
-- `zbarimg` (zbar-tools) installed on the server
-- ImageMagick (for RMagick / Gruff)
+- `zbarimg` (zbar-tools) installed on the server (for barcode scanning)
 - Telegram bot token
 
 Notes:
-- On Windows install ImageMagick and ensure headers/libs are available for the `rmagick` gem.
-- On Debian/Ubuntu: `sudo apt-get install zbar-tools imagemagick libmagickwand-dev`
+- Charts are generated with ChunkyPNG (pure Ruby) — no ImageMagick / RMagick required.
+- On Debian/Ubuntu: `sudo apt-get install zbar-tools sqlite3`
 
 ---
 
@@ -51,20 +50,12 @@ Notes:
 From repo root (PowerShell on Windows):
 
 ```powershell
-cd "C:\Nico\Spesa\bot-spesa-telegram"
+cd "C:\Spesa\bot-spesa-telegram"
 bundle install
 ```
 
-From Linux / macOS:
-
-```bash
-cd "/path/to/bot-spesa-telegram"
-bundle install
-```
-
-Add these gems to your Gemfile if not present:
-- gruff
-- rmagick
+Add this gem to your Gemfile if not present:
+- chunky_png
 
 Then `bundle install`.
 
@@ -136,4 +127,4 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 - [OpenFoodFacts](https://world.openfoodfacts.org/) - product database API.
 - [ZBar](http://zbar.sourceforge.net/) - barcode scanning.
-- [Gruff](https://github.com/topfunky/gruff) / [RMagick](https://rmagick.github.io/) - chart generation.
+- [ChunkyPNG](https://github.com/wvanbergen/chunky_png) - lightweight PNG generation.
