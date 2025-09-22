@@ -74,3 +74,41 @@ end
 
 # Example usage (where you handle downloaded photo and created item):
 # attach_product_and_prompt_async(bot, message, local_path, item_id)
+
+when '/nutrients', '/nutrition_stats'
+  # collect nutrients for bought items in the current group
+  group_id = current_group_id_from_update(update)
+  db = DB.db
+
+  sql = <<-SQL
+    SELECT
+      COALESCE(SUM(p.energy_kcal),0),
+      COALESCE(SUM(p.fat_g),0),
+      COALESCE(SUM(p.saturated_fat_g),0),
+      COALESCE(SUM(p.carbohydrates_g),0),
+      COALESCE(SUM(p.sugars_g),0),
+      COALESCE(SUM(p.proteins_g),0),
+      COALESCE(SUM(p.salt_g),0),
+      COALESCE(SUM(p.fiber_g),0)
+    FROM lista l
+    JOIN products p ON (p.id = l.product_id)
+    WHERE l.gruppo_id = ? AND l.comprato = 1
+  SQL
+
+  row = db.get_first_row(sql, group_id) || [0]*8
+  nutrients = {
+    'Energy (kcal)' => row[0].to_f,
+    'Fat (g)' => row[1].to_f,
+    'SatFat (g)' => row[2].to_f,
+    'Carbs (g)' => row[3].to_f,
+    'Sugars (g)' => row[4].to_f,
+    'Proteins (g)' => row[5].to_f,
+    'Salt (g)' => row[6].to_f,
+    'Fiber (g)' => row[7].to_f
+  }
+
+  chart_path = File.join(Dir.tmpdir, "nutrients_#{group_id}_#{Time.now.to_i}.png")
+  NutritionChart.generate_radar(nutrients, chart_path)
+
+  # send the generated image back to the chat
+  bot.api.send_photo(chat_id: chat_id, photo: Faraday::UploadIO.new(chart_path, 'image/png'))

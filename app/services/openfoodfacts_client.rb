@@ -2,6 +2,40 @@ require 'httparty'
 require 'logger'
 require 'timeout'
 require 'json'
+require 'net/http'
+require 'uri'
+
+module OpenFoodFactsClient
+  OFF_BASE = 'https://world.openfoodfacts.org'
+
+  # returns nil or a hash with nutrient values (per 100g) and product name
+  def self.fetch_by_barcode(barcode)
+    uri = URI("#{OFF_BASE}/api/v0/product/#{URI.encode_www_form_component(barcode)}.json")
+    res = Net::HTTP.get_response(uri)
+    return nil unless res.is_a?(Net::HTTPSuccess)
+
+    payload = JSON.parse(res.body)
+    return nil unless payload['status'] == 1 && payload['product']
+
+    p = payload['product']
+    nutriments = p['nutriments'] || {}
+
+    {
+      name: p['product_name'] || p['product_name_en'] || p['brands'],
+      energy_kcal: (nutriments['energy-kcal_100g'] || nutriments['energy_100g'] || nutriments['energy-kcal'] || nutriments['energy-kcal_100g']).to_f,
+      fat_g: (nutriments['fat_100g'] || 0).to_f,
+      saturated_fat_g: (nutriments['saturated-fat_100g'] || nutriments['saturated_fat_100g'] || 0).to_f,
+      carbohydrates_g: (nutriments['carbohydrates_100g'] || 0).to_f,
+      sugars_g: (nutriments['sugars_100g'] || 0).to_f,
+      proteins_g: (nutriments['proteins_100g'] || 0).to_f,
+      salt_g: (nutriments['salt_100g'] || 0).to_f,
+      fiber_g: (nutriments['fiber_100g'] || 0).to_f
+    }
+  rescue => e
+    warn "OFF request failed: #{e}"
+    nil
+  end
+end
 
 class OpenFoodFactsClient
   BASE_URL = ENV.fetch('OPENFOODFACTS_BASE', 'https://world.openfoodfacts.org/api/v0/product/')
