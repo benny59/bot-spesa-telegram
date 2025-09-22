@@ -1,83 +1,90 @@
 # Bot Spesa Telegram
 
-## Overview
-Bot Spesa Telegram is a Telegram bot designed to help users manage their grocery shopping by recognizing products through barcode scanning and providing detailed information about them. The bot integrates with the Open Food Facts API to fetch product characteristics and allows users to export this information in PDF format.
+Lightweight Telegram bot to manage shared shopping lists (spesa).  
+This fork adds barcode scanning + OpenFoodFacts integration, product storage and PDF export.
 
-## Features
-- **Barcode Scanning**: Use your phone camera to scan barcodes of grocery products.
-- **Product Information**: Retrieve detailed product characteristics from the Open Food Facts database.
-- **PDF Export**: Generate PDF documents containing product details for easy reference.
-- **Configuration Management**: Store and manage bot configurations, including the Telegram token.
+--- 
 
-## Project Structure
-```
-bot-spesa-telegram
-├── app
-│   ├── bot_spesa.rb               # Main entry point for the Telegram bot
-│   ├── start_config.rb            # Initial configuration setup
-│   ├── handlers                    # Contains message and photo handlers
-│   │   ├── message_handler.rb      # Logic for handling incoming messages
-│   │   └── photo_handler.rb        # Logic for handling incoming photos
-│   ├── services                    # Services for external interactions
-│   │   ├── openfoodfacts_client.rb # Client for Open Food Facts API
-│   │   ├── barcode_scanner.rb      # Logic for barcode scanning
-│   │   └── pdf_exporter.rb         # PDF generation service
-│   ├── models                      # Database models
-│   │   ├── product.rb              # Product model
-│   │   └── config.rb               # Configuration model
-│   └── db                          # Database related files
-│       ├── migrate                 # Migration files
-│       │   └── 001_add_characteristics_to_products.rb # Migration for product characteristics
-│       └── schema.rb               # Current database schema
-├── config
-│   └── database.yml                # Database configuration settings
-├── lib
-│   └── utilities.rb                # Utility functions
-├── scripts
-│   └── setup_db.rb                 # Database setup script
-├── Gemfile                         # Ruby gem dependencies
-├── Rakefile                        # Command line tasks
-├── .env.example                    # Environment variable template
-└── README.md                       # Project documentation
+## Quick overview
+
+- Users send messages / photos to the bot to add items to shared lists.
+- When a photo containing a barcode is uploaded, the bot:
+  - downloads the image,
+  - scans it (server-side) with `zbarimg` (CLI),
+  - queries OpenFoodFacts for product characteristics,
+  - attempts to match the OFF product name with items in the current list,
+  - prompts the user to confirm removal/mark-as-bought if a good match is found,
+  - stores product characteristics in the `products` table,
+  - includes product details in generated PDFs.
+
+---
+
+## Prerequisites
+
+- Ruby 2.7+ (recommended 3.x)
+- Bundler
+- SQLite3 (used by the app)
+- `zbarimg` (zbar-tools) installed on the server (see below)
+- Telegram bot token
+
+---
+
+## Install dependencies
+
+From repo root (PowerShell on Windows):
+
+```powershell
+cd "C:\Spesa\bot-spesa-telegram-1"
+bundle install
 ```
 
-## Setup Instructions
-1. **Clone the Repository**: 
-   ```bash
-   git clone <repository-url>
-   cd bot-spesa-telegram
-   ```
+From repo root (Linux / macOS):
 
-2. **Install Dependencies**: 
-   Ensure you have Ruby installed, then run:
-   ```bash
-   bundle install
-   ```
+```bash
+cd "/path/to/bot-spesa-telegram"
+bundle install
+```
 
-3. **Configure the Database**: 
-   Edit `config/database.yml` to set your database connection details.
+---
 
-4. **Run Database Setup**: 
-   Execute the setup script to create the database and run migrations:
+## Setup
+
+1. **Copy `.env.example` to `.env`** and edit it to configure your Telegram bot token and other settings.
+
+2. **Run database setup** (creates SQLite DB file and runs migrations):
+
    ```bash
    ruby scripts/setup_db.rb
    ```
 
-5. **Configure the Bot**: 
-   Run `app/start_config.rb` to set up the Telegram bot token and other configurations.
+3. **Start the bot**:
 
-6. **Start the Bot**: 
-   Launch the bot using:
    ```bash
    ruby app/bot_spesa.rb
    ```
 
+---
+
 ## Usage
+
 - Interact with the bot through Telegram by sending commands and scanning barcodes.
 - Use the PDF export feature to save product information for later reference.
 
+---
+
 ## Contributing
+
 Contributions are welcome! Please submit a pull request or open an issue for any enhancements or bug fixes.
 
+---
+
 ## License
+
 This project is licensed under the MIT License. See the LICENSE file for details.
+
+---
+
+## Acknowledgements
+
+- [OpenFoodFacts](https://world.openfoodfacts.org/) - For the product database API.
+- [ZBar](http://zbar.sourceforge.net/) - For the barcode scanning library.
