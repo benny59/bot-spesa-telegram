@@ -14,79 +14,86 @@ class KeyboardGenerator
     end
   end
 
-def self.genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id = nil)
-  lista = Lista.tutti(gruppo_id)
-  
-  text = "<b>🛒 Lista della spesa (solo testo):</b>\n\n"
-  lista.each do |item|
-    initials = item['user_initials'] || item['initials'] || "U"
-    autore = "#{initials} -> "
+  # ===================== LISTA SOLO TESTO =====================
+  def self.genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id = nil)
+    lista = Lista.tutti(gruppo_id)
     
-    comprato_icon = item['comprato'] == 1 ? '  ✅' : ''
-    photo_icon = Lista.ha_immagine?(item['id']) ? '  📸' : ''
-    
-    text += "#{autore}#{item['nome']}#{comprato_icon}#{photo_icon}\n"
-  end
+    text = "<b>🛒 Lista della spesa (solo testo):</b>\n\n"
+    lista.each do |item|
+      initials = item['user_initials'] || item['initials'] || "U"
+      autore = "#{initials} -> "
 
-  markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: [
-    [
-          Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "➕ Aggiungi",
-        callback_data: "aggiungi:#{gruppo_id}"
-      ),
+      # ✅ Se comprato contiene sigla, mostro ✅(sigla)
+      comprato_icon = item['comprato'] && !item['comprato'].empty? ? " ✅(#{item['comprato']})" : ""
 
-      Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "📱 Modalità compatta",
-        callback_data: "toggle_view_mode:#{gruppo_id}"
+      # 📸 se c’è immagine
+      photo_icon = Lista.ha_immagine?(item['id']) ? '  📸' : ''
+
+      text += "#{autore}#{item['nome']}#{comprato_icon}#{photo_icon}\n"
+    end
+
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: [
+      [
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "➕ Aggiungi",
+          callback_data: "aggiungi:#{gruppo_id}"
+        ),
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "📱 Modalità compatta",
+          callback_data: "toggle_view_mode:#{gruppo_id}"
+        )
+      ]
+    ])
+
+    if message_id
+      bot.api.edit_message_text(
+        chat_id: chat_id,
+        message_id: message_id,
+        text: text,
+        reply_markup: markup,
+        parse_mode: "HTML"
       )
-    ]
-  ])
-
-  if message_id
-    bot.api.edit_message_text(
-      chat_id: chat_id,
-      message_id: message_id,
-      text: text,
-      reply_markup: markup,
-      parse_mode: "HTML"  # Cambiato a HTML
-    )
-  else
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: text,
-      reply_markup: markup,
-      parse_mode: "HTML"  # Cambiato a HTML
-    )
+    else
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: text,
+        reply_markup: markup,
+        parse_mode: "HTML"
+      )
+    end
   end
-end
 
+  # ===================== LISTA COMPATTA =====================
   def self.genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id = nil)
     lista = Lista.tutti(gruppo_id)
     righe = lista.map do |item|
-      # USA le iniziali direttamente dal database
       initials = item['user_initials'] || item['initials'] || "U"
-      
-      testo_item = item['comprato'] == 1 ? "~#{item['nome']}~" : item['nome']
-      
-      # Icona per acquistato
-      comprato_icon = item['comprato'] == 1 ? "✅" : ""
-      
-      # Icona per foto (📸 con flash = ha foto, 📷 senza flash = no foto)
-      has_photo = Lista.ha_immagine?(item['id'])
-      photo_icon = has_photo ? "📸" : "📷"
-      
-      # Secondo tasto: informazioni + icona acquistato
-      info_btn = "#{comprato_icon}ℹ️".strip
 
-      [
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: testo_item,
-          callback_data: "comprato:#{item['id']}:#{gruppo_id}"
-        ),
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: info_btn,
-          callback_data: "toggle:#{item['id']}:#{gruppo_id}"
-        ),
+      # ✅ Se comprato contiene sigla, testo barrato + icona
+      if item['comprato'] && !item['comprato'].empty?
+        testo_item = "~#{item['nome']}~"
+        comprato_icon = "✅(#{item['comprato']})"
+      else
+        testo_item = item['nome']
+        comprato_icon = ""
+      end
+
+      # 📸 se ha immagine, 📷 altrimenti
+      photo_icon = Lista.ha_immagine?(item['id']) ? "📸" : "📷"
+
+      # ℹ️ con icona comprato
+info_btn = "ℹ️"  # Rimuoviamo eventuale icon check qui, solo info
+info_btn = item['comprato'].to_s.strip.empty? ? "ℹ️" : "ℹ️✅#{item['comprato']}"
+
+[
+  Telegram::Bot::Types::InlineKeyboardButton.new(
+    text: testo_item,
+    callback_data: "comprato:#{item['id']}:#{gruppo_id}"
+  ),
+  Telegram::Bot::Types::InlineKeyboardButton.new(
+    text: info_btn,
+    callback_data: "info:#{item['id']}:#{gruppo_id}"  # <-- callback separato
+  ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: photo_icon,
           callback_data: "foto_menu:#{item['id']}:#{gruppo_id}"
@@ -107,7 +114,6 @@ end
         text: "📄 Modalità",
         callback_data: "toggle_view_mode:#{gruppo_id}"
       ),
-
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "🧹 Cancella tutti",
         callback_data: "cancella_tutti:#{gruppo_id}"
@@ -132,12 +138,11 @@ end
         parse_mode: "MarkdownV2"
       )
     end
-    rescue Telegram::Bot::Exceptions::ResponseError => e
-    # Ignora l'errore "message is not modified"
+  rescue Telegram::Bot::Exceptions::ResponseError => e
     if e.message&.include?("message is not modified")
       puts "⚠️ Messaggio non modificato (nessun cambiamento)"
     else
-      raise e # Rilancia altri errori
+      raise e
     end
   end
 end

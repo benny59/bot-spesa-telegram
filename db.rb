@@ -35,17 +35,17 @@ def init_db
     );
   SQL
 
-  db.execute <<-SQL
-    CREATE TABLE IF NOT EXISTS items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      gruppo_id INTEGER,
-      creato_da INTEGER,
-      nome TEXT,
-      comprato INTEGER DEFAULT 0,
-      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (gruppo_id) REFERENCES gruppi (id)
-    );
-  SQL
+db.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gruppo_id INTEGER,
+    creato_da INTEGER,
+    nome TEXT,
+    comprato TEXT DEFAULT '', -- ✅ ora è TEXT, stringa vuota = non comprato
+    creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (gruppo_id) REFERENCES gruppi (id)
+  );
+SQL
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS pending_actions (

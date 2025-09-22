@@ -9,9 +9,47 @@ def self.tutti(gruppo_id)
               WHERE i.gruppo_id = ? 
               ORDER BY i.comprato, i.id", [gruppo_id])
 end
-  def self.toggle_comprato(gruppo_id, item_id, user_id)
-    DB.execute("UPDATE items SET comprato = NOT comprato WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+# models/lista.rb
+def self.toggle_comprato(gruppo_id, item_id, user_id)
+  item = DB.get_first_row("SELECT comprato FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+  return nil unless item
+
+  current = item['comprato']
+
+  # Se il campo è vuoto / nil / '0' => segna come comprato con le iniziali dell'utente
+  if current.nil? || current.to_s.strip == '' || current.to_s == '0'
+    # prova a recuperare le iniziali dall'utente
+    initials = DB.get_first_value("SELECT initials FROM user_names WHERE user_id = ?", [user_id])
+    if initials.nil? || initials.to_s.strip == ''
+      # se non esistono, costruiscile da first_name / last_name
+      fn = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || ''
+      ln = DB.get_first_value("SELECT last_name FROM user_names WHERE user_id = ?", [user_id]) || ''
+      initials = if fn.to_s.strip != '' && ln.to_s.strip != ''
+                   "#{fn[0]}#{ln[0]}".upcase
+                 elsif fn.to_s.strip != ''
+                   fn[0].upcase
+                 else
+                   "U"
+                 end
+      # salva le iniziali per il futuro (non rompe se la tabella user_names non esiste)
+      begin
+        DB.execute("INSERT OR REPLACE INTO user_names (user_id, first_name, last_name, initials) VALUES (?, ?, ?, ?)",
+                   [user_id, fn, ln, initials])
+      rescue => e
+        puts "⚠️ Impossibile scrivere user_names: #{e.message}"
+      end
+    end
+
+    DB.execute("UPDATE items SET comprato = ? WHERE id = ? AND gruppo_id = ?", [initials, item_id, gruppo_id])
+    puts "🔁 Item #{item_id} marcato come comprato da #{initials}"
+    initials
+  else
+    # Se contiene già qualcosa (la sigla) => togli il comprato (riporta a non comprato)
+    DB.execute("UPDATE items SET comprato = '' WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+    puts "🔁 Item #{item_id} rimesso da comprare (prima: #{current})"
+    ''
   end
+end
 
   def self.cancella(gruppo_id, item_id, user_id)
     # Implementa la logica di controllo permessi qui

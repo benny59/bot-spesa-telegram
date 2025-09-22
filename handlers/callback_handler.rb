@@ -316,29 +316,45 @@ end
     )
   end
 
-  def self.handle_toggle(bot, msg, item_id, gruppo_id)
-    item = DB.get_first_row("SELECT i.*, u.first_name, u.last_name 
-                            FROM items i 
-                            LEFT JOIN user_names u ON i.creato_da = u.user_id 
-                            WHERE i.id = ?", [item_id])
-    
-    if item
-      nome_utente = item['first_name'] || "Utente"
-      testo_completo = "#{nome_utente} - #{item['nome']}"
-      
-      bot.api.answer_callback_query(
-        callback_query_id: msg.id,
-        text: testo_completo,
-        show_alert: true
-      )
-    else
-      bot.api.answer_callback_query(
-        callback_query_id: msg.id,
-        text: "❌ Item non trovato"
-      )
-    end
-  end
+def self.handle_toggle(bot, msg, item_id, gruppo_id)
+  item = DB.get_first_row("SELECT i.*, u.first_name, u.last_name, un.initials 
+                          FROM items i
+                          LEFT JOIN user_names u ON i.creato_da = u.user_id
+                          LEFT JOIN user_names un ON un.user_id = ?
+                          WHERE i.id = ?", [msg.from.id, item_id])
 
+  if item
+    # recupero la sigla dell’utente che ha fatto il toggle
+    initials = item['initials'] || (item['first_name']&.chars&.first || "U")
+    current = item['comprato']
+
+    if current.nil? || current.strip == ""
+      # non comprato → segno come comprato da questo utente
+      DB.execute("UPDATE items SET comprato = ? WHERE id = ?", [initials, item_id])
+      status = "✅"
+      info = "#{item['nome']} comprato da #{initials}"
+    else
+      # già comprato → lo resetto
+      DB.execute("UPDATE items SET comprato = NULL WHERE id = ?", [item_id])
+      status = "📄"
+      info = "#{item['nome']} di nuovo da comprare"
+    end
+
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: info,
+      show_alert: true
+    )
+
+    # aggiorno tastiera / vista lista
+    KeyboardGenerator.genera_lista(bot, msg.message.chat.id, gruppo_id, msg.from.id, msg.message.message_id)
+  else
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "❌ Item non trovato"
+    )
+  end
+end
   def self.handle_toggle_view_mode(bot, msg, chat_id, user_id, gruppo_id)
     new_mode = Preferences.toggle_view_mode(user_id)
     
@@ -362,19 +378,24 @@ end
     bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
   end
 
-  def self.handle_info(bot, msg, item_id, gruppo_id)
-    item = Lista.trova(item_id)
-    if item
-      bot.api.answer_callback_query(
-        callback_query_id: msg.id,
-        text: "📄 #{item['nome']}",
-        show_alert: true
-      )
-    else
-      bot.api.answer_callback_query(
-        callback_query_id: msg.id,
-        text: "❌ Articolo non trovato"
-      )
-    end
+ def self.handle_info(bot, msg, item_id, gruppo_id)
+  item = Lista.trova(item_id)
+  if item
+    # Se il campo 'comprato' è vuoto → da comprare, altrimenti contiene la sigla
+    stato = item['comprato'].to_s.strip.empty? ? "📄 Da comprare" : "✅ Comprato da #{item['comprato']}"
+    
+    # Mostriamo il nome e lo stato
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "#{item['nome']} - #{stato}",
+      show_alert: true
+    )
+  else
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "❌ Articolo non trovato"
+    )
   end
+end
+
 end
