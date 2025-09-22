@@ -15,9 +15,11 @@ gem 'rmagick'      # image backend for gruff
 
 group :development do
   gem "pry"  # For debugging
+  gem 'rubocop', require: false
 end
 
 group :test do
   gem "rspec"  # For testing
   gem "factory_bot"  # For test data generation
+  gem 'webmock'
 end
