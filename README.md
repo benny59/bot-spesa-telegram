@@ -1,9 +1,9 @@
 # Bot Spesa Telegram
 
 Lightweight Telegram bot to manage shared shopping lists (spesa).  
-This fork adds barcode scanning + OpenFoodFacts integration, product storage and PDF export.
+This fork adds barcode scanning + OpenFoodFacts integration, product storage, nutrition facts and PDF export with a radar chart of aggregated nutrients.
 
---- 
+---
 
 ## Quick overview
 
@@ -11,11 +11,23 @@ This fork adds barcode scanning + OpenFoodFacts integration, product storage and
 - When a photo containing a barcode is uploaded, the bot:
   - downloads the image,
   - scans it (server-side) with `zbarimg` (CLI),
-  - queries OpenFoodFacts for product characteristics,
+  - queries OpenFoodFacts for product characteristics and nutriments,
   - attempts to match the OFF product name with items in the current list,
   - prompts the user to confirm removal/mark-as-bought if a good match is found,
-  - stores product characteristics in the `products` table,
+  - stores product characteristics and nutrition facts in the `products` table,
   - includes product details in generated PDFs.
+- You can request a radar/web chart that aggregates nutrients bought so far with the command:
+  - `/nutrients` or `/nutrition_stats`
+
+---
+
+## New files / services (added for barcode & nutrition)
+- app/services/barcode_scanner.rb — scans images with `zbarimg`
+- app/services/openfoodfacts_client.rb — queries OpenFoodFacts and extracts nutriments
+- app/services/nutrition_chart.rb — generates radar (spider) charts (PNG) using Gruff
+- app/models/product.rb — product persistence including nutrition fields
+- scripts/add_nutrition_columns.rb — migration script to add nutrition columns to `products`
+- handlers/message_handler.rb — integration: scan, save, match and /nutrients handler
 
 ---
 
@@ -24,8 +36,13 @@ This fork adds barcode scanning + OpenFoodFacts integration, product storage and
 - Ruby 2.7+ (recommended 3.x)
 - Bundler
 - SQLite3 (used by the app)
-- `zbarimg` (zbar-tools) installed on the server (see below)
+- `zbarimg` (zbar-tools) installed on the server
+- ImageMagick (for RMagick / Gruff)
 - Telegram bot token
+
+Notes:
+- On Windows install ImageMagick and ensure headers/libs are available for the `rmagick` gem.
+- On Debian/Ubuntu: `sudo apt-get install zbar-tools imagemagick libmagickwand-dev`
 
 ---
 
@@ -34,47 +51,78 @@ This fork adds barcode scanning + OpenFoodFacts integration, product storage and
 From repo root (PowerShell on Windows):
 
 ```powershell
-cd "C:\Spesa\bot-spesa-telegram-1"
+cd "C:\Nico\Spesa\bot-spesa-telegram"
 bundle install
 ```
 
-From repo root (Linux / macOS):
+From Linux / macOS:
 
 ```bash
 cd "/path/to/bot-spesa-telegram"
 bundle install
 ```
 
+Add these gems to your Gemfile if not present:
+- gruff
+- rmagick
+
+Then `bundle install`.
+
 ---
 
-## Setup
+## Database setup / migrations
 
-1. **Copy `.env.example` to `.env`** and edit it to configure your Telegram bot token and other settings.
+1. Copy `.env.example` to `.env` and set your TELEGRAM token and settings.
 
-2. **Run database setup** (creates SQLite DB file and runs migrations):
+2. Run main DB setup (creates SQLite DB and core tables):
 
-   ```bash
-   ruby scripts/setup_db.rb
-   ```
+```bash
+ruby scripts/setup_db.rb
+```
 
-3. **Start the bot**:
+3. Add nutrition columns to `products` (safe, idempotent):
 
-   ```bash
-   ruby app/bot_spesa.rb
-   ```
+```bash
+ruby scripts/add_nutrition_columns.rb
+```
 
 ---
 
 ## Usage
 
-- Interact with the bot through Telegram by sending commands and scanning barcodes.
-- Use the PDF export feature to save product information for later reference.
+- Send a photo containing a barcode to the bot (or upload a product photo). The bot scans the barcode, queries OpenFoodFacts and stores product data and nutrients in the DB.
+- When an item is marked as bought and linked to a saved product, its nutrition values are associated and included in aggregates.
+- Generate a radar chart of aggregated nutrients for a group:
+
+  - In the group chat, send:
+    /nutrients
+    or
+    /nutrition_stats
+
+  The bot returns a PNG radar chart showing totals for Energy, Fat, SatFat, Carbs, Sugars, Proteins, Salt and Fiber.
+
+---
+
+## PDF export
+
+PDF export now includes product characteristics and, when available, nutrition information. The radar chart generation is separate and triggered by the `/nutrients` command.
+
+---
+
+## Troubleshooting
+
+- If barcode scanning fails, confirm `zbarimg` is installed and reachable from the bot process.
+- If the chart generation fails, ensure ImageMagick is installed and the `rmagick` gem was built successfully.
+- Check the bot log/output in the terminal to see warnings/errors from the barcode/OpenFoodFacts flow.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please submit a pull request or open an issue for any enhancements or bug fixes.
+Contributions welcome. Suggested small changes:
+- Normalize nutrient values per 100g / per serving
+- Show averages instead of totals
+- Add per-day or per-user nutrient breakdown
 
 ---
 
@@ -86,5 +134,6 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 ## Acknowledgements
 
-- [OpenFoodFacts](https://world.openfoodfacts.org/) - For the product database API.
-- [ZBar](http://zbar.sourceforge.net/) - For the barcode scanning library.
+- [OpenFoodFacts](https://world.openfoodfacts.org/) - product database API.
+- [ZBar](http://zbar.sourceforge.net/) - barcode scanning.
+- [Gruff](https://github.com/topfunky/gruff) / [RMagick](https://rmagick.github.io/) - chart generation.
