@@ -31,6 +31,29 @@ class CallbackHandler
 
     when /^view_foto:(\d+):(\d+)$/
       handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i)
+# Aggiungi al gestore callback esistente
+when /^checklist_add:(.+):(\d+)$/
+  nome_articolo = $1
+  gruppo_id = $2.to_i
+  gruppo = Gruppo.find(gruppo_id)
+  
+  # Usa la funzione esistente di aggiunta
+  handle_plus_command(bot, msg, chat_id, user_id, gruppo, nome_articolo)
+  
+  # Aggiorna il messaggio checklist
+  bot.api.edit_message_text(
+    chat_id: chat_id,
+    message_id: msg.message_id,
+    text: "✅ *#{nome_articolo.capitalize}* aggiunto dalla checklist!",
+    parse_mode: 'Markdown'
+  )
+
+when /^checklist_close$/
+  bot.api.delete_message(
+    chat_id: chat_id,
+    message_id: msg.message_id
+  )
+        
 when /^approve_user:(\d+):([^:]*):(.+)$/
   handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
   
@@ -338,7 +361,7 @@ def self.handle_toggle(bot, msg, item_id, gruppo_id)
                           WHERE i.id = ?", [msg.from.id, item_id])
 
   if item
-    # recupero la sigla dell’utente che ha fatto il toggle
+    # recupero la sigla dell'utente che ha fatto il toggle
     initials = item['initials'] || (item['first_name']&.chars&.first || "U")
     current = item['comprato']
 
@@ -347,11 +370,18 @@ def self.handle_toggle(bot, msg, item_id, gruppo_id)
       DB.execute("UPDATE items SET comprato = ? WHERE id = ?", [initials, item_id])
       status = "✅"
       info = "#{item['nome']} comprato da #{initials}"
+      
+      # AGGIORNA STORICO: incrementa conteggio
+      aggiorna_storico_articolo(item['nome'], gruppo_id, 1)
+      
     else
       # già comprato → lo resetto
       DB.execute("UPDATE items SET comprato = NULL WHERE id = ?", [item_id])
       status = "📄"
       info = "#{item['nome']} di nuovo da comprare"
+      
+      # AGGIORNA STORICO: decrementa conteggio
+      aggiorna_storico_articolo(item['nome'], gruppo_id, -1)
     end
 
     bot.api.answer_callback_query(
@@ -369,7 +399,37 @@ def self.handle_toggle(bot, msg, item_id, gruppo_id)
     )
   end
 end
-  def self.handle_toggle_view_mode(bot, msg, chat_id, user_id, gruppo_id)
+
+# Nuovo metodo per gestire lo storico articoli
+def self.aggiorna_storico_articolo(nome_articolo, gruppo_id, incremento)
+  # Normalizza il nome (lowercase per evitare duplicati)
+  nome_normalizzato = nome_articolo.downcase.strip
+  
+  # Cerca o crea record storico
+  storico = DB.get_first_row(
+    "SELECT * FROM storico_articoli WHERE nome = ? AND gruppo_id = ?", 
+    [nome_normalizzato, gruppo_id]
+  )
+  
+  if storico
+    # Aggiorna record esistente
+    nuovo_conteggio = [storico['conteggio'] + incremento, 0].max # non negativo
+    DB.execute(
+      "UPDATE storico_articoli SET conteggio = ?, ultima_aggiunta = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [nuovo_conteggio, incremento > 0 ? Time.now.to_s : storico['ultima_aggiunta'], storico['id']]
+    )
+  else
+    # Crea nuovo record (solo se incremento positivo)
+    if incremento > 0
+      DB.execute(
+        "INSERT INTO storico_articoli (nome, gruppo_id, conteggio, ultima_aggiunta) VALUES (?, ?, ?, ?)",
+        [nome_normalizzato, gruppo_id, 1, Time.now.to_s]
+      )
+    end
+  end
+end  
+
+def self.handle_toggle_view_mode(bot, msg, chat_id, user_id, gruppo_id)
     new_mode = Preferences.toggle_view_mode(user_id)
     
     bot.api.answer_callback_query(

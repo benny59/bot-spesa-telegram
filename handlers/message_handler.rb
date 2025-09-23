@@ -5,6 +5,8 @@ require_relative '../models/whitelist'
 require_relative '../models/preferences'
 require_relative '../utils/keyboard_generator'
 require_relative '../db'
+require_relative 'command_handler'  # <-- AGGIUNGI QUESTA RIGA
+
 require 'rmagick'
 require 'prawn'
 require 'prawn/table'
@@ -14,7 +16,9 @@ require 'open-uri'
 
 class MessageHandler
 
-  def self.ensure_group_name(bot, msg, gruppo)
+def self.ensure_group_name(bot, msg, gruppo)
+  return unless gruppo && gruppo['id']  # 👉 evita errori se nil
+
   begin
     # Recupera info chat reali da Telegram
     chat_info = bot.api.get_chat(chat_id: msg.chat.id) rescue nil
@@ -217,13 +221,22 @@ end
   # ========================================
   # 👥 MESSAGGI DI GRUPPO
   # ========================================
-  def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
-    puts "🔍 Gestione messaggio gruppo: #{msg.text}"
-    gruppo = GroupManager.find_or_migrate_group(chat_id, msg.chat.title)
-    puts "🔍 Gruppo trovato: #{gruppo.inspect}"
-    ensure_group_name(bot, msg, gruppo)
+def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
+  puts "🔍 Gestione messaggio gruppo: #{msg.text}"
 
-    return unless gruppo
+  # Trova o crea/migra gruppo
+  gruppo = GroupManager.find_or_migrate_group(chat_id, msg.chat.title)
+
+  if gruppo.nil?
+    puts "❌ Nessun gruppo trovato o creato"
+    return
+  end
+
+  puts "🔍 Gruppo trovato: #{gruppo.inspect}"
+
+  # Aggiorna il nome reale da Telegram se serve
+  ensure_group_name(bot, msg, gruppo)
+
 
     case msg.text
     when '/start', "/start@#{bot_username}"
@@ -231,6 +244,9 @@ end
     when '/ss', "/ss@#{bot_username}"
       handle_screenshot_command(bot, msg, gruppo)
       return
+    when '/checklist'
+    CommandHandler.handle_checklist_command(bot, msg, gruppo['id'])
+ 
     when '/delgroup', "/delgroup@#{bot_username}"
       handle_delgroup(bot, msg, chat_id, user_id)
       return
@@ -252,6 +268,10 @@ end
   def self.handle_question_command(bot, chat_id, user_id, gruppo)
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo['id'], user_id)
   end
+
+
+  # Metodo helper per aggiungere articolo dalla checklist (richiama handle_plus_command esistente)
+
 
   # ========================================
   # ➕ AGGIUNTA ARTICOLI

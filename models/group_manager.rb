@@ -72,25 +72,26 @@ class GroupManager
     end
   end
 
- def self.find_or_migrate_group(chat_id, title)
+  def self.find_or_migrate_group(chat_id, titolo = nil)
+    # Prova a cercare il gruppo
     gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
 
-    if !gruppo && chat_id.to_s.start_with?("-100")
-      # provo a cercare col vecchio formato
-      old_chat_id = chat_id.to_s.sub("-100", "-").to_i
-      gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [old_chat_id])
-
-      if gruppo
-        # aggiorno al nuovo chat_id
-        DB.execute("UPDATE gruppi SET chat_id = ?, nome = ? WHERE id = ?",
-                   [chat_id, title, gruppo['id']])
-        gruppo['chat_id'] = chat_id
-        gruppo['nome'] = title
-      end
+    unless gruppo
+      # Se non esiste, crealo
+      nome = titolo || "Gruppo Chat"
+      DB.execute("INSERT INTO gruppi (chat_id, nome, creato_da, creato_il) VALUES (?, ?, ?, ?)", [
+        chat_id,
+        nome,
+        0,  # creato_da sconosciuto se non gestito
+        Time.now.to_s
+      ])
+      gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
+      puts "🆕 Creato nuovo gruppo nel DB: #{gruppo.inspect}"
     end
 
     gruppo
   end
+
 
   def self.get_gruppo_by_chat_id(chat_id)
     DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])

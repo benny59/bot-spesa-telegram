@@ -94,6 +94,34 @@ db.execute <<-SQL
   );
 SQL
 
+
+# Creazione tabella storico_articoli
+db.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS storico_articoli (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    gruppo_id INTEGER NOT NULL,
+    conteggio INTEGER DEFAULT 0,
+    ultima_aggiunta DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(nome, gruppo_id),
+    FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE
+  );
+SQL
+
+# Crea indice per performance sulle query di ranking
+db.execute <<-SQL
+  CREATE INDEX IF NOT EXISTS idx_storico_gruppo_conteggio 
+  ON storico_articoli (gruppo_id, conteggio DESC, ultima_aggiunta DESC);
+SQL
+
+# Crea indice per ricerche per nome nel gruppo
+db.execute <<-SQL
+  CREATE INDEX IF NOT EXISTS idx_storico_gruppo_nome 
+  ON storico_articoli (gruppo_id, nome);
+SQL
+
   puts "✅ Database inizializzato con schema corretto"
   db
 end
