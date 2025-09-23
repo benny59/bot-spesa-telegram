@@ -1,7 +1,6 @@
 # models/whitelist.rb
 require_relative '../db'
 
-# models/whitelist.rb
 class Whitelist
   def self.is_allowed?(user_id)  # CORREGGI: is_allowed? invece di is_allowed?
     count = DB.get_first_value("SELECT COUNT(*) FROM whitelist")
@@ -40,24 +39,61 @@ class Whitelist
   end
 
 # models/whitelist.rb - aggiungi questo metodo
-def self.salva_nome_utente(user_id, first_name, last_name)
-  # Calcola le iniziali correttamente
-  initials = if first_name && last_name && !last_name.to_s.empty?
-               "#{first_name[0]}#{last_name[0]}".upcase
-             elsif first_name && !first_name.to_s.empty?
-               first_name[0].upcase
-             else
-               "U"
-             end
 
-  # Forza l'aggiornamento anche se l'utente esiste già
-  DB.execute("INSERT OR REPLACE INTO user_names (user_id, first_name, last_name, initials) VALUES (?, ?, ?, ?)",
-            [user_id, first_name, last_name, initials])
+
+def self.salva_nome_utente(user_id, first_name, last_name)
+  initials = genera_iniziali_2_char(first_name, last_name)
   
-  # Log per debug
-  puts "👤 Utente salvato: #{first_name} #{last_name} -> #{initials}"
+  puts "🔤 Generazione iniziali per #{first_name} #{last_name}: #{initials}"
+  
+  existing = DB.get_first_row("SELECT * FROM user_names WHERE user_id = ?", [user_id])
+  
+  if existing
+    DB.execute("UPDATE user_names SET first_name = ?, last_name = ?, initials = ? WHERE user_id = ?",
+               [first_name, last_name, initials, user_id])
+  else
+    DB.execute("INSERT INTO user_names (user_id, first_name, last_name, initials) VALUES (?, ?, ?, ?)",
+               [user_id, first_name, last_name, initials])
+  end
 end
 
+
+def self.genera_iniziali_2_char(first_name, last_name)
+  return "US" unless first_name
+  
+  nome_completo = "#{first_name}#{last_name}".gsub(/\s+/, "").upcase
+  return "US" if nome_completo.empty?
+  
+  # PRECARICA tutte le iniziali occupate
+  iniziali_occupate = DB.execute("SELECT initials FROM user_names").map { |r| r['initials'] }
+  
+  # PRIORITÀ 1: INIZIALI NOME + COGNOME (se cognome esiste)
+  if last_name && !last_name.strip.empty?
+    tentative = "#{first_name[0]}#{last_name[0]}".upcase
+    return tentative unless iniziali_occupate.include?(tentative)
+  end
+  
+  # PRIORITÀ 2: PRIME 2 LETTERE DEL NOME
+  if first_name.length >= 2
+    tentative = first_name[0..1].upcase
+    return tentative unless iniziali_occupate.include?(tentative)
+  end
+  
+  # PRIORITÀ 3: LETTERE CONSECUTIVE DEL NOME COMPLETO
+  (0..nome_completo.length-2).each do |i|
+    tentative = nome_completo[i..i+1]
+    return tentative unless iniziali_occupate.include?(tentative)
+  end
+  
+  # PRIORITÀ 4: COMBINAZIONI ALTERNATIVE
+  prima_lettera = first_name[0].upcase
+  (1..nome_completo.length-1).each do |i|
+    tentative = "#{prima_lettera}#{nome_completo[i]}"
+    return tentative unless iniziali_occupate.include?(tentative)
+  end
+  
+  "US"
+end
   def self.approve_user(user_id, username, full_name)
     # Rimuovi dalla lista pending e aggiungi alla whitelist
     DB.execute("DELETE FROM pending_requests WHERE user_id = ?", [user_id])

@@ -5,7 +5,8 @@ require_relative '../models/whitelist'
 require_relative '../models/preferences'
 require_relative '../utils/keyboard_generator'
 require_relative '../db'
-require_relative 'command_handler'  # <-- AGGIUNGI QUESTA RIGA
+require_relative 'storico_manager'  
+require_relative 'cleanup_manager'
 
 require 'rmagick'
 require 'prawn'
@@ -106,6 +107,7 @@ end
     when '/pending_requests' then handle_pending_requests(bot, chat_id, user_id)
     when '/whitelist_add'    then handle_whitelist_add(bot, chat_id, user_id)
     when '/listagruppi'      then handle_listagruppi(bot, chat_id, user_id)   # 👈 aggiunto
+    when '/cleanup'          then CleanupManager.esegui_cleanup(bot, chat_id, user_id)  # ← AGGIUNGI
 
     end
   end
@@ -245,8 +247,8 @@ def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
       handle_screenshot_command(bot, msg, gruppo)
       return
     when '/checklist'
-    CommandHandler.handle_checklist_command(bot, msg, gruppo['id'])
- 
+      StoricoManager.genera_checklist(bot, msg, gruppo['id'])
+      return
     when '/delgroup', "/delgroup@#{bot_username}"
       handle_delgroup(bot, msg, chat_id, user_id)
       return
@@ -307,6 +309,9 @@ def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
         Lista.aggiungi(gruppo['id'], user_id, items_text)
         added_items = items_text.split(',').map(&:strip)
         added_count = added_items.count
+        added_items.each do |articolo|
+            StoricoManager.aggiorna_da_aggiunta(articolo.strip, gruppo['id'])
+        end
         bot.api.send_message(
           chat_id: chat_id,
           text: "✅ #{msg.from.first_name} ha aggiunto #{added_count} articolo(i): #{added_items.join(', ')}"
@@ -340,6 +345,13 @@ end
 
     if msg.text && !msg.text.start_with?('/')
       Lista.aggiungi(pending['gruppo_id'], user_id, msg.text)
+      added_items = msg.text.split(',').map(&:strip)  # ← DEFINISCI added_items QUI
+      added_items.each do |articolo|
+      nome_normalizzato = articolo.strip.capitalize
+      StoricoManager.aggiorna_da_aggiunta(nome_normalizzato, gruppo['id'])
+    end
+ 
+      
       DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
       bot.api.send_message(chat_id: chat_id, text: "✅ #{msg.from.first_name} ha aggiunto: #{msg.text}")
       KeyboardGenerator.genera_lista(bot, chat_id, pending['gruppo_id'], user_id)

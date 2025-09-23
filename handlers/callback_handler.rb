@@ -32,28 +32,19 @@ class CallbackHandler
     when /^view_foto:(\d+):(\d+)$/
       handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i)
 # Aggiungi al gestore callback esistente
-when /^checklist_add:(.+):(\d+)$/
-  nome_articolo = $1
-  gruppo_id = $2.to_i
-  gruppo = Gruppo.find(gruppo_id)
-  
-  # Usa la funzione esistente di aggiunta
-  handle_plus_command(bot, msg, chat_id, user_id, gruppo, nome_articolo)
-  
-  # Aggiorna il messaggio checklist
-  bot.api.edit_message_text(
-    chat_id: chat_id,
-    message_id: msg.message_id,
-    text: "✅ *#{nome_articolo.capitalize}* aggiunto dalla checklist!",
-    parse_mode: 'Markdown'
-  )
 
-when /^checklist_close$/
-  bot.api.delete_message(
-    chat_id: chat_id,
-    message_id: msg.message_id
-  )
-        
+when /^checklist_add:[^:]+:\d+:\d+$/  # Delegato a StoricoManager
+  handled = StoricoManager.gestisci_click_checklist(bot, msg, data)
+  unless handled
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nell'aggiunta")
+  end
+
+when /^checklist_close:-?\d+$/
+  # Delegato a StoricoManager
+  handled = StoricoManager.gestisci_chiusura_checklist(bot, msg, data)
+  unless handled
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nella chiusura")
+  end
 when /^approve_user:(\d+):([^:]*):(.+)$/
   handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
   
@@ -372,8 +363,8 @@ def self.handle_toggle(bot, msg, item_id, gruppo_id)
       info = "#{item['nome']} comprato da #{initials}"
       
       # AGGIORNA STORICO: incrementa conteggio
-      aggiorna_storico_articolo(item['nome'], gruppo_id, 1)
-      
+     StoricoManager.aggiorna_da_toggle(item['nome'], gruppo_id, incremento)      
+
     else
       # già comprato → lo resetto
       DB.execute("UPDATE items SET comprato = NULL WHERE id = ?", [item_id])
@@ -381,7 +372,7 @@ def self.handle_toggle(bot, msg, item_id, gruppo_id)
       info = "#{item['nome']} di nuovo da comprare"
       
       # AGGIORNA STORICO: decrementa conteggio
-      aggiorna_storico_articolo(item['nome'], gruppo_id, -1)
+    StoricoManager.aggiorna_da_toggle(item['nome'], gruppo_id, decremento)
     end
 
     bot.api.answer_callback_query(
