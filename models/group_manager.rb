@@ -3,25 +3,31 @@ require_relative '../db'
 require_relative 'whitelist'  # Aggiungi questa linea
 
 class GroupManager
-  def self.crea_gruppo(bot, user_id, user_name)
-    begin
-      puts "🔍 Creazione gruppo per: #{user_name} (ID: #{user_id})"
-      
-      # Crea un nuovo gruppo virtuale
-      DB.execute("INSERT INTO gruppi (nome, creato_da) VALUES (?, ?)", 
-                ["Gruppo di #{user_name}", user_id])
-      
-      gruppo_id = DB.db.last_insert_row_id
-      puts "✅ Gruppo creato con ID: #{gruppo_id}"
-      
-      {success: true, gruppo_id: gruppo_id}
-    rescue => e
-      puts "❌ Errore creazione gruppo: #{e.message}"
-      {success: false, error: e.message}
-    end
-  end
-  
 
+  def self.get_gruppo_by_chat_id(chat_id)
+    DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
+  end
+
+  def self.find_pending_by_user(user_id)
+    DB.get_first_row("SELECT * FROM gruppi WHERE chat_id IS NULL AND creato_da = ?", [user_id])
+  end
+
+  def self.update_chat_id(group_id, chat_id, title)
+    DB.execute("UPDATE gruppi SET chat_id = ?, nome = ? WHERE id = ?", [chat_id, title, group_id])
+  end
+
+  def self.find_by_chat_id(chat_id)
+    DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
+  end
+
+
+def self.crea_gruppo(bot, user_id, user_name)
+  DB.execute("INSERT INTO gruppi (nome, creato_da, chat_id) VALUES (?, ?, ?)", 
+            ["Gruppo di #{user_name}", user_id, nil])  # ← chat_id esplicitamente NULL
+  gruppo_id = DB.db.last_insert_row_id
+  puts "✅ Gruppo in attesa creato con ID: #{gruppo_id} (chat_id: NULL)"
+  {success: true, gruppo_id: gruppo_id}
+end
 
   def self.associa_gruppo_automaticamente(bot, chat_id, user_id)
     begin
@@ -72,30 +78,35 @@ class GroupManager
     end
   end
 
-  def self.find_or_migrate_group(chat_id, titolo = nil)
-    # Prova a cercare il gruppo
-    gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
-
-    unless gruppo
-      # Se non esiste, crealo
-      nome = titolo || "Gruppo Chat"
-      DB.execute("INSERT INTO gruppi (chat_id, nome, creato_da, creato_il) VALUES (?, ?, ?, ?)", [
-        chat_id,
-        nome,
-        0,  # creato_da sconosciuto se non gestito
-        Time.now.to_s
-      ])
-      gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
-      puts "🆕 Creato nuovo gruppo nel DB: #{gruppo.inspect}"
+def self.find_or_migrate_group(chat_id, titolo = nil, user_id = nil)
+  gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
+  
+  unless gruppo
+    # Se non esiste, CERCA prima gruppi in attesa
+    if user_id
+      gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id IS NULL AND creato_da = ?", [user_id])
+      if gruppo
+        # Accoppiamento
+        DB.execute("UPDATE gruppi SET chat_id = ?, nome = ? WHERE id = ?", 
+                   [chat_id, titolo || gruppo['nome'], gruppo['id']])
+        gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE id = ?", [gruppo['id']])
+        puts "✅ Gruppo accoppiato: #{gruppo['id']}"
+        return gruppo
+      end
     end
-
-    gruppo
+    
+    # Solo se non ci sono gruppi in attesa, creane uno nuovo
+    DB.execute("INSERT INTO gruppi (chat_id, nome, creato_da) VALUES (?, ?, ?)", 
+               [chat_id, titolo || "Gruppo Chat", user_id || 0])
+    gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
+    puts "🆕 Nuovo gruppo creato: #{gruppo['id']}"
   end
+  
+  gruppo
+end
 
 
-  def self.get_gruppo_by_chat_id(chat_id)
-    DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
-  end
+
 
   def self.salva_nome_utente(user_id, first_name, last_name)
     # Calcola le iniziali correttamente

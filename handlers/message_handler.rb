@@ -188,56 +188,91 @@ end
   # ========================================
   # ❌ CANCELLAZIONE GRUPPO
   # ========================================
-  def self.handle_delgroup(bot, msg, chat_id, user_id)
+def self.handle_delgroup(bot, msg, chat_id, user_id)
+  gruppo = GroupManager.find_by_chat_id(chat_id)
+  
+  if gruppo
     puts "🔍 [DEL] Comando /delgroup ricevuto in chat #{chat_id} da utente #{user_id}"
-
-    group = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
-    puts "🔍 [DEL] Query gruppo trovata: #{group.inspect}"
-
-    if group.nil?
-      bot.api.send_message(chat_id: chat_id, text: "⚠️ Questo gruppo non è registrato.")
-      return
-    end
-
-    if group['creato_da'].to_i != user_id.to_i
-      puts "❌ [DEL] Utente #{user_id} NON è il creatore (#{group['creato_da']})"
-      bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo il creatore può cancellare il gruppo.")
-      return
-    end
-
-    begin
-      puts "🔍 [DEL] Eseguo DELETE per chat_id=#{chat_id}"
-      DB.execute("DELETE FROM gruppi WHERE CAST(chat_id AS TEXT) = ?", [chat_id.to_s])
-      puts "🔍 [DEL] DELETE eseguita"
-
-      check = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
-      puts "🔍 [DEL] Dopo DELETE, record ancora presente? #{check.inspect}"
-
-      bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo eliminato dal database.")
-    rescue => e
-      puts "❌ [DEL] Errore SQL: #{e.message}"
-      bot.api.send_message(chat_id: chat_id, text: "⚠️ Errore durante la cancellazione.")
-    end
+    puts "🔍 [DEL] Query gruppo trovata: #{gruppo.inspect}"
+    
+    # 1. PRIMA cancella tutti gli items del gruppo
+    items_count = DB.execute("DELETE FROM items WHERE gruppo_id = ?", [gruppo['id']])
+    
+    # 2. POI cancella il gruppo
+    DB.execute("DELETE FROM gruppi WHERE id = ?", [gruppo['id']])
+    
+    puts "🔍 [DEL] Cancellati #{items_count} items del gruppo #{gruppo['id']}"
+    puts "🔍 [DEL] Gruppo #{gruppo['id']} cancellato"
+    
+    # Verifica che sia stato cancellato
+    gruppo_dopo = GroupManager.find_by_chat_id(chat_id)
+    puts "🔍 [DEL] Dopo DELETE, record ancora presente? #{gruppo_dopo.inspect}"
+    
+    bot.api.send_message(chat_id: chat_id, 
+      text: "✅ Gruppo e #{items_count} items cancellati completamente.")
+  else
+    bot.api.send_message(chat_id: chat_id, text: "❌ Nessun gruppo attivo da cancellare.")
   end
-
+end
   # ========================================
   # 👥 MESSAGGI DI GRUPPO
   # ========================================
 def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
   puts "🔍 Gestione messaggio gruppo: #{msg.text}"
 
-  # Trova o crea/migra gruppo
-  gruppo = GroupManager.find_or_migrate_group(chat_id, msg.chat.title)
-
-  if gruppo.nil?
-    puts "❌ Nessun gruppo trovato o creato"
-    return
+  # PRIMA di tutto: verifica se c'è un gruppo in attesa per questo utente
+  gruppo_in_attesa = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id IS NULL AND creato_da = ?", [user_id])
+  
+  if gruppo_in_attesa && !msg.text&.start_with?('/delgroup')
+    # 🔄 TROVATO GRUPPO IN ATTESA - Esegui accoppiamento
+    DB.execute("UPDATE gruppi SET chat_id = ?, nome = ? WHERE id = ?", 
+               [chat_id, msg.chat.title, gruppo_in_attesa['id']])
+    
+    bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo accoppiato! Benvenuto nel tuo nuovo gruppo della spesa.")
+    puts "🎯 Gruppo accoppiato: #{gruppo_in_attesa['id']} → chat_id #{chat_id}"
+    
+    # Ricarica il gruppo aggiornato
+    gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE id = ?", [gruppo_in_attesa['id']])
+  else
+    # Comportamento normale: cerca gruppo esistente
+    gruppo = GroupManager.get_gruppo_by_chat_id(chat_id)
   end
-
-  puts "🔍 Gruppo trovato: #{gruppo.inspect}"
 
   # Aggiorna il nome reale da Telegram se serve
   ensure_group_name(bot, msg, gruppo)
+
+if gruppo.nil?
+  case msg.text
+  when '/lista', "/lista@#{bot_username}", '/checklist'
+    bot.api.send_message(chat_id: chat_id, text: "📭 Nessuna lista della spesa attiva.\nUsa /newgroup in chat privata per crearne una.")
+    return
+  when '/ss', "/ss@#{bot_username}"
+    bot.api.send_message(chat_id: chat_id, text: "📷 Nessuna lista da visualizzare.")
+    return
+  when '/delgroup', "/delgroup@#{bot_username}"
+    bot.api.send_message(chat_id: chat_id, text: "❌ Nessun gruppo da cancellare.")
+    return
+when '/newgroup', "/newgroup@#{bot_username}"
+  # Cerca gruppo in attesa per questo utente
+  gruppo_in_attesa = GroupManager.find_pending_by_user(user_id)
+  
+  if gruppo_in_attesa
+    # Accoppiamento
+    GroupManager.update_chat_id(gruppo_in_attesa['id'], chat_id, msg.chat.title)
+    bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo accoppiato! Ora puoi usare +articolo per aggiungere elementi.")
+  else
+    bot.api.send_message(chat_id: chat_id, 
+      text: "❌ Nessun gruppo in attesa. Usa /newgroup in chat privata prima.")
+  end
+  return
+    else
+    # Per +articolo e altri messaggi - messaggio generico
+    if msg.text&.start_with?('+')
+      bot.api.send_message(chat_id: chat_id, text: "📭 Crea prima una lista con /newgroup in chat privata")
+    end
+    return
+  end
+end
 
 
     case msg.text
@@ -279,6 +314,10 @@ def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
   # ➕ AGGIUNTA ARTICOLI
   # ========================================
  def self.handle_plus_command(bot, msg, chat_id, user_id, gruppo)
+   if gruppo.nil?
+    bot.api.send_message(chat_id: chat_id, text: "❌ Nessuna lista attiva. Usa /newgroup in chat privata.")
+    return
+  end
   begin
     text = msg.text.strip
     

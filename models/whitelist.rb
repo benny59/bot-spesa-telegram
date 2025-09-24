@@ -42,21 +42,42 @@ class Whitelist
 
 
 def self.salva_nome_utente(user_id, first_name, last_name)
-  initials = genera_iniziali_2_char(first_name, last_name)
-  
-  puts "🔤 Generazione iniziali per #{first_name} #{last_name}: #{initials}"
-  
   existing = DB.get_first_row("SELECT * FROM user_names WHERE user_id = ?", [user_id])
   
   if existing
-    DB.execute("UPDATE user_names SET first_name = ?, last_name = ?, initials = ? WHERE user_id = ?",
-               [first_name, last_name, initials, user_id])
+    # ✅ USA INIZIALI ESISTENTI, non rigenerare!
+    initials = existing['initials']
+    puts "🔤 Utente esistente: #{first_name} #{last_name} -> #{initials} (conservate)"
+    
+    DB.execute("UPDATE user_names SET first_name = ?, last_name = ? WHERE user_id = ?",
+               [first_name, last_name, user_id])
   else
+    # Solo per nuovi utenti: genera iniziali
+    initials = genera_iniziali_2_char(first_name, last_name)
+    puts "🔤 Nuovo utente: #{first_name} #{last_name} -> #{initials}"
+    
     DB.execute("INSERT INTO user_names (user_id, first_name, last_name, initials) VALUES (?, ?, ?, ?)",
                [user_id, first_name, last_name, initials])
   end
 end
 
+def self.ensure_user_name(user_id, first_name, last_name = nil)
+  # Cerca utente esistente
+  existing = DB.get_first_row("SELECT * FROM user_names WHERE user_id = ?", [user_id])
+  
+  if existing
+    puts "✅ Utente già presente: #{existing['first_name']} #{existing['last_name']} -> #{existing['initials']}"
+    # ✅ USA LE INIZIALI ESISTENTI, non rigenerare!
+    return existing['initials']
+  else
+    # Solo per nuovi utenti: genera iniziali
+    initials = genera_iniziali_2_char(first_name, last_name)
+    DB.execute("INSERT INTO user_names (user_id, first_name, last_name, initials) VALUES (?, ?, ?, ?)",
+               [user_id, first_name, last_name, initials])
+    puts "🆕 Nuovo utente: #{first_name} #{last_name} -> #{initials}"
+    return initials
+  end
+end
 
 def self.genera_iniziali_2_char(first_name, last_name)
   return "US" unless first_name
