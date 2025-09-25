@@ -78,13 +78,12 @@ def self.top_articoli(gruppo_id, limite = 10)
            SELECT 1 FROM items i 
            WHERE i.gruppo_id = s.gruppo_id 
            AND LOWER(i.nome) = LOWER(s.nome) 
-           AND i.comprato IS NULL
          )
        ORDER BY s.conteggio DESC, s.ultima_aggiunta DESC 
        LIMIT ?",
       [gruppo_id, limite]
     )
-    
+    puts "🔍 [TOP_ARTICOLI] Risultato query: #{result.inspect}"
     puts "🔍 [TOP_ARTICOLI] Articoli frequenti non in lista: #{result.length}"
     result
   rescue => e

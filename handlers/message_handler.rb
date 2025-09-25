@@ -281,7 +281,7 @@ end
     when '/ss', "/ss@#{bot_username}"
       handle_screenshot_command(bot, msg, gruppo)
       return
-    when '/checklist'
+    when '/checklist', "/checklist@#{bot_username}"
       StoricoManager.genera_checklist(bot, msg, gruppo['id'])
       return
     when '/delgroup', "/delgroup@#{bot_username}"
