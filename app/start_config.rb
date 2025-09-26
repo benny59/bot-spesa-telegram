@@ -1,20 +1,10 @@
-#!/usr/bin/env ruby
 # start_config.rb
-
 require 'sqlite3'
-require_relative '../services/openfoodfacts_client'
-require_relative '../services/barcode_scanner'
 
-DB_FILE = "spesa.db"
-
-unless File.exist?(DB_FILE)
-  puts "❌ Il file #{DB_FILE} non esiste. Avvia prima bot_spesa.rb per creare il database."
-  exit
-end
-
+DB_FILE = File.expand_path("../spesa.db", __dir__)
 db = SQLite3::Database.new(DB_FILE)
 
-# Assicura l'esistenza della tabella config
+# Crea tabella config
 db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,
@@ -22,32 +12,24 @@ db.execute <<-SQL
   );
 SQL
 
-# Assicura l'esistenza della tabella products con una nuova colonna per le caratteristiche
+# Crea tabella products
 db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
-    barcode TEXT,
-    characteristics TEXT
+    barcode TEXT UNIQUE,
+    price REAL,
+    quantity INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 SQL
 
-def upsert(db, key, value)
-  db.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", [key, value])
+puts "✅ Database inizializzato in #{DB_FILE}"
+
+# Inserisco un valore di esempio se non esiste già
+existing = db.execute("SELECT 1 FROM config WHERE key = 'token' LIMIT 1")
+if existing.empty?
+  db.execute("INSERT INTO config (key, value) VALUES (?, ?)", ['token', 'INSERISCI_IL_TUO_TOKEN'])
+  puts "⚠️ Inserito token di esempio, ricordati di aggiornarlo."
 end
 
-puts "⚙️ Configurazione bot"
-print "👉 Inserisci il TOKEN di Telegram: "
-token = STDIN.gets.strip
-upsert(db, "token", token)
-
-# In futuro puoi aggiungere altre configurazioni (es. proxy, default chat, ecc.)
-puts "✅ Configurazione salvata in tabella config."
-
-# Inizializza il client Open Food Facts
-openfoodfacts_client = OpenFoodFactsClient.new
-
-# Inizializza il barcode scanner
-barcode_scanner = BarcodeScanner.new
-
-puts "📦 Pronto per scansionare i codici a barre dei prodotti."

@@ -5,7 +5,7 @@ require 'json'
 require 'net/http'
 require 'uri'
 
-module OpenFoodFactsClient
+module OpenFoodFactsClientHelper
   OFF_BASE = 'https://world.openfoodfacts.org'
 
   # returns nil or a hash with nutrient values (per 100g) and product name
