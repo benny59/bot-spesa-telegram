@@ -4,6 +4,8 @@ require 'telegram/bot'
 require_relative 'db'
 require_relative 'models/lista'
 require_relative 'models/group_manager'
+require_relative "models/carte_fedelta"
+
 require_relative 'handlers/callback_handler'
 require_relative 'handlers/message_handler'
 #require_relative 'handlers/command_handler'

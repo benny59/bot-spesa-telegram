@@ -94,6 +94,17 @@ db.execute <<-SQL
   );
 SQL
 
+db.execute <<-SQL
+CREATE TABLE IF NOT EXISTS carte_fedelta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  nome TEXT NOT NULL,
+  codice TEXT NOT NULL,
+  immagine_path TEXT,  -- opzionale: se vuoi salvare anche PNG generato
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+SQL
+
 
 # Creazione tabella storico_articoli
 db.execute <<-SQL

@@ -1,6 +1,7 @@
 # handlers/callback_handler.rb
 require_relative '../models/lista'
 require_relative '../models/group_manager'
+require_relative '../models/carte_fedelta'
 require_relative '../models/whitelist'
 require_relative '../models/preferences'
 require_relative '../utils/keyboard_generator'
@@ -31,6 +32,10 @@ class CallbackHandler
 
     when /^view_foto:(\d+):(\d+)$/
       handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i)
+      
+    when /^carte:(\d+):(\d+)$/
+  CarteFedelta.handle_callback(bot,msg)
+
 # Aggiungi al gestore callback esistente
 
 when /^checklist_add:[^:]+:\d+:\d+$/  # Delegato a StoricoManager

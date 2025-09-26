@@ -1,6 +1,8 @@
 # handlers/message_handler.rb
 require_relative '../models/lista'
 require_relative '../models/group_manager'
+require_relative '../models/carte_fedelta'
+
 require_relative '../models/whitelist'
 require_relative '../models/preferences'
 require_relative '../utils/keyboard_generator'
@@ -98,19 +100,39 @@ end
   # ========================================
   # 🔑 MESSAGGI PRIVATI
   # ========================================
-  def self.handle_private_message(bot, msg, chat_id, user_id)
-    case msg.text
-    when '/start'            then handle_start(bot, chat_id)
-    when '/newgroup'         then handle_newgroup(bot, msg, chat_id, user_id)
-    when '/whois_creator'    then handle_whois_creator(bot, chat_id, user_id)
-    when '/whitelist_show'   then handle_whitelist_show(bot, chat_id, user_id)
-    when '/pending_requests' then handle_pending_requests(bot, chat_id, user_id)
-    when '/whitelist_add'    then handle_whitelist_add(bot, chat_id, user_id)
-    when '/listagruppi'      then handle_listagruppi(bot, chat_id, user_id)   # 👈 aggiunto
-    when '/cleanup'          then CleanupManager.esegui_cleanup(bot, chat_id, user_id)  # ← AGGIUNGI
+ def self.handle_private_message(bot, msg, chat_id, user_id)
+  case msg.text
+  when '/start'            
+    handle_start(bot, chat_id)
 
-    end
+  when '/newgroup'         
+    handle_newgroup(bot, msg, chat_id, user_id)
+
+  when '/whois_creator'    
+    handle_whois_creator(bot, chat_id, user_id)
+
+  when '/whitelist_show'   
+    handle_whitelist_show(bot, chat_id, user_id)
+
+  when '/pending_requests' 
+    handle_pending_requests(bot, chat_id, user_id)
+
+  when '/whitelist_add'    
+    handle_whitelist_add(bot, chat_id, user_id)
+
+  when '/listagruppi'      
+    handle_listagruppi(bot, chat_id, user_id)   # 👈 aggiunto
+
+  when '/cleanup'          
+    CleanupManager.esegui_cleanup(bot, chat_id, user_id)  # ← AGGIUNGI
+
+  when '/carte'
+    CarteFedelta.show_user_cards(bot, user_id)
+
+  when /^\/addcarta (.+)/
+    CarteFedelta.add_card(bot, user_id, $1)
   end
+end
 
   def self.handle_start(bot, chat_id)
     bot.api.send_message(chat_id: chat_id, text: "👋 Benvenuto! Usa /newgroup per creare un gruppo virtuale.")
@@ -282,7 +304,10 @@ end
       handle_screenshot_command(bot, msg, gruppo)
       return
     when '/checklist', "/checklist@#{bot_username}"
-      StoricoManager.genera_checklist(bot, msg, gruppo['id'])
+       StoricoManager.genera_checklist(bot, msg, gruppo['id'])
+      return
+    when '/carte', "/carte@#{bot_username}"
+       CarteFedelta.show_user_cards(bot, user_id)
       return
     when '/delgroup', "/delgroup@#{bot_username}"
       handle_delgroup(bot, msg, chat_id, user_id)
