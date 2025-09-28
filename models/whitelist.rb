@@ -38,6 +38,11 @@ class Whitelist
     DB.execute("SELECT * FROM whitelist ORDER BY full_name")
   end
 
+def self.add_user(user_id, username, full_name)
+    DB.execute("INSERT OR REPLACE INTO whitelist (user_id, username, full_name, added_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+              [user_id, username, full_name])
+  end
+
 # models/whitelist.rb - aggiungi questo metodo
 
 

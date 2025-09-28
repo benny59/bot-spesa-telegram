@@ -222,36 +222,38 @@ end
   end
 
 def self.handle_approve_user(bot, msg, chat_id, user_id, username, full_name)
-  full_name = full_name.gsub('_', ' ')
-  username = nil if username == 'nessuno' || username.empty?
-  
-  # Usa il metodo CORRETTO: approve_user invece di add_user
-  Whitelist.approve_user(user_id, username, full_name)
+  # ✅ Aggiungi l'utente alla whitelist
+  Whitelist.add_user(user_id, username, full_name.gsub('_', ' '))
   Whitelist.remove_pending_request(user_id)
-  
-  bot.api.answer_callback_query(callback_query_id: msg.id, text: "✅ Utente approvato")
-  
-  # Messaggio di conferma
-  confirmation_text = "✅ *Utente approvato*\\n\\n👤 #{full_name}\\n"
-  confirmation_text += "📧 @#{username}\\n" if username && !username.empty?
-  confirmation_text += "🆔 #{user_id}"
-  
-  bot.api.edit_message_text(
+
+  # Conferma al creatore
+  bot.api.send_message(
     chat_id: chat_id,
-    message_id: msg.message.message_id,
-    text: confirmation_text,
-    parse_mode: 'Markdown'
+    text: "✅ Utente #{full_name} (@#{username}) approvato e aggiunto alla whitelist."
   )
-  
-  # Notifica l'utente
-  begin
-    bot.api.send_message(
-      chat_id: user_id,
-      text: "🎉 La tua richiesta di accesso è stata approvata! Ora puoi usare /newgroup per creare gruppi."
-    )
-  rescue => e
-    puts "❌ Impossibile notificare l'utente: #{e.message}"
-  end
+
+  # Notifica all'utente
+  bot.api.send_message(
+    chat_id: user_id,
+    text: "🎉 La tua richiesta di accesso è stata approvata! Ora puoi creare un gruppo con /newgroup."
+  )
+end
+
+def self.handle_reject_user(bot, msg, chat_id, user_id)
+  # ❌ Rimuovi l'utente dai pendenti
+  Whitelist.remove_pending_request(user_id)
+
+  # Conferma al creatore
+  bot.api.send_message(
+    chat_id: chat_id,
+    text: "❌ Utente con ID #{user_id} rifiutato."
+  )
+
+  # Notifica all'utente
+  bot.api.send_message(
+    chat_id: user_id,
+    text: "🚫 La tua richiesta di accesso è stata rifiutata dall’amministratore."
+  )
 end
 
   def self.handle_reject_user(bot, msg, chat_id, user_id)

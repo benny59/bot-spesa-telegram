@@ -1,73 +1,23 @@
-# helpers/command_setter.rb
 class CommandSetter
   def self.aggiorna_comandi(bot)
-    begin
-      # Comandi per CHAT PRIVATE
-      private_commands = [
-        {
-          command: 'start',
-          description: 'Avvia il bot e mostra help'
-        },
-        {
-          command: 'newgroup', 
-          description: 'Crea un nuovo gruppo virtuale'
-        },
-        {
-          command: 'listagruppi',
-          description: 'Lista dei gruppi creati (solo creatore)'
-        },
-        {
-          command: 'whitelist_show',
-          description: 'Mostra whitelist (solo creatore)'
-        },
-        {
-          command: 'pending_requests',
-          description: 'Richieste in sospeso (solo creatore)'
-        }
-      ]
+    # TUTTI vedono TUTTI i comandi, ma nel codice controlli i permessi
+    tutti_cmds = [
+      Telegram::Bot::Types::BotCommand.new(command: "start", description: "Avvia il bot"),
+      Telegram::Bot::Types::BotCommand.new(command: "newgroup", description: "Registra nuovo gruppo"),
+      Telegram::Bot::Types::BotCommand.new(command: "carte", description: "Gestione carte"),
+      Telegram::Bot::Types::BotCommand.new(command: "addcarta", description: "Aggiungi una carta"),
+      Telegram::Bot::Types::BotCommand.new(command: "lista", description: "Mostra lista"),
+      Telegram::Bot::Types::BotCommand.new(command: "checklist", description: "Controlla lista"),
+      Telegram::Bot::Types::BotCommand.new(command: "ss", description: "Screenshot"),
+      Telegram::Bot::Types::BotCommand.new(command: "delgroup", description: "Cancella gruppo"),
+      Telegram::Bot::Types::BotCommand.new(command: "listagruppi", description: "Mostra gruppi registrati"),
+      Telegram::Bot::Types::BotCommand.new(command: "whitelist_show", description: "Visualizza whitelist"),
+      Telegram::Bot::Types::BotCommand.new(command: "pending_requests", description: "Richieste in attesa"),
+      Telegram::Bot::Types::BotCommand.new(command: "whitelist_add", description: "Aggiungi utente in whitelist"),
+      Telegram::Bot::Types::BotCommand.new(command: "cleanup", description: "Pulisci gruppi/utenti orfani")
+    ]
 
-      # Comandi per GRUPPI
-      group_commands = [
-        {
-          command: 'lista',
-          description: 'Visualizza la lista della spesa'
-        },
-        {
-          command: 'checklist',
-          description: 'Articoli frequenti da aggiungere'
-        },
-        {
-          command: 'ss',
-          description: 'Esporta lista in PDF'
-        },
-        {
-          command: 'delgroup',
-          description: 'Cancella il gruppo (solo creatore)'
-        },
-        {
-        command: 'cleanup',
-        description: 'Pulizia database (solo creatore)'
-        }
-      ]
-
-      # Imposta comandi per chat private
-      bot.api.set_my_commands(
-        commands: private_commands, 
-        scope: { type: 'default' }
-      )
-      puts "✅ Comandi privati impostati: #{private_commands.map { |c| c[:command] }.join(', ')}"
-
-      # Imposta comandi per gruppi
-      bot.api.set_my_commands(
-        commands: group_commands, 
-        scope: { type: 'all_group_chats' }
-      )
-      puts "✅ Comandi gruppo impostati: #{group_commands.map { |c| c[:command] }.join(', ')}"
-
-      puts "🎉 Comandi aggiornati con successo!"
-
-    rescue => e
-      puts "⚠️ Avviso: Impossibile aggiornare i comandi (forse token senza permessi?): #{e.message}"
-    end
+    bot.api.set_my_commands(commands: tutti_cmds)
+    puts "✅ Tutti i comandi impostati (controllo permessi via codice)"
   end
 end

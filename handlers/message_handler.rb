@@ -112,19 +112,39 @@ end
     handle_whois_creator(bot, chat_id, user_id)
 
   when '/whitelist_show'   
-    handle_whitelist_show(bot, chat_id, user_id)
+    if Whitelist.is_creator?(user_id)
+      handle_whitelist_show(bot, chat_id, user_id)
+    else
+      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+    end
 
   when '/pending_requests' 
-    handle_pending_requests(bot, chat_id, user_id)
+    if Whitelist.is_creator?(user_id)
+      handle_pending_requests(bot, chat_id, user_id)
+    else
+      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+    end
 
   when '/whitelist_add'    
-    handle_whitelist_add(bot, chat_id, user_id)
+    if Whitelist.is_creator?(user_id)
+      handle_whitelist_add(bot, chat_id, user_id)
+    else
+      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+    end
 
   when '/listagruppi'      
-    handle_listagruppi(bot, chat_id, user_id)   # 👈 aggiunto
+    if Whitelist.is_creator?(user_id)
+      handle_listagruppi(bot, chat_id, user_id)
+    else
+      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+    end
 
   when '/cleanup'          
-    CleanupManager.esegui_cleanup(bot, chat_id, user_id)  # ← AGGIUNGI
+    if Whitelist.is_creator?(user_id)
+      CleanupManager.esegui_cleanup(bot, chat_id, user_id)
+    else
+      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+    end
 
   when '/carte'
     CarteFedelta.show_user_cards(bot, user_id)
@@ -132,7 +152,7 @@ end
   when /^\/addcarta (.+)/
     CarteFedelta.add_card(bot, user_id, $1)
   end
-end
+  end
 
   def self.handle_start(bot, chat_id)
     bot.api.send_message(chat_id: chat_id, text: "👋 Benvenuto! Usa /newgroup per creare un gruppo virtuale.")
@@ -161,21 +181,45 @@ end
     handle_newgroup_approved(bot, msg, chat_id, user_id)
   end
 
-  def self.handle_newgroup_pending(bot, msg, chat_id, user_id, creator_id)
-    Whitelist.add_pending_request(user_id, msg.from.username, "#{msg.from.first_name} #{msg.from.last_name}")
-    if creator_id
-      begin
-        bot.api.send_message(
-          chat_id: creator_id,
-          text: "🔔 Richiesta di accesso\n👤 #{msg.from.first_name} #{msg.from.last_name}\n📧 @#{msg.from.username}\n🆔 #{user_id}",
-        )
-      rescue => e
-        puts "❌ Errore notifica creatore: #{e.message}"
-      end
-    end
-    bot.api.send_message(chat_id: chat_id, text: "📨 La tua richiesta è stata inviata all'amministratore.")
+def self.handle_newgroup_pending(bot, msg, chat_id, user_id, creator_id)
+  # Salva la richiesta pendente
+  Whitelist.add_pending_request(user_id, msg.from.username, "#{msg.from.first_name} #{msg.from.last_name}")
+
+  # Notifica al creatore con bottoni
+  if creator_id
+    keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+      inline_keyboard: [
+        [
+          Telegram::Bot::Types::InlineKeyboardButton.new(
+            text: "✅ Approva",
+            callback_data: "approve_user:#{user_id}:#{msg.from.username}:#{msg.from.first_name}_#{msg.from.last_name}"
+          ),
+          Telegram::Bot::Types::InlineKeyboardButton.new(
+            text: "❌ Rifiuta",
+            callback_data: "reject_user:#{user_id}"
+          )
+        ]
+      ]
+    )
+
+    bot.api.send_message(
+      chat_id: creator_id,
+      text: "🔔 *Richiesta di accesso*\n\n" \
+            "👤 #{msg.from.first_name} #{msg.from.last_name}\n" \
+            "📧 @#{msg.from.username}\n" \
+            "🆔 #{user_id}\n\n" \
+            "Aggiungere alla whitelist?",
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    )
   end
 
+  # Avvisa l’utente
+  bot.api.send_message(
+    chat_id: chat_id,
+    text: "📨 La tua richiesta di accesso è stata inviata all'amministratore.\nRiceverai una notifica quando verrà approvata."
+  )
+end
   def self.handle_newgroup_approved(bot, msg, chat_id, user_id)
     result = GroupManager.crea_gruppo(bot, user_id, msg.from.first_name)
     if result[:success]
