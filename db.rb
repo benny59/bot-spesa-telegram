@@ -121,6 +121,17 @@ db.execute <<-SQL
   );
 SQL
 
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS carte_fedelta (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      nome TEXT NOT NULL,
+      codice TEXT NOT NULL,
+      immagine_path TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
+
 # Crea indice per performance sulle query di ranking
 db.execute <<-SQL
   CREATE INDEX IF NOT EXISTS idx_storico_gruppo_conteggio 

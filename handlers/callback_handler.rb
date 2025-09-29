@@ -243,29 +243,26 @@ def self.handle_reject_user(bot, msg, chat_id, user_id)
   # ❌ Rimuovi l'utente dai pendenti
   Whitelist.remove_pending_request(user_id)
 
-  # Conferma al creatore
-  bot.api.send_message(
+  # Rispondi alla callback query
+  bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Richiesta rifiutata")
+  
+  # Modifica il messaggio originale
+  bot.api.edit_message_text(
     chat_id: chat_id,
-    text: "❌ Utente con ID #{user_id} rifiutato."
+    message_id: msg.message.message_id,
+    text: "❌ Richiesta rifiutata per ID: #{user_id}"
   )
 
-  # Notifica all'utente
-  bot.api.send_message(
-    chat_id: user_id,
-    text: "🚫 La tua richiesta di accesso è stata rifiutata dall’amministratore."
-  )
-end
-
-  def self.handle_reject_user(bot, msg, chat_id, user_id)
-    Whitelist.remove_pending_request(user_id)
-    
-    bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Richiesta rifiutata")
-    bot.api.edit_message_text(
-      chat_id: chat_id,
-      message_id: msg.message.message_id,
-      text: "❌ Richiesta rifiutata per ID: #{user_id}"
+  # Notifica OPZIONALE all'utente rifiutato
+  begin
+    bot.api.send_message(
+      chat_id: user_id,
+      text: "🚫 La tua richiesta di accesso è stata rifiutata dall'amministratore."
     )
+  rescue => e
+    puts "⚠️ Impossibile notificare utente rifiutato: #{e.message}"
   end
+end
 
   def self.handle_show_list(bot, msg, chat_id, user_id, gruppo_id)
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "📋 Mostro la lista")

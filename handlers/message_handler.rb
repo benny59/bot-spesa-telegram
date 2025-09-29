@@ -125,20 +125,42 @@ end
       bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
     end
 
-  when '/whitelist_add'    
-    if Whitelist.is_creator?(user_id)
-      handle_whitelist_add(bot, chat_id, user_id)
+when /^\/whitelist_add\s+(\S+)/
+  if Whitelist.is_creator?(user_id)
+    user_input = $1.strip
+    
+    if user_input =~ /^\d+$/
+      user_id_to_add = user_input.to_i
+      Whitelist.add_user(user_id_to_add, "Utente", "Aggiunto manualmente")
+      bot.api.send_message(chat_id: chat_id, text: "✅ Utente ID #{user_id_to_add} aggiunto alla whitelist!")
     else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+      bot.api.send_message(
+        chat_id: chat_id, 
+        text: "❌ Usa solo ID numerici.\n\nPer trovare l'ID di un utente, digli di usare @userinfobot"
+      )
     end
+  else
+    bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+  end
 
-  when '/listagruppi'      
-    if Whitelist.is_creator?(user_id)
-      handle_listagruppi(bot, chat_id, user_id)
+when /^\/whitelist_remove\s+(\S+)/
+  if Whitelist.is_creator?(user_id)
+    user_input = $1.strip
+    
+    if user_input =~ /^\d+$/
+      user_id_to_remove = user_input.to_i
+      DB.execute("DELETE FROM whitelist WHERE user_id = ?", [user_id_to_remove])
+      bot.api.send_message(chat_id: chat_id, text: "✅ Utente ID #{user_id_to_remove} rimosso dalla whitelist!")
     else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+      bot.api.send_message(
+        chat_id: chat_id, 
+        text: "❌ Usa solo ID numerici.\n\nPer trovare l'ID di un utente, digli di usare @userinfobot"
+      )
     end
-
+  else
+    bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+  end
+  
   when '/cleanup'          
     if Whitelist.is_creator?(user_id)
       CleanupManager.esegui_cleanup(bot, chat_id, user_id)
@@ -157,6 +179,98 @@ end
   def self.handle_start(bot, chat_id)
     bot.api.send_message(chat_id: chat_id, text: "👋 Benvenuto! Usa /newgroup per creare un gruppo virtuale.")
   end
+
+def self.handle_whitelist_show(bot, chat_id, user_id)
+  creator_id = Whitelist.get_creator_id
+  if creator_id.to_i != user_id.to_i
+    bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo il creatore può usare questo comando.")
+    return
+  end
+
+  users = Whitelist.all_users
+  if users.empty?
+    bot.api.send_message(chat_id: chat_id, text: "ℹ️ Nessun utente in whitelist.")
+    return
+  end
+
+  elenco = users.map do |user|
+    "👤 #{user['first_name']} #{user['last_name']} (@#{user['username']}) - ID: #{user['user_id']}"
+  end.join("\n")
+
+  bot.api.send_message(chat_id: chat_id, text: "📋 Whitelist:\n#{elenco}")
+end
+
+def self.handle_pending_requests(bot, chat_id, user_id)
+  creator_id = Whitelist.get_creator_id
+  if creator_id.to_i != user_id.to_i
+    bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo il creatore può usare questo comando.")
+    return
+  end
+
+  pending = Whitelist.get_pending_requests
+  if pending.empty?
+    bot.api.send_message(chat_id: chat_id, text: "ℹ️ Nessuna richiesta in attesa.")
+    return
+  end
+
+  pending.each do |user|
+    keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+      inline_keyboard: [
+        [
+          Telegram::Bot::Types::InlineKeyboardButton.new(
+            text: "✅ Approva",
+            callback_data: "approve_user:#{user['user_id']}:#{user['username']}:#{user['first_name']}_#{user['last_name']}"
+          ),
+          Telegram::Bot::Types::InlineKeyboardButton.new(
+            text: "❌ Rifiuta", 
+            callback_data: "reject_user:#{user['user_id']}"
+          )
+        ]
+      ]
+    )
+
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "🔔 *Richiesta di accesso*\n\n" \
+            "👤 #{user['first_name']} #{user['last_name']}\n" \
+            "📧 @#{user['username']}\n" \
+            "🆔 #{user['user_id']}",
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    )
+  end
+end
+def self.handle_whitelist_remove(bot, chat_id, user_id)
+  creator_id = Whitelist.get_creator_id
+  if creator_id.to_i != user_id.to_i
+    bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo il creatore può usare questo comando.")
+    return
+  end
+
+  DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action) VALUES (?, ?)", 
+             [chat_id, "whitelist_remove"])
+  
+  bot.api.send_message(
+    chat_id: chat_id,
+    text: "✍️ Invia l'ID utente OPPURE @username da rimuovere dalla whitelist:"
+  )
+end
+
+def self.handle_whitelist_add(bot, chat_id, user_id)
+  creator_id = Whitelist.get_creator_id
+  if creator_id.to_i != user_id.to_i
+    bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo il creatore può usare questo comando.")
+    return
+  end
+
+  DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action) VALUES (?, ?)", 
+             [chat_id, "whitelist_add"])
+  
+  bot.api.send_message(
+    chat_id: chat_id,
+    text: "✍️ Invia l'ID utente OPPURE @username da aggiungere alla whitelist:\n\nEsempi:\n• 123456789\n• @pippo \n• @username"
+  )
+end
 
   # ========================================
   # 🆕 CREAZIONE GRUPPO
@@ -362,6 +476,7 @@ end
     when '?'
       handle_question_command(bot, chat_id, user_id, gruppo)
       return
+      
     end
 
     if msg.text&.start_with?('+')

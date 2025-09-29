@@ -107,26 +107,6 @@ end
 
 
 
-
-  def self.salva_nome_utente(user_id, first_name, last_name)
-    # Calcola le iniziali correttamente
-    initials = if first_name && last_name && !last_name.to_s.empty?
-                 "#{first_name[0]}#{last_name[0]}".upcase
-               elsif first_name && !first_name.to_s.empty?
-                 first_name[0].upcase
-               else
-                 "U"
-               end
-
-    # Forza l'aggiornamento anche se l'utente esiste già
-    DB.execute("INSERT OR REPLACE INTO user_names (user_id, first_name, last_name, initials) VALUES (?, ?, ?, ?)",
-              [user_id, first_name, last_name, initials])
-    
-    # Log per debug
-    puts "👤 Utente salvato: #{first_name} #{last_name} -> #{initials}"
-  end
-
-
   def self.pulizia_gruppi_orfani
     orfani = DB.execute("SELECT * FROM gruppi WHERE chat_id IS NULL")
     puts "🗑️ Trovati #{orfani.size} gruppi orfani"

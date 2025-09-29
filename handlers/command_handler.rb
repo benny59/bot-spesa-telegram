@@ -1,5 +1,4 @@
 # handlers/command_handler.rb
-require_relative 'storico_handler'
 require_relative '../db'  # <-- AGGIUNGI QUESTO
 
 class CommandHandler

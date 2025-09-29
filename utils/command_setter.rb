@@ -14,6 +14,7 @@ class CommandSetter
       Telegram::Bot::Types::BotCommand.new(command: "whitelist_show", description: "Visualizza whitelist"),
       Telegram::Bot::Types::BotCommand.new(command: "pending_requests", description: "Richieste in attesa"),
       Telegram::Bot::Types::BotCommand.new(command: "whitelist_add", description: "Aggiungi utente in whitelist"),
+      Telegram::Bot::Types::BotCommand.new(command: "whitelist_remove", description: "Rimuovi utente da whitelist"),
       Telegram::Bot::Types::BotCommand.new(command: "cleanup", description: "Pulisci gruppi/utenti orfani")
     ]
 
