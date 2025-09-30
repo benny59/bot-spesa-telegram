@@ -1,7 +1,7 @@
 # db.rb
-require 'sqlite3'
+require "sqlite3"
 
-DB_PATH = 'spesa.db'
+DB_PATH = "spesa.db"
 
 def init_db
   db = SQLite3::Database.new(DB_PATH)
@@ -35,7 +35,7 @@ def init_db
     );
   SQL
 
-db.execute <<-SQL
+  db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     gruppo_id INTEGER,
@@ -67,8 +67,8 @@ SQL
       FOREIGN KEY (item_id) REFERENCES items (id)
     );
   SQL
-  
-db.execute <<-SQL
+
+  db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS whitelist (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
@@ -76,8 +76,8 @@ db.execute <<-SQL
     added_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 SQL
-  
-db.execute <<-SQL
+
+  db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS pending_requests (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
@@ -86,7 +86,7 @@ db.execute <<-SQL
   );
 SQL
 
-db.execute <<-SQL
+  db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS user_preferences (
     user_id INTEGER PRIMARY KEY,
     view_mode TEXT DEFAULT 'compact', -- 'compact' o 'text_only'
@@ -94,7 +94,7 @@ db.execute <<-SQL
   );
 SQL
 
-db.execute <<-SQL
+  db.execute <<-SQL
 CREATE TABLE IF NOT EXISTS carte_fedelta (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
@@ -105,9 +105,8 @@ CREATE TABLE IF NOT EXISTS carte_fedelta (
 );
 SQL
 
-
-# Creazione tabella storico_articoli
-db.execute <<-SQL
+  # Creazione tabella storico_articoli
+  db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS storico_articoli (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
@@ -132,16 +131,41 @@ SQL
     );
   SQL
 
-# Crea indice per performance sulle query di ranking
-db.execute <<-SQL
+  # Crea indice per performance sulle query di ranking
+  db.execute <<-SQL
   CREATE INDEX IF NOT EXISTS idx_storico_gruppo_conteggio 
   ON storico_articoli (gruppo_id, conteggio DESC, ultima_aggiunta DESC);
 SQL
 
-# Crea indice per ricerche per nome nel gruppo
-db.execute <<-SQL
+  # Crea indice per ricerche per nome nel gruppo
+  db.execute <<-SQL
   CREATE INDEX IF NOT EXISTS idx_storico_gruppo_nome 
   ON storico_articoli (gruppo_id, nome);
+SQL
+
+  db.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS group_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gruppo_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    nome TEXT NOT NULL,
+    codice TEXT NOT NULL,
+    formato TEXT DEFAULT 'code128',
+    immagine_path TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (gruppo_id) REFERENCES gruppi(id)
+  );
+SQL
+
+  # Crea indice per performance
+  db.execute <<-SQL
+  CREATE INDEX IF NOT EXISTS idx_group_cards_gruppo 
+  ON group_cards (gruppo_id);
+SQL
+
+  db.execute <<-SQL
+  CREATE INDEX IF NOT EXISTS idx_group_cards_user 
+  ON group_cards (user_id);
 SQL
 
   puts "✅ Database inizializzato con schema corretto"
