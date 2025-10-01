@@ -1,5 +1,8 @@
 #!/usr/bin/env ruby
 # bot_spesa.rb
+$stdout.sync = true  # 👈 AGGIUNGI
+$stderr.sync = true  # 👈 AGGIUNGI
+
 require "telegram/bot"
 require_relative "db"
 require_relative "models/lista"
