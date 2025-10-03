@@ -64,34 +64,42 @@ class CarteFedelta
   end
 
   # Mostra lista carte utente
-  def self.show_user_cards(bot, user_id)
-    carte = DB.execute("SELECT id, nome FROM carte_fedelta WHERE user_id = ? ORDER BY LOWER(nome) ASC", [user_id])
+def self.show_user_cards(bot, user_id)
+  carte = DB.execute("SELECT id, nome FROM carte_fedelta WHERE user_id = ? ORDER BY LOWER(nome) ASC", [user_id])
 
-    if carte.empty?
-      bot.api.send_message(chat_id: user_id, text: "⚠️ Nessuna carta salvata.\nUsa /addcarta NOME CODICE per aggiungerne una.")
-      return
-    end
-
-    # Crea bottoni organizzati in colonne (4 colonne)
-    inline_keyboard = []
-    current_row = []
-
-    carte.each_with_index do |row, index|
-      current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: row["nome"],
-        callback_data: "carte:#{user_id}:#{row["id"]}",
-      )
-
-      # Ogni 4 bottoni, vai a nuova riga
-      if current_row.size == 4 || index == carte.size - 1
-        inline_keyboard << current_row
-        current_row = []
-      end
-    end
-
-    keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
-    bot.api.send_message(chat_id: user_id, text: "🎟️ Le tue carte:", reply_markup: keyboard)
+  if carte.empty?
+    bot.api.send_message(chat_id: user_id, text: "⚠️ Nessuna carta salvata.\nUsa /addcarta NOME CODICE per aggiungerne una.")
+    return
   end
+
+  # Crea bottoni organizzati in colonne (4 colonne)
+  inline_keyboard = []
+  current_row = []
+
+  carte.each_with_index do |row, index|
+    current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: row["nome"],
+      callback_data: "carte:#{user_id}:#{row["id"]}",
+    )
+
+    # Ogni 4 bottoni, vai a nuova riga
+    if current_row.size == 4 || index == carte.size - 1
+      inline_keyboard << current_row
+      current_row = []
+    end
+  end
+
+  # 🔴 AGGIUNTO: Riga con tasto "Chiudi"
+  inline_keyboard << [
+    Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "❌ Chiudi",
+      callback_data: "checklist_close:#{user_id}"
+    )
+  ]
+
+  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
+  bot.api.send_message(chat_id: user_id, text: "🎟️ Le tue carte:", reply_markup: keyboard)
+end
 
   # Callback gestione visualizzazione barcode
   def self.handle_callback(bot, callback_query)
@@ -159,36 +167,45 @@ class CarteFedelta
   # METODI PRIVATI
   private
 
-  def self.identifica_formato(codice)
-    case codice
-    when /^\d{8}$/
-      :ean8
-    when /^\d{12}$/
+def self.identifica_formato(codice)
+  # Pulizia automatica del codice dai caratteri non stampabili
+  codice_originale = codice.to_s
+  codice_pulito = codice_originale.gsub(/[^[:print:]]/, '').strip
+  
+  # Log per debug
+  puts "🔍 [BARCODE] Identificando formato per: '#{codice_pulito}'"
+  
+  case codice_pulito
+  when /^\d{8}$/
+    :ean8
+  when /^\d{12}$/
+    :upca
+  when /^\d{13}$/
+    if codice_pulito.start_with?("0")
       :upca
-    when /^\d{13}$/
-      if codice.start_with?("0")
-        :upca
-      else
-        :ean13
-      end
-    when /^\d{14}$/
-      :itf14
-      # 👇 AGGIUNGI QUESTO CASO PER CODICI LUNGHI (POTENZIALI QR)
-    when /^\d{15,}$/
-      :qrcode
-    when /^\d{6,}$/ # Codici numerici più lunghi potrebbero essere ITF
-      # Verifica se potrebbe essere ITF (solo cifre, lunghezza pari)
-      if codice.length.even? && codice.length >= 6
-        :itf
-      else
-        :code128
-      end
-    when /^[A-Za-z0-9\+\-\*\/\@\#\$\%\&\s]{1,20}$/
-      :code128
+    else
+      :ean13
+    end
+  when /^\d{14}$/
+    :itf14
+  when /^\d{15,}$/
+    :qrcode
+  when /^\d{6,}$/
+    if codice_pulito.length.even? && codice_pulito.length >= 6
+      :itf
     else
       :code128
     end
+  # 🔴 MODIFICA: Riconosci CODE_39 per codici alfanumerici corti
+  when /^[A-Z0-9\-\.\$\+\/\%\s]{4,20}$/  # Pattern tipico CODE_39
+    puts "✅ Identificato come CODE_39: #{codice_pulito}"
+    :code39
+  when /^[A-Za-z0-9+\-*\/@#$%&\s]{1,20}$/
+    :code128
+  else
+    :code128
   end
+end
 
   def self.genera_barcode_con_nome(codice, nome, user_id)
     nome_file = nome.downcase.gsub(/\s+/, "_")
@@ -200,6 +217,11 @@ class CarteFedelta
 
     begin
       case formato
+        when :code39
+    # 🔴 GENERA CODE_39 invece di CODE_128
+    Barbie::Code39.new(codice).save(filepath)
+    puts "✅ [BARBY] Barcode CODE_39 generato: #{filepath}"
+    
       when :ean8
         barcode = Barby::EAN8.new(codice)
       when :upca

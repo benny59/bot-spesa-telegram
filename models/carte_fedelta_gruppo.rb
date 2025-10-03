@@ -100,48 +100,55 @@ class CarteFedeltaGruppo < CarteFedelta
   end
 
   # Mostra carte del gruppo
-  def self.show_group_cards(bot, gruppo_id, chat_id, user_id)
-    # chat_id è l'ID del gruppo, non dell'utente
-    carte = DB.execute("
-    SELECT gc.id, gc.nome, gc.user_id, u.full_name 
-    FROM #{TABLE_NAME} gc 
-    LEFT JOIN whitelist u ON gc.user_id = u.user_id 
-    WHERE gc.gruppo_id = ? 
-    ORDER BY LOWER(gc.nome) ASC",
-                       [gruppo_id])
+def self.show_group_cards(bot, gruppo_id, chat_id, user_id)
+  # chat_id è l'ID del gruppo, non dell'utente
+  carte = DB.execute("
+  SELECT gc.id, gc.nome, gc.user_id, u.full_name 
+  FROM #{TABLE_NAME} gc 
+  LEFT JOIN whitelist u ON gc.user_id = u.user_id 
+  WHERE gc.gruppo_id = ? 
+  ORDER BY LOWER(gc.nome) ASC",
+                     [gruppo_id])
 
-    if carte.empty?
-      bot.api.send_message(chat_id: chat_id, text: "⚠️ Nessuna carta condivisa nel gruppo.\nUsa /addcartagruppo NOME CODICE per aggiungerne una.")
-      return
-    end
-
-    # Crea bottoni organizzati in colonne (4 colonne)
-    inline_keyboard = []
-    current_row = []
-
-    carte.each_with_index do |row, index|
-      current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: row["nome"],
-        callback_data: "carte_gruppo:#{gruppo_id}:#{row["id"]}",
-      )
-
-      if current_row.size == 4 || index == carte.size - 1
-        inline_keyboard << current_row
-        current_row = []
-      end
-    end
-
-    keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
-
-    info_carte = carte.map { |c| "• #{c["nome"]} (da #{c["full_name"] || "Utente"})" }.join("\n")
-
-    bot.api.send_message(
-      chat_id: chat_id,  # 👈 INVIA NEL GRUPPO
-      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
-      reply_markup: keyboard,
-    )
+  if carte.empty?
+    bot.api.send_message(chat_id: chat_id, text: "⚠️ Nessuna carta condivisa nel gruppo.\nUsa /addcartagruppo NOME CODICE per aggiungerne una.")
+    return
   end
 
+  # Crea bottoni organizzati in colonne (4 colonne)
+  inline_keyboard = []
+  current_row = []
+
+  carte.each_with_index do |row, index|
+    current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: row["nome"],
+      callback_data: "carte_gruppo:#{gruppo_id}:#{row["id"]}",
+    )
+
+    if current_row.size == 4 || index == carte.size - 1
+      inline_keyboard << current_row
+      current_row = []
+    end
+  end
+
+  # 🔴 AGGIUNTO: Riga con tasto "Chiudi"
+  inline_keyboard << [
+    Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "❌ Chiudi",
+      callback_data: "checklist_close:#{chat_id}"
+    )
+  ]
+
+  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
+
+  info_carte = carte.map { |c| "• #{c["nome"]} (da #{c["full_name"] || "Utente"})" }.join("\n")
+
+  bot.api.send_message(
+    chat_id: chat_id,  # 👈 INVIA NEL GRUPPO
+    text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
+    reply_markup: keyboard,
+  )
+end
   def self.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
     return unless gruppo
 
