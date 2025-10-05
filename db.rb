@@ -30,22 +30,22 @@ def init_db
       user_id INTEGER PRIMARY KEY,
       first_name TEXT,
       last_name TEXT,
-      initials TEXT,  -- COLONNA AGGIUNTA
+      initials TEXT,
       aggiornato_il DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   SQL
 
   db.execute <<-SQL
-  CREATE TABLE IF NOT EXISTS items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    gruppo_id INTEGER,
-    creato_da INTEGER,
-    nome TEXT,
-    comprato TEXT DEFAULT '', -- ✅ ora è TEXT, stringa vuota = non comprato
-    creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (gruppo_id) REFERENCES gruppi (id)
-  );
-SQL
+    CREATE TABLE IF NOT EXISTS items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gruppo_id INTEGER,
+      creato_da INTEGER,
+      nome TEXT,
+      comprato TEXT DEFAULT '', -- ✅ già corretto: stringa vuota = non comprato
+      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (gruppo_id) REFERENCES gruppi (id)
+    );
+  SQL
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS pending_actions (
@@ -69,56 +69,30 @@ SQL
   SQL
 
   db.execute <<-SQL
-  CREATE TABLE IF NOT EXISTS whitelist (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    full_name TEXT,
-    added_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-SQL
+    CREATE TABLE IF NOT EXISTS whitelist (
+      user_id INTEGER PRIMARY KEY,
+      username TEXT,
+      full_name TEXT,
+      added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
 
   db.execute <<-SQL
-  CREATE TABLE IF NOT EXISTS pending_requests (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    full_name TEXT,
-    requested_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-SQL
+    CREATE TABLE IF NOT EXISTS pending_requests (
+      user_id INTEGER PRIMARY KEY,
+      username TEXT,
+      full_name TEXT,
+      requested_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
 
   db.execute <<-SQL
-  CREATE TABLE IF NOT EXISTS user_preferences (
-    user_id INTEGER PRIMARY KEY,
-    view_mode TEXT DEFAULT 'compact', -- 'compact' o 'text_only'
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-SQL
-
-  db.execute <<-SQL
-CREATE TABLE IF NOT EXISTS carte_fedelta (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  nome TEXT NOT NULL,
-  codice TEXT NOT NULL,
-  immagine_path TEXT,  -- opzionale: se vuoi salvare anche PNG generato
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-SQL
-
-  # Creazione tabella storico_articoli
-  db.execute <<-SQL
-  CREATE TABLE IF NOT EXISTS storico_articoli (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL,
-    gruppo_id INTEGER NOT NULL,
-    conteggio INTEGER DEFAULT 0,
-    ultima_aggiunta DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(nome, gruppo_id),
-    FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE
-  );
-SQL
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id INTEGER PRIMARY KEY,
+      view_mode TEXT DEFAULT 'compact',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS carte_fedelta (
@@ -131,42 +105,43 @@ SQL
     );
   SQL
 
-  # Crea indice per performance sulle query di ranking
   db.execute <<-SQL
-  CREATE INDEX IF NOT EXISTS idx_storico_gruppo_conteggio 
-  ON storico_articoli (gruppo_id, conteggio DESC, ultima_aggiunta DESC);
-SQL
-
-  # Crea indice per ricerche per nome nel gruppo
-  db.execute <<-SQL
-  CREATE INDEX IF NOT EXISTS idx_storico_gruppo_nome 
-  ON storico_articoli (gruppo_id, nome);
-SQL
-
-  db.execute <<-SQL
-  CREATE TABLE IF NOT EXISTS group_cards (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    gruppo_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    nome TEXT NOT NULL,
-    codice TEXT NOT NULL,
-    formato TEXT DEFAULT 'code128',
-    immagine_path TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (gruppo_id) REFERENCES gruppi(id)
-  );
-SQL
-
-  # Crea indice per performance
-  db.execute <<-SQL
-  CREATE INDEX IF NOT EXISTS idx_group_cards_gruppo 
-  ON group_cards (gruppo_id);
-SQL
+    CREATE TABLE IF NOT EXISTS storico_articoli (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      gruppo_id INTEGER NOT NULL,
+      conteggio INTEGER DEFAULT 0,
+      ultima_aggiunta DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(nome, gruppo_id),
+      FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE
+    );
+  SQL
 
   db.execute <<-SQL
-  CREATE INDEX IF NOT EXISTS idx_group_cards_user 
-  ON group_cards (user_id);
-SQL
+    CREATE TABLE IF NOT EXISTS gruppo_carte_collegamenti (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gruppo_id INTEGER NOT NULL,
+      carta_id INTEGER NOT NULL,
+      added_by INTEGER NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE,
+      FOREIGN KEY (carta_id) REFERENCES carte_fedelta(id) ON DELETE CASCADE,
+      UNIQUE(gruppo_id, carta_id)
+    );
+  SQL
+
+  # Crea indici per performance
+  db.execute <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_storico_gruppo_conteggio 
+    ON storico_articoli (gruppo_id, conteggio DESC, ultima_aggiunta DESC);
+  SQL
+
+  db.execute <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_storico_gruppo_nome 
+    ON storico_articoli (gruppo_id, nome);
+  SQL
 
   puts "✅ Database inizializzato con schema corretto"
   db

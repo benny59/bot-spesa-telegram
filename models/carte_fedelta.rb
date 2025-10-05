@@ -5,6 +5,7 @@ require "barby/barcode/code_128"
 require "barby/barcode/ean_13"
 require "barby/barcode/ean_8"
 require "barby/outputter/png_outputter"
+require_relative 'barcode_scanner'
 
 require "fileutils"
 require "faraday"
@@ -41,12 +42,13 @@ class CarteFedelta
     nome, codice = parts
 
     begin
-      result = genera_barcode_con_nome(codice, nome, user_id)
+        formato = identifica_formato(codice)
+    result = genera_barcode_con_nome(codice, nome, user_id, formato)
 
-      DB.execute(
-        "INSERT INTO carte_fedelta (user_id, nome, codice, formato, immagine_path) VALUES (?, ?, ?, ?, ?)",
-        [user_id, nome, codice, result[:formato].to_s, result[:img_path]]
-      )
+     DB.execute(
+      "INSERT INTO carte_fedelta (user_id, nome, codice, formato, immagine_path) VALUES (?, ?, ?, ?, ?)",
+      [user_id, nome, codice, formato, result[:img_path]]
+    )
 
       if File.exist?(result[:img_path])
         bot.api.send_photo(
@@ -108,51 +110,60 @@ end
     data = callback_query.data
 
     case data
-    when /^carte:(\d+):(\d+)$/
-      uid, carta_id = $1.to_i, $2.to_i
-      return if uid != user_id
+  when /^carte:(\d+):(\d+)$/
+    uid, carta_id = $1.to_i, $2.to_i
+    return if uid != user_id
 
-      row = DB.execute("SELECT * FROM carte_fedelta WHERE id = ? AND user_id = ?", [carta_id, uid]).first
+    row = DB.execute("SELECT * FROM carte_fedelta WHERE id = ? AND user_id = ?", [carta_id, uid]).first
 
-      if row
-        img_path = row["immagine_path"]
+    if row
+        puts "🔍 [DEBUG] Carta dal DB:"
+      puts "   ID: #{row["id"]}"
+      puts "   Nome: #{row["nome"]}"
+      puts "   Codice: #{row["codice"]}"
+      puts "   Formato: '#{row["formato"]}'"
+      puts "   Immagine: #{row["immagine_path"]}"
 
-        # Se l'immagine non esiste o è corrotta, rigenera
-        unless img_path && File.exist?(img_path) && File.size(img_path) > 100
-          puts "🔄 [CALLBACK] Rigenerazione necessaria per carta #{row["id"]}"
-          begin
-            result = genera_barcode_con_nome(row["codice"], row["nome"], uid)
+      img_path = row["immagine_path"]
+      formato_db = row["formato"]  # 🔥 PRENDI IL FORMATO DAL DB
 
-            # Aggiorna il percorso nel database
-            DB.execute("UPDATE carte_fedelta SET immagine_path = ?, formato = ? WHERE id = ?",
-                       [result[:img_path], result[:formato].to_s, carta_id])
-            img_path = result[:img_path]
+      # Se l'immagine non esiste o è corrotta, rigenera CON IL FORMATO DEL DB
+      unless img_path && File.exist?(img_path) && File.size(img_path) > 100
+        puts "🔄 [CALLBACK] Rigenerazione necessaria per carta #{row["id"]}"
+        begin
+          # 🔥 USA IL FORMATO DAL DATABASE invece di identifica_formato
+          result = genera_barcode_con_nome(row["codice"], row["nome"], uid, formato_db)
+          result = genera_barcode_con_nome(row["codice"], row["nome"], user_id, formato_db)
 
-            puts "✅ [CALLBACK] Rigenerato: #{img_path}"
-          rescue => e
-            puts "❌ [CALLBACK] Rigenerazione fallita: #{e.message}"
-            bot.api.send_message(chat_id: user_id, text: "❌ Errore nella rigenerazione del barcode.")
-            return
-          end
+          # Aggiorna il percorso nel database
+          DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?",
+                     [result[:img_path], carta_id])
+          img_path = result[:img_path]
+
+          puts "✅ [CALLBACK] Rigenerato: #{img_path} con formato #{formato_db}"
+        rescue => e
+          puts "❌ [CALLBACK] Rigenerazione fallita: #{e.message}"
+          bot.api.send_message(chat_id: user_id, text: "❌ Errore nella rigenerazione del barcode.")
+          return
         end
-
-        # Invia l'immagine CON CODICE COME DIDASCALIA
-        if File.exist?(img_path)
-          caption = "💳 #{row["nome"]}\n🔢 Codice: #{row["codice"]}"
-
-          bot.api.send_photo(
-            chat_id: user_id,
-            photo: Faraday::UploadIO.new(img_path, "image/png"),
-            caption: caption,
-          )
-        else
-          bot.api.send_message(chat_id: user_id, text: "❌ Immagine non disponibile per #{row["nome"]}")
-        end
-      else
-        bot.api.send_message(chat_id: user_id, text: "❌ Carta non trovata.")
       end
 
-      # 👇 AGGIUNGI QUESTI NUOVI CASI PER LA CANCELLAZIONE
+      # Invia l'immagine
+      if File.exist?(img_path)
+        caption = "💳 #{row["nome"]}\n🔢 Codice: #{row["codice"]}\n📊 Formato: #{formato_db.upcase}"
+
+        bot.api.send_photo(
+          chat_id: user_id,
+          photo: Faraday::UploadIO.new(img_path, "image/png"),
+          caption: caption,
+        )
+      else
+        bot.api.send_message(chat_id: user_id, text: "❌ Immagine non disponibile per #{row["nome"]}")
+      end
+    else
+      bot.api.send_message(chat_id: user_id, text: "❌ Carta non trovata.")
+    end
+       # 👇 AGGIUNGI QUESTI NUOVI CASI PER LA CANCELLAZIONE
     when "carte_delete"
       show_delete_interface(bot, user_id)
     when /^carte_confirm_delete:(\d+)$/
@@ -166,6 +177,39 @@ end
   end
   # METODI PRIVATI
   private
+
+  def self.scan_and_save_card(bot, user_id, image_path, card_name = nil)
+    barcode_data = BarcodeScanner.scan_image(image_path)
+    
+    return { success: false, error: "Nessun barcode rilevato" } unless barcode_data
+    
+    # Se non abbiamo il nome, restituiamo i dati per il naming
+    unless card_name
+      return { 
+        success: true, 
+        barcode_data: barcode_data,
+        needs_naming: true 
+      }
+    end
+    
+    # Se abbiamo il nome, salviamo direttamente
+    begin
+      DB.execute(
+        "INSERT INTO carte_fedelta (user_id, nome, codice, formato) VALUES (?, ?, ?, ?)",
+        [user_id, card_name, barcode_data, 'code128']
+      )
+      
+      return { 
+        success: true, 
+        barcode_data: barcode_data,
+        card_name: card_name 
+      }
+    rescue => e
+      return { success: false, error: e.message }
+    end
+  end
+
+
 
 def self.identifica_formato(codice)
   # Pulizia automatica del codice dai caratteri non stampabili
@@ -207,55 +251,64 @@ def self.identifica_formato(codice)
   end
 end
 
-  def self.genera_barcode_con_nome(codice, nome, user_id)
-    nome_file = nome.downcase.gsub(/\s+/, "_")
-    elimina_file_per_nome(user_id, nome_file)
-    img_path = File.join(DATA_DIR, "#{nome_file}_#{user_id}_#{Time.now.to_i}.png")
-    formato = identifica_formato(codice)
+def self.genera_barcode_con_nome(codice, nome, user_id, formato_db = nil)
+  nome_file = nome.downcase.gsub(/\s+/, "_")
+  elimina_file_per_nome(user_id, nome_file)
+  img_path = File.join(DATA_DIR, "#{nome_file}_#{user_id}_#{Time.now.to_i}.png")
+  
+  # 🔥 USA IL FORMATO DAL DB SE ESISTE, altrimenti identificalo
+  formato = formato_db ? formato_db.to_sym : identifica_formato(codice)
 
-    puts "🔍 [BARCODE] Generando #{formato} per: #{nome} - #{codice}"
+  puts "🔍 [BARCODE] Generando #{formato} per: #{nome} - #{codice}"
 
-    begin
-      case formato
-        when :code39
-    # 🔴 GENERA CODE_39 invece di CODE_128
-    Barbie::Code39.new(codice).save(filepath)
-    puts "✅ [BARBY] Barcode CODE_39 generato: #{filepath}"
-    
-      when :ean8
-        barcode = Barby::EAN8.new(codice)
-      when :upca
-        if codice.length == 12
-          barcode = Barby::EAN13.new("0#{codice}")
-        else
-          barcode = Barby::EAN13.new(codice[0..11])
-        end
-      when :ean13
-        barcode = Barby::EAN13.new(codice[0..11])
-      when :itf14, :itf
-        puts "🔄 [#{formato}] Formato ITF non supportato, uso Code128"
-        barcode = Barby::Code128.new(codice)
-        # 👇 AGGIUNGI QUESTO CASO PER QR CODE
-      when :qrcode
-        return genera_qrcode(codice, nome, img_path)
+  begin
+    case formato
+    when :code39
+      barcode = Barby::Code39.new(codice)
+    when :ean8
+      barcode = Barby::EAN8.new(codice)
+    when :upca
+      if codice.length == 12
+        barcode = Barby::EAN13.new("0#{codice}")
       else
-        barcode = Barby::Code128.new(codice)
+        barcode = Barby::EAN13.new(codice[0..11])
       end
-
-      # Solo per barcode normali (non QR)
-      unless formato == :qrcode
-        png_data = barcode.to_png(height: 250, margin: 25, xdim: 4)
-        File.open(img_path, "wb") { |f| f.write(png_data) }
-        puts "✅ [BARBY] Barcode generato: #{img_path}"
-      end
-
-      return { success: true, img_path: img_path, formato: formato, provider: :barby }
-    rescue => e
-      puts "❌ [BARBY] Errore: #{e.message}"
-      # ... resto del codice di fallback esistente ...
+    when :ean13
+      barcode = Barby::EAN13.new(codice[0..11])
+    when :itf14, :itf
+      barcode = Barby::Code128.new(codice)
+    when :qrcode
+      return genera_qrcode(codice, nome, img_path)
+    else
+      barcode = Barby::Code128.new(codice)
     end
-  end
 
+    # Solo per barcode normali (non QR)
+    unless formato == :qrcode
+      png_data = barcode.to_png(height: 100, margin: 10, xdim: 2)
+      File.open(img_path, "wb") { |f| f.write(png_data) }
+      puts "✅ [BARBY] Barcode generato: #{img_path}"
+    end
+
+    return { success: true, img_path: img_path, formato: formato, provider: :barby }
+  rescue => e
+    puts "❌ [BARBY] Errore: #{e.message}"
+    
+    # 🔥 SOLO FALLBACK A CODE128 - NO TEC-IT
+    begin
+      puts "🔄 [FALLBACK] Tentativo con Code128..."
+      barcode = Barby::Code128.new(codice)
+      png_data = barcode.to_png(height: 100, margin: 10, xdim: 2)
+      File.open(img_path, "wb") { |f| f.write(png_data) }
+      puts "✅ [CODE128] Barcode generato: #{img_path}"
+      return { success: true, img_path: img_path, formato: :code128, provider: :fallback }
+    rescue => e3
+      puts "❌ [CODE128] Errore: #{e3.message}"
+      return { success: false, error: e3.message }
+    end
+    
+  end
+end
   # 👇 AGGIUNGI QUESTO NUOVO METODO PER GENERARE QR CODE
   def self.genera_qrcode(codice, nome, img_path)
     puts "📱 [QRCODE] Generando QR code per: #{nome}"

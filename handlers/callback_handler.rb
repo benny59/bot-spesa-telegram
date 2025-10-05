@@ -7,80 +7,80 @@ require_relative "../utils/keyboard_generator"
 require_relative "../db"
 
 class CallbackHandler
-  def self.handle(bot, msg)
-    chat_id = msg.message.respond_to?(:chat) ? msg.message.chat.id : msg.from.id
-    user_id = msg.from.id
-    data = msg.data.to_s
-    puts "🖱 Callback: #{data} - User: #{user_id} - Chat: #{chat_id}"
+def self.handle(bot, msg)
+  chat_id = msg.message.respond_to?(:chat) ? msg.message.chat.id : msg.from.id
+  user_id = msg.from.id
+  data = msg.data.to_s
+  puts "🖱 Callback: #{data} - User: #{user_id} - Chat: #{chat_id}"
 
-    case data
-    when /^comprato:(\d+):(\d+)$/
-      handle_comprato(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^cancella:(\d+):(\d+)$/
-      handle_cancella(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^cancella_tutti:(\d+)$/
-      handle_cancella_tutti(bot, msg, chat_id, user_id, $1.to_i)
-    when /^azioni_menu:(\d+):(\d+)$/
-      handle_azioni_menu(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^cancel_azioni:(\d+):(\d+)$/
-      handle_cancel_azioni(bot, msg, chat_id)
-    when /^view_foto:(\d+):(\d+)$/
-      handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i)
-    when /^mostra_carte:(\d+)$/
-      gruppo_id = $1.to_i
-      CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id)
-    when /^carte:(\d+):(\d+)$/
-      CarteFedelta.handle_callback(bot, msg)
-    when "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
-      CarteFedelta.handle_callback(bot, msg)
+  case data
+  when /^comprato:(\d+):(\d+)$/
+    handle_comprato(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
+  when /^cancella:(\d+):(\d+)$/
+    handle_cancella(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
+  when /^cancella_tutti:(\d+)$/
+    handle_cancella_tutti(bot, msg, chat_id, user_id, $1.to_i)
+  when /^azioni_menu:(\d+):(\d+)$/
+    handle_azioni_menu(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
+  when /^cancel_azioni:(\d+):(\d+)$/
+    handle_cancel_azioni(bot, msg, chat_id)
+  when /^view_foto:(\d+):(\d+)$/
+    handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i)
+  when /^mostra_carte:(\d+)$/
+    gruppo_id = $1.to_i
+    CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id)
+  when /^carte:(\d+):(\d+)$/
+    CarteFedelta.handle_callback(bot, msg)
+  when "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
+    CarteFedelta.handle_callback(bot, msg)
 
-      # AGGIUNGI QUESTI CASI PER LE CARTE GRUPPO
-    when /^carte_gruppo:(\d+):(\d+)$/,
-         /^carte_gruppo_delete:(\d+):(\d+)$/,
-         /^carte_gruppo_confirm_delete:(\d+):(\d+)$/,
-         /^carte_gruppo_back:(\d+)$/
-      CarteFedeltaGruppo.handle_callback(bot, msg)
+  # 🔥 AGGIUNTA COMPLETA: Tutte le callback per le carte gruppo
+  when /^carte_gruppo:(\d+):(\d+)$/,
+       /^carte_gruppo_delete:(\d+):(\d+)$/,
+       /^carte_gruppo_confirm_delete:(\d+):(\d+)$/,
+       /^carte_gruppo_back:(\d+)$/,
+       /^carte_gruppo_add:(\d+):(\d+)$/,
+       /^carte_gruppo_remove:(\d+):(\d+)$/,
+       /^carte_gruppo_add_finish:(\d+)$/
+    CarteFedeltaGruppo.handle_callback(bot, msg)
 
-      # Aggiungi al gestore callback esistente
-
-    when /^checklist_add:[^:]+:\d+:\d+$/ # Delegato a StoricoManager
-      handled = StoricoManager.gestisci_click_checklist(bot, msg, data)
-      unless handled
-        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nell'aggiunta")
-      end
-    when /^checklist_close:-?\d+$/
-      # Delegato a StoricoManager
-      handled = StoricoManager.gestisci_chiusura_checklist(bot, msg, data)
-      unless handled
-        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nella chiusura")
-      end
-    when /^approve_user:(\d+):([^:]*):(.+)$/
-      handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
-    when /^reject_user:(\d+)$/
-      handle_reject_user(bot, msg, chat_id, $1.to_i)
-    when /^show_list:(\d+)$/
-      handle_show_list(bot, msg, chat_id, user_id, $1.to_i)
-    when /^(add_foto|replace_foto):(\d+):(\d+)$/
-      handle_add_replace_foto(bot, msg, chat_id, $2.to_i, $3.to_i)
-    when /^remove_foto:(\d+):(\d+)$/
-      handle_remove_foto(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^foto_menu:(\d+):(\d+)$/
-      handle_foto_menu(bot, msg, chat_id, $1.to_i, $2.to_i)
-    when /^toggle:(\d+):(\d+)$/
-      handle_toggle(bot, msg, $1.to_i, $2.to_i)
-    when /^toggle_view_mode:(\d+)$/
-      handle_toggle_view_mode(bot, msg, chat_id, user_id, $1.to_i)
-    when /^aggiungi:(\d+)$/
-      handle_aggiungi(bot, msg, chat_id, $1.to_i)
-    when /^cancel_foto:(\d+):(\d+)$/
-      handle_cancel_foto(bot, msg, chat_id)
-    when /^info:(\d+):(\d+)$/
-      handle_info(bot, msg, $1.to_i, $2.to_i)
-    else
-      puts "❌ Callback non riconosciuto: #{data}"
+  when /^checklist_add:[^:]+:\d+:\d+$/ # Delegato a StoricoManager
+    handled = StoricoManager.gestisci_click_checklist(bot, msg, data)
+    unless handled
+      bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nell'aggiunta")
     end
+  when /^checklist_close:-?\d+$/
+    # Delegato a StoricoManager
+    handled = StoricoManager.gestisci_chiusura_checklist(bot, msg, data)
+    unless handled
+      bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nella chiusura")
+    end
+  when /^approve_user:(\d+):([^:]*):(.+)$/
+    handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
+  when /^reject_user:(\d+)$/
+    handle_reject_user(bot, msg, chat_id, $1.to_i)
+  when /^show_list:(\d+)$/
+    handle_show_list(bot, msg, chat_id, user_id, $1.to_i)
+  when /^(add_foto|replace_foto):(\d+):(\d+)$/
+    handle_add_replace_foto(bot, msg, chat_id, $2.to_i, $3.to_i)
+  when /^remove_foto:(\d+):(\d+)$/
+    handle_remove_foto(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
+  when /^foto_menu:(\d+):(\d+)$/
+    handle_foto_menu(bot, msg, chat_id, $1.to_i, $2.to_i)
+  when /^toggle:(\d+):(\d+)$/
+    handle_toggle(bot, msg, $1.to_i, $2.to_i)
+  when /^toggle_view_mode:(\d+)$/
+    handle_toggle_view_mode(bot, msg, chat_id, user_id, $1.to_i)
+  when /^aggiungi:(\d+)$/
+    handle_aggiungi(bot, msg, chat_id, $1.to_i)
+  when /^cancel_foto:(\d+):(\d+)$/
+    handle_cancel_foto(bot, msg, chat_id)
+  when /^info:(\d+):(\d+)$/
+    handle_info(bot, msg, $1.to_i, $2.to_i)
+  else
+    puts "❌ Callback non riconosciuto: #{data}"
   end
-
+end
   private
 
   def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id)
