@@ -47,16 +47,23 @@ class MessageHandler
     user_id = msg.from.id if msg.from
     puts "💬 Messaggio: #{msg.text} - Chat: #{chat_id} - Type: #{msg.chat.type}"
 
+    if msg.photo
+      puts "📸 MESSAGGIO FOTO RILEVATO:"
+      puts "  - Caption: #{msg.caption.inspect}"
+      puts "  - Text: #{msg.text.inspect}"
+      puts "  - Numero foto: #{msg.photo.size}"
+    end
+
     # Salva il nome utente quando ricevi un messaggio
     if msg.from
       Whitelist.salva_nome_utente(msg.from.id, msg.from.first_name, msg.from.last_name)
     end
-    
-  # 🔥 PRIMA gestisci le foto in chat privata
-  if msg.photo && msg.photo.any? && msg.chat.type == "private"
-    handle_private_photo(bot, msg, chat_id, user_id)
-    return
-  end
+
+    # 🔥 PRIMA gestisci le foto in chat privata
+    if msg.photo && msg.photo.any? && msg.chat.type == "private"
+      handle_private_photo(bot, msg, chat_id, user_id)
+      return
+    end
 
     if msg.photo && msg.photo.any?
       handle_photo_message(bot, msg, chat_id, user_id)
@@ -103,233 +110,353 @@ class MessageHandler
   # ========================================
   # 🔑 MESSAGGI PRIVATI
   # ========================================
-def self.handle_private_message(bot, msg, chat_id, user_id)
-  pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ? AND action LIKE 'naming_card%'", [chat_id])
-  if pending && msg.text && !msg.text.start_with?('/')
-    handle_card_naming(bot, msg, chat_id, user_id, pending)
-    return
-  end
+  def self.handle_private_message(bot, msg, chat_id, user_id)
+    pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ? AND action LIKE 'naming_card%'", [chat_id])
 
-  case msg.text
-  when "/start"
-    handle_start(bot, chat_id)
-  when "/newgroup"
-    handle_newgroup(bot, msg, chat_id, user_id)
-  when "/whois_creator"
-    handle_whois_creator(bot, chat_id, user_id)
-  when "/delcarta"
-    CarteFedelta.show_delete_interface(bot, user_id)
-  when "/reportcarte"
-    CarteFedeltaGruppo.show_user_shared_cards_report(bot, user_id)
-  when "/whitelist_show"
-    if Whitelist.is_creator?(user_id)
-      handle_whitelist_show(bot, chat_id, user_id)
-    else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+    if pending && msg.text && !msg.text.start_with?("/")
+      handle_card_naming(bot, msg, chat_id, user_id, pending)
+      return
     end
-  when "/pending_requests"
-    if Whitelist.is_creator?(user_id)
-      handle_pending_requests(bot, chat_id, user_id)
-    else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
-    end
-  when /^\/whitelist_add\s+(\S+)/
-    if Whitelist.is_creator?(user_id)
-      user_input = $1.strip
 
-      if user_input =~ /^\d+$/
-        user_id_to_add = user_input.to_i
-        Whitelist.add_user(user_id_to_add, "Utente", "Aggiunto manualmente")
-        bot.api.send_message(chat_id: chat_id, text: "✅ Utente ID #{user_id_to_add} aggiunto alla whitelist!")
+    if msg.photo && msg.caption
+      # Se c'è una foto con caption, usa il caption come nome della carta
+      handle_photo_with_caption(bot, msg, chat_id, user_id)
+      return
+    elsif msg.photo && !msg.caption
+      # Se c'è una foto senza caption, procedi con il flusso normale di naming
+      handle_photo_without_caption(bot, msg, chat_id, user_id)
+      return
+    end
+
+    case msg.text
+    when "/start"
+      handle_start(bot, chat_id)
+    when "/newgroup"
+      handle_newgroup(bot, msg, chat_id, user_id)
+    when "/whois_creator"
+      handle_whois_creator(bot, chat_id, user_id)
+    when "/delcarta"
+      CarteFedelta.show_delete_interface(bot, user_id)
+    when "/reportcarte"
+      CarteFedeltaGruppo.show_user_shared_cards_report(bot, user_id)
+    when "/whitelist_show"
+      if Whitelist.is_creator?(user_id)
+        handle_whitelist_show(bot, chat_id, user_id)
       else
-        bot.api.send_message(
-          chat_id: chat_id,
-          text: "❌ Usa solo ID numerici.\n\nPer trovare l'ID di un utente, digli di usare @userinfobot",
-        )
+        bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
       end
-    else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
-    end
-  when /^\/whitelist_remove\s+(\S+)/
-    if Whitelist.is_creator?(user_id)
-      user_input = $1.strip
-
-      if user_input =~ /^\d+$/
-        user_id_to_remove = user_input.to_i
-        DB.execute("DELETE FROM whitelist WHERE user_id = ?", [user_id_to_remove])
-        bot.api.send_message(chat_id: chat_id, text: "✅ Utente ID #{user_id_to_remove} rimosso dalla whitelist!")
+    when "/pending_requests"
+      if Whitelist.is_creator?(user_id)
+        handle_pending_requests(bot, chat_id, user_id)
       else
-        bot.api.send_message(
-          chat_id: chat_id,
-          text: "❌ Usa solo ID numerici.\n\nPer trovare l'ID di un utente, digli di usare @userinfobot",
-        )
+        bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
       end
-    else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
-    end
-  when "/cleanup"
-    if Whitelist.is_creator?(user_id)
-      CleanupManager.esegui_cleanup(bot, chat_id, user_id)
-    else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
-    end
-  when "/carte"
-    CarteFedelta.show_user_cards(bot, user_id)
-  when /^\/addcarta (.+)/
-    CarteFedelta.add_card(bot, user_id, $1)
-  # 👇 MODIFICA QUESTA PARTE PER GESTIRE L'INTERFACCIA DI AGGIUNTA AL GRUPPO
-  when "/addcartagruppo"
-    # Se viene usato direttamente in privato, mostra un messaggio più informativo
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "🏢 *Aggiungi carte al gruppo*\n\n" +
-            "Per aggiungere le tue carte personali a un gruppo:\n" +
-            "1. Vai nel gruppo dove vuoi condividere le carte\n" +
-            "2. Usa il comando `/addcartagruppo`\n" +
-            "3. Riceverai questo messaggio in privato per selezionare le carte\n\n" +
-            "✅ Le carte che condividi saranno visibili a tutti i membri del gruppo",
-      parse_mode: "Markdown"
-    )
-  when "/cartegruppo", "/delcartagruppo"
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "❌ Questo comando funziona solo nei gruppi. Vai nel gruppo dove vuoi gestire le carte condivise.",
-    )
-  when "/lista", "/checklist", "/ss"
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "❌ Questo comando funziona solo nei gruppi con una lista attiva.",
-    )
-  end
-end 
-# ========================================
-# 🏷️ NAMING CARTA DOPO SCANSIONE
-# ========================================
-def self.handle_card_naming(bot, msg, chat_id, user_id, pending)
-  card_name = msg.text.strip
-  
-  puts "🏷️ Ricevuto nome carta: #{card_name} per pending: #{pending.inspect}"
-  
-  # 🔥 ESTRAI BARCODE DAL ACTION
-  action_parts = pending["action"].split(":")
-  if action_parts.length >= 3
-    barcode_data = action_parts[1]
-    barcode_format = action_parts[2]
-  else
-    # Fallback per formati vecchi
-    barcode_data = pending["action"].sub('naming_card:', '')
-    barcode_format = 'code128'
-  end
-  
-  
-  puts "💾 Salvataggio carta: #{card_name} - #{barcode_data}"
+    when /^\/whitelist_add\s+(\S+)/
+      if Whitelist.is_creator?(user_id)
+        user_input = $1.strip
 
-  # Validazione nome
-  if card_name.empty? || card_name.length > 50
-    bot.api.send_message(
-      chat_id: chat_id, 
-      text: "❌ Nome non valido. Usa un nome breve (max 50 caratteri)."
-    )
-    return
-  end
-  
-  begin
-    # Salva la carta nel database
-    DB.execute(
-      "INSERT INTO carte_fedelta (user_id, nome, codice, formato) VALUES (?, ?, ?, ?)",
-      [user_id, card_name, barcode_data, barcode_format]
-    )
-    # 🔥 VERIFICA IL SALVATAGGIO
-    carta_salvata = DB.execute("SELECT * FROM carte_fedelta WHERE user_id = ? AND nome = ?", [user_id, card_name]).first
-    puts "✅ Carta salvata nel DB: formato = '#{carta_salvata["formato"]}'" if carta_salvata
-    
-    # Pulisci pending action
-    DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-    
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "✅ Carta '#{card_name}' salvata con successo!\n\nCodice: #{barcode_data}\n\nUsa /carte per visualizzare le tue carte."
-    )
-    
-    puts "✅ Carta salvata: #{card_name} - #{barcode_data} per user #{user_id}"
-    
-  rescue => e
-    puts "❌ Errore nel salvataggio carta: #{e.message}"
-    bot.api.send_message(chat_id: chat_id, text: "❌ Errore nel salvataggio: #{e.message}")
-  end
-end
-# ========================================
-# 📸 FOTO PRIVATE (scansione barcode)
-# ========================================
-def self.handle_private_photo(bot, msg, chat_id, user_id)
-  puts "📸 Foto ricevuta in chat privata - Scansione barcode in corso..."
-  
-  begin
-    # Scarica la foto
-    photo = msg.photo.last
-    file_info = bot.api.get_file(file_id: photo.file_id)
-    
-    # 🔥 CORREZIONE: file_info è un oggetto, non un Hash
-    file_path = file_info.file_path
-    
-    if file_path
-      # Scarica il file temporaneamente
-      temp_file = Tempfile.new(['barcode_scan', '.jpg'])
-      token = DB.get_first_value("SELECT value FROM config WHERE key = 'token'")
-      file_url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
-      
-      puts "📥 Download immagine da: #{file_url}"
-      
-      URI.open(file_url) do |remote_file|
-        temp_file.write(remote_file.read)
+        if user_input =~ /^\d+$/
+          user_id_to_add = user_input.to_i
+          Whitelist.add_user(user_id_to_add, "Utente", "Aggiunto manualmente")
+          bot.api.send_message(chat_id: chat_id, text: "✅ Utente ID #{user_id_to_add} aggiunto alla whitelist!")
+        else
+          bot.api.send_message(
+            chat_id: chat_id,
+            text: "❌ Usa solo ID numerici.\n\nPer trovare l'ID di un utente, digli di usare @userinfobot",
+          )
+        end
+      else
+        bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
       end
-      temp_file.rewind
-      
-      puts "🔍 Scansionando barcode con zbar..."
-     scan_result = BarcodeScanner.scan_image(temp_file.path)
-    
-    if scan_result && scan_result[:data]
-      barcode_data = scan_result[:data]
-      barcode_format = scan_result[:format]
-      
-      puts "✅ Barcode rilevato: #{barcode_data} (formato: #{barcode_format})"
-      
-      # Salva barcode e formato nel pending action
-      action_with_barcode = "naming_card:#{barcode_data}:#{barcode_format}"
-      
-      DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action) VALUES (?, ?)",
-                 [chat_id, action_with_barcode])
-      
+    when /^\/whitelist_remove\s+(\S+)/
+      if Whitelist.is_creator?(user_id)
+        user_input = $1.strip
+
+        if user_input =~ /^\d+$/
+          user_id_to_remove = user_input.to_i
+          DB.execute("DELETE FROM whitelist WHERE user_id = ?", [user_id_to_remove])
+          bot.api.send_message(chat_id: chat_id, text: "✅ Utente ID #{user_id_to_remove} rimosso dalla whitelist!")
+        else
+          bot.api.send_message(
+            chat_id: chat_id,
+            text: "❌ Usa solo ID numerici.\n\nPer trovare l'ID di un utente, digli di usare @userinfobot",
+          )
+        end
+      else
+        bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+      end
+    when "/cleanup"
+      if Whitelist.is_creator?(user_id)
+        CleanupManager.esegui_cleanup(bot, chat_id, user_id)
+      else
+        bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+      end
+    when "/carte"
+      CarteFedelta.show_user_cards(bot, user_id)
+    when /^\/addcarta (.+)/
+      CarteFedelta.add_card(bot, user_id, $1)
+      # 👇 MODIFICA QUESTA PARTE PER GESTIRE L'INTERFACCIA DI AGGIUNTA AL GRUPPO
+    when "/addcartagruppo"
+      # Se viene usato direttamente in privato, mostra un messaggio più informativo
       bot.api.send_message(
         chat_id: chat_id,
-        text: "📷 Barcode rilevato!\n\nCodice: `#{barcode_data}`\nTipo: #{barcode_format.upcase}\n\nCome vuoi chiamare questa carta? (es. coop, esselunga, pam...)",
-        parse_mode: "Markdown"
+        text: "🏢 *Aggiungi carte al gruppo*\n\n" +
+              "Per aggiungere le tue carte personali a un gruppo:\n" +
+              "1. Vai nel gruppo dove vuoi condividere le carte\n" +
+              "2. Usa il comando `/addcartagruppo`\n" +
+              "3. Riceverai questo messaggio in privato per selezionare le carte\n\n" +
+              "✅ Le carte che condividi saranno visibili a tutti i membri del gruppo",
+        parse_mode: "Markdown",
+      )
+    when "/cartegruppo", "/delcartagruppo"
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "❌ Questo comando funziona solo nei gruppi. Vai nel gruppo dove vuoi gestire le carte condivise.",
+      )
+    when "/lista", "/checklist", "/ss"
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "❌ Questo comando funziona solo nei gruppi con una lista attiva.",
+      )
+    end
+  end
+
+  # 🔥 AGGIUNGI QUESTI METODI NELLO STESSO FILE
+
+  def self.handle_photo_with_caption(bot, msg, chat_id, user_id)
+    caption = msg.caption.strip
+    photo = msg.photo.last
+
+    begin
+      # 🔥 MODIFICA: Prima scansiona il barcode, poi chiedi il codice solo se necessario
+      file_info = bot.api.get_file(file_id: photo.file_id)
+      file_path = file_info.file_path
+
+      if file_path
+        # Scarica la foto
+        temp_file = Tempfile.new(["barcode_scan", ".jpg"])
+        token = DB.get_first_value("SELECT value FROM config WHERE key = 'token'")
+        file_url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
+
+        puts "📥 Download immagine da: #{file_url}"
+
+        URI.open(file_url) do |remote_file|
+          temp_file.write(remote_file.read)
+        end
+        temp_file.rewind
+
+        # Scansiona barcode
+        puts "🔍 Scansionando barcode con zbar..."
+        scan_result = BarcodeScanner.scan_image(temp_file.path)
+
+        if scan_result && scan_result[:data]
+          barcode_data = scan_result[:data]
+          barcode_format = scan_result[:format]
+
+          puts "✅ Barcode rilevato: #{barcode_data} (formato: #{barcode_format})"
+
+          # 🔥 CREA DIRETTAMENTE LA CARTA - nome dal caption, codice dal barcode
+          create_card_from_photo(bot, chat_id, user_id, temp_file.path, caption, barcode_data, barcode_format)
+        else
+          puts "❌ Nessun barcode rilevato"
+          # Se non trova barcode, chiede il codice manualmente
+          DB.execute(
+            "INSERT INTO pending_actions (chat_id, action, item_id, creato_il) VALUES (?, ?, ?, datetime('now'))",
+            [chat_id, "naming_card_with_caption:#{caption}", photo.file_id]
+          )
+
+          bot.api.send_message(
+            chat_id: chat_id,
+            text: "❌ Nessun codice a barre rilevato.\n\nNome: *#{caption}*\nInvia il *codice* manualmente...",
+            parse_mode: "Markdown",
+          )
+        end
+
+        # Pulisci file temporaneo
+        temp_file.close
+        temp_file.unlink
+      else
+        bot.api.send_message(chat_id: chat_id, text: "❌ Errore nel download dell'immagine.")
+      end
+    rescue => e
+      puts "❌ Errore gestione foto con caption: #{e.message}"
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'elaborazione della foto.")
+    end
+  end
+
+  # 🔥 MODIFICA: Aggiorna il metodo handle_card_naming per gestire entrambi i casi
+
+  # 🔥 MODIFICA: Gestione foto senza caption (flusso esistente)
+  def self.handle_photo_without_caption(bot, msg, chat_id, user_id)
+    photo = msg.photo.last  # La foto più grande
+
+    begin
+      # Salva l'azione pending
+      DB.execute(
+        "INSERT INTO pending_actions (chat_id, action, item_id, creato_il) VALUES (?, ?, ?, datetime('now'))",
+        [chat_id, "naming_card", photo.file_id]
       )
 
-      else
-        puts "❌ Nessun barcode rilevato"
-        bot.api.send_message(
-          chat_id: chat_id,
-          text: "❌ Nessun codice a barre rilevato nell'immagine. Assicurati che:\n• La foto sia nitida\n• Il codice sia ben illuminato\n• Non ci siano riflessi"
-        )
-      end
-      
-      # Pulisci file temporaneo
-      temp_file.close
-      temp_file.unlink
-    else
-      puts "❌ file_path non disponibile"
-      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nel download dell'immagine.")
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "📸 Foto ricevuta! Ora inviami il *nome* della carta...",
+        parse_mode: "Markdown",
+      )
+    rescue => e
+      puts "❌ Errore gestione foto senza caption: #{e.message}"
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'elaborazione della foto.")
     end
-  rescue => e
-    puts "❌ Errore nella scansione barcode: #{e.message}"
-    puts e.backtrace.join("\n")
-    bot.api.send_message(chat_id: chat_id, text: "❌ Errore durante la scansione del codice a barre: #{e.message}")
   end
-end
 
+  # ========================================
+  # 🏷️ NAMING CARTA DOPO SCANSIONE
+  # ========================================
+  def self.handle_card_naming(bot, msg, chat_id, user_id, pending)
+    puts "🔍 DEBUG handle_card_naming:"
+    puts "  - pending action: #{pending["action"]}"
+    puts "  - messaggio testo: #{msg.text}"
 
-  
+    action_parts = pending["action"].split(":")
+
+    if action_parts[0] == "naming_card_with_caption"
+      # Caso: nome già fornito nel caption
+      nome_carta = action_parts[1]  # Il nome dal caption
+      codice_carta = msg.text.strip
+
+      puts "🔍 Flusso CAPTION - Nome: #{nome_carta}, Codice: #{codice_carta}"
+
+      # Procedi con la creazione della carta
+      create_card_from_photo(bot, chat_id, user_id, pending["item_id"], nome_carta, codice_carta)
+    elsif action_parts[0] == "naming_card"
+      # Caso: nome da richiedere dopo scansione barcode (flusso originale)
+      nome_carta = msg.text.strip
+
+      puts "🔍 Flusso SCANSIONE - Nome: #{nome_carta}, Codice: #{action_parts[1]}"
+
+      # Crea direttamente la carta con nome fornito e codice dal barcode
+      create_card_from_photo(bot, chat_id, user_id, nil, nome_carta, action_parts[1])
+    else
+      # Caso: nome da richiedere (flusso originale senza barcode)
+      nome_carta = msg.text.strip
+
+      puts "🔍 Flusso MANUALE - Nome: #{nome_carta}"
+
+      # Aggiorna l'azione pending per aspettare il codice
+      DB.execute(
+        "UPDATE pending_actions SET action = ? WHERE chat_id = ? AND action LIKE 'naming_card%'",
+        ["waiting_card_code:#{nome_carta}", chat_id]
+      )
+
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "✅ Nome: *#{nome_carta}*\n\nOra inviami il *codice* della carta...",
+        parse_mode: "Markdown",
+      )
+    end
+  end
+
+  # 🔥 NUOVO METODO: Crea la carta dalla foto (gestisce entrambi i casi)
+  def self.create_card_from_photo(bot, chat_id, user_id, image_path, nome_carta, codice_carta, formato_originale = nil)
+    begin
+      # Usa il metodo di CarteFedelta per creare la carta
+      CarteFedelta.add_card_from_photo(bot, user_id, nome_carta, codice_carta, image_path, formato_originale)
+
+      # Pulisci l'azione pending se esiste
+      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+    rescue => e
+      puts "❌ Errore creazione carta da foto: #{e.message}"
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nella creazione della carta dalla foto.")
+
+      # Pulisci comunque l'azione pending
+      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+    end
+  end
+  # ========================================
+  # 📸 FOTO PRIVATE (scansione barcode)
+  # ========================================
+  def self.handle_private_photo(bot, msg, chat_id, user_id)
+    # 🔥 DEBUG: Vediamo cosa c'è nel messaggio
+    puts "🔍 DEBUG - Contenuto messaggio foto:"
+    puts "  - Ha caption?: #{!msg.caption.nil?}"
+    puts "  - Caption: #{msg.caption.inspect}"
+    puts "  - Text: #{msg.text.inspect}"
+    puts "  - Chat type: #{msg.chat.type}"
+    # 🔥 RIMOSSO: puts "  - Content type: #{msg.content_type}" # Questa riga causa l'errore
+
+    # 🔥 MODIFICA: Supporta entrambi i flussi
+    if msg.caption && !msg.caption.empty?
+      # NUOVO FLUSSO: Foto con caption - usa caption come nome
+      puts "📸 Foto ricevuta con caption: #{msg.caption}"
+      handle_photo_with_caption(bot, msg, chat_id, user_id)
+      return  # 🔥 IMPORTANTE: esci dal metodo qui
+    else
+      # VECCHIO FLUSSO: Foto senza caption - scansione barcode automatica
+      puts "📸 Foto ricevuta in chat privata - Scansione barcode in corso..."
+    end
+
+    begin
+      # Scarica la foto
+      photo = msg.photo.last
+      file_info = bot.api.get_file(file_id: photo.file_id)
+
+      # 🔥 CORREZIONE: file_info è un oggetto, non un Hash
+      file_path = file_info.file_path
+
+      if file_path
+        # Scarica il file temporaneamente
+        temp_file = Tempfile.new(["barcode_scan", ".jpg"])
+        token = DB.get_first_value("SELECT value FROM config WHERE key = 'token'")
+        file_url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
+
+        puts "📥 Download immagine da: #{file_url}"
+
+        URI.open(file_url) do |remote_file|
+          temp_file.write(remote_file.read)
+        end
+        temp_file.rewind
+
+        puts "🔍 Scansionando barcode con zbar..."
+        scan_result = BarcodeScanner.scan_image(temp_file.path)
+
+        if scan_result && scan_result[:data]
+          barcode_data = scan_result[:data]
+          barcode_format = scan_result[:format]
+
+          puts "✅ Barcode rilevato: #{barcode_data} (formato: #{barcode_format})"
+
+          # Salva barcode e formato nel pending action
+          action_with_barcode = "naming_card:#{barcode_data}:#{barcode_format}"
+
+          DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action) VALUES (?, ?)",
+                     [chat_id, action_with_barcode])
+
+          bot.api.send_message(
+            chat_id: chat_id,
+            text: "📷 Barcode rilevato!\n\nCodice: `#{barcode_data}`\nTipo: #{barcode_format.upcase}\n\nCome vuoi chiamare questa carta? (es. coop, esselunga, pam...)",
+            parse_mode: "Markdown",
+          )
+        else
+          puts "❌ Nessun barcode rilevato"
+          bot.api.send_message(
+            chat_id: chat_id,
+            text: "❌ Nessun codice a barre rilevato nell'immagine. Assicurati che:\n• La foto sia nitida\n• Il codice sia ben illuminato\n• Non ci siano riflessi",
+          )
+        end
+
+        # Pulisci file temporaneo
+        temp_file.close
+        temp_file.unlink
+      else
+        puts "❌ file_path non disponibile"
+        bot.api.send_message(chat_id: chat_id, text: "❌ Errore nel download dell'immagine.")
+      end
+    rescue => e
+      puts "❌ Errore nella scansione barcode: #{e.message}"
+      puts e.backtrace.join("\n")
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore durante la scansione del codice a barre: #{e.message}")
+    end
+  end
+
   def self.handle_start(bot, chat_id)
     bot.api.send_message(chat_id: chat_id, text: "👋 Benvenuto! Usa /newgroup per creare un gruppo virtuale.")
   end
@@ -549,156 +676,153 @@ end
   # ========================================
   # 👥 MESSAGGI DI GRUPPO
   # ========================================
-def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
-  puts "🔍 Gestione messaggio gruppo: #{msg.text}"
+  def self.handle_group_message(bot, msg, chat_id, user_id, bot_username)
+    puts "🔍 Gestione messaggio gruppo: #{msg.text}"
 
-  # PRIMA di tutto: verifica se c'è un gruppo in attesa per questo utente
-  gruppo_in_attesa = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id IS NULL AND creato_da = ?", [user_id])
+    # PRIMA di tutto: verifica se c'è un gruppo in attesa per questo utente
+    gruppo_in_attesa = DB.get_first_row("SELECT * FROM gruppi WHERE chat_id IS NULL AND creato_da = ?", [user_id])
 
-  if gruppo_in_attesa && !msg.text&.start_with?("/delgroup")
-    # 🔄 TROVATO GRUPPO IN ATTESA - Esegui accoppiamento
-    DB.execute("UPDATE gruppi SET chat_id = ?, nome = ? WHERE id = ?",
-               [chat_id, msg.chat.title, gruppo_in_attesa["id"]])
+    if gruppo_in_attesa && !msg.text&.start_with?("/delgroup")
+      # 🔄 TROVATO GRUPPO IN ATTESA - Esegui accoppiamento
+      DB.execute("UPDATE gruppi SET chat_id = ?, nome = ? WHERE id = ?",
+                 [chat_id, msg.chat.title, gruppo_in_attesa["id"]])
 
-    bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo accoppiato! Benvenuto nel tuo nuovo gruppo della spesa.")
-    puts "🎯 Gruppo accoppiato: #{gruppo_in_attesa["id"]} → chat_id #{chat_id}"
+      bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo accoppiato! Benvenuto nel tuo nuovo gruppo della spesa.")
+      puts "🎯 Gruppo accoppiato: #{gruppo_in_attesa["id"]} → chat_id #{chat_id}"
 
-    # Ricarica il gruppo aggiornato
-    gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE id = ?", [gruppo_in_attesa["id"]])
-  else
-    # Comportamento normale: cerca gruppo esistente
-    gruppo = GroupManager.get_gruppo_by_chat_id(chat_id)
-  end
+      # Ricarica il gruppo aggiornato
+      gruppo = DB.get_first_row("SELECT * FROM gruppi WHERE id = ?", [gruppo_in_attesa["id"]])
+    else
+      # Comportamento normale: cerca gruppo esistente
+      gruppo = GroupManager.get_gruppo_by_chat_id(chat_id)
+    end
 
-  # Aggiorna il nome reale da Telegram se serve
-  ensure_group_name(bot, msg, gruppo)
+    # Aggiorna il nome reale da Telegram se serve
+    ensure_group_name(bot, msg, gruppo)
 
-  if gruppo.nil?
+    if gruppo.nil?
+      case msg.text
+      when "/lista", "/lista@#{bot_username}", "/checklist"
+        bot.api.send_message(chat_id: chat_id, text: "📭 Nessuna lista della spesa attiva.\nUsa /newgroup in chat privata per crearne una.")
+        return
+      when "/ss", "/ss@#{bot_username}"
+        bot.api.send_message(chat_id: chat_id, text: "📷 Nessuna lista da visualizzare.")
+        return
+      when "/delgroup", "/delgroup@#{bot_username}"
+        bot.api.send_message(chat_id: chat_id, text: "❌ Nessun gruppo da cancellare.")
+        return
+      when "/newgroup", "/newgroup@#{bot_username}"
+        # Cerca gruppo in attesa per questo utente
+        gruppo_in_attesa = GroupManager.find_pending_by_user(user_id)
+
+        if gruppo_in_attesa
+          # Accoppiamento
+          GroupManager.update_chat_id(gruppo_in_attesa["id"], chat_id, msg.chat.title)
+          bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo accoppiato! Ora puoi usare +articolo per aggiungere elementi.")
+        else
+          bot.api.send_message(chat_id: chat_id,
+                               text: "❌ Nessun gruppo in attesa. Usa /newgroup in chat privata prima.")
+        end
+        return
+      else
+        # Per +articolo e altri messaggi - messaggio generico
+        if msg.text&.start_with?("+")
+          bot.api.send_message(chat_id: chat_id, text: "📭 Crea prima una lista con /newgroup in chat privata")
+        end
+        return
+      end
+    end
+
     case msg.text
-    when "/lista", "/lista@#{bot_username}", "/checklist"
-      bot.api.send_message(chat_id: chat_id, text: "📭 Nessuna lista della spesa attiva.\nUsa /newgroup in chat privata per crearne una.")
+    when "/start", "/start@#{bot_username}"
       return
     when "/ss", "/ss@#{bot_username}"
-      bot.api.send_message(chat_id: chat_id, text: "📷 Nessuna lista da visualizzare.")
+      handle_screenshot_command(bot, msg, gruppo)
+      return
+    when "/checklist", "/checklist@#{bot_username}"
+      StoricoManager.genera_checklist(bot, msg, gruppo["id"])
+      return
+    when "/carte", "/carte@#{bot_username}"
+      CarteFedelta.show_user_cards(bot, user_id)
+      return
+    when "/cartegruppo", "/cartegruppo@#{bot_username}"
+      CarteFedeltaGruppo.show_group_cards(bot, gruppo["id"], chat_id, user_id)  # 👈 chat_id invece di user_id
+      return
+    when "/delcartagruppo", "/delcartagruppo@#{bot_username}"
+      CarteFedeltaGruppo.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
       return
     when "/delgroup", "/delgroup@#{bot_username}"
-      bot.api.send_message(chat_id: chat_id, text: "❌ Nessun gruppo da cancellare.")
+      handle_delgroup(bot, msg, chat_id, user_id)
       return
-    when "/newgroup", "/newgroup@#{bot_username}"
-      # Cerca gruppo in attesa per questo utente
-      gruppo_in_attesa = GroupManager.find_pending_by_user(user_id)
-
-      if gruppo_in_attesa
-        # Accoppiamento
-        GroupManager.update_chat_id(gruppo_in_attesa["id"], chat_id, msg.chat.title)
-        bot.api.send_message(chat_id: chat_id, text: "✅ Gruppo accoppiato! Ora puoi usare +articolo per aggiungere elementi.")
-      else
-        bot.api.send_message(chat_id: chat_id,
-                             text: "❌ Nessun gruppo in attesa. Usa /newgroup in chat privata prima.")
-      end
+    when "/lista", "/lista@#{bot_username}"
+      KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id)
       return
-    else
-      # Per +articolo e altri messaggi - messaggio generico
-      if msg.text&.start_with?("+")
-        bot.api.send_message(chat_id: chat_id, text: "📭 Crea prima una lista con /newgroup in chat privata")
-      end
+    when "?"
+      handle_question_command(bot, chat_id, user_id, gruppo)
       return
-    end
-  end
-
-  case msg.text
-  when "/start", "/start@#{bot_username}"
-    return
-  when "/ss", "/ss@#{bot_username}"
-    handle_screenshot_command(bot, msg, gruppo)
-    return
-  when "/checklist", "/checklist@#{bot_username}"
-    StoricoManager.genera_checklist(bot, msg, gruppo["id"])
-    return
-  when "/carte", "/carte@#{bot_username}"
-    CarteFedelta.show_user_cards(bot, user_id)
-    return
-  when "/cartegruppo", "/cartegruppo@#{bot_username}"
-    CarteFedeltaGruppo.show_group_cards(bot, gruppo["id"], chat_id, user_id)  # 👈 chat_id invece di user_id
-    return
-  when "/delcartagruppo", "/delcartagruppo@#{bot_username}"
-    CarteFedeltaGruppo.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
-    return
-  when "/delgroup", "/delgroup@#{bot_username}"
-    handle_delgroup(bot, msg, chat_id, user_id)
-    return
-  when "/lista", "/lista@#{bot_username}"
-    KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id)
-    return
-  when "?"
-    handle_question_command(bot, chat_id, user_id, gruppo)
-    return
-  when "/delcarta", "/delcarta@#{bot_username}"
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "❌ Usa /delcarta in chat privata per eliminare carte personali.",
-    )
-    return
-  when "/reportcarte", "/reportcarte@#{bot_username}"
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "❌ Usa /reportcarte in chat privata per vedere il report delle carte condivise.",
-    )
-    return
-  when "/listagruppi", "/listagruppi@#{bot_username}"
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "❌ Usa /listagruppi in chat privata per vedere l-elenco dei gruppi.",
-    )
-    return
-  end
-
-  # 🔥 MODIFICA PRINCIPALE: Gestione di /addcartagruppo
-  if msg.text&.start_with?("/addcartagruppo")
-    if gruppo
-      # Invia l'interfaccia nella chat privata dell'utente
-      CarteFedeltaGruppo.handle_addcartagruppo(bot, msg, chat_id, user_id, gruppo)
-      
-      # Conferma nel gruppo che stai inviando l'interfaccia in privato
+    when "/delcarta", "/delcarta@#{bot_username}"
       bot.api.send_message(
         chat_id: chat_id,
-        text: "🏢 Ti ho inviato un messaggio in privato per gestire le carte del gruppo.",
-        reply_to_message_id: msg.message_id
+        text: "❌ Usa /delcarta in chat privata per eliminare carte personali.",
       )
-    else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Nessun gruppo attivo. Usa /newgroup in chat privata.")
+      return
+    when "/reportcarte", "/reportcarte@#{bot_username}"
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "❌ Usa /reportcarte in chat privata per vedere il report delle carte condivise.",
+      )
+      return
+    when "/listagruppi", "/listagruppi@#{bot_username}"
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "❌ Usa /listagruppi in chat privata per vedere l-elenco dei gruppi.",
+      )
+      return
     end
-  elsif msg.text&.start_with?("+")
-    handle_plus_command(bot, msg, chat_id, user_id, gruppo)
-  elsif msg.text&.start_with?("/delcartagruppo")
-    CarteFedeltaGruppo.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
-  else
-    handle_pending_actions(bot, msg, chat_id, user_id, gruppo)
+
+    # 🔥 MODIFICA PRINCIPALE: Gestione di /addcartagruppo
+    if msg.text&.start_with?("/addcartagruppo")
+      if gruppo
+        # Invia l'interfaccia nella chat privata dell'utente
+        CarteFedeltaGruppo.handle_addcartagruppo(bot, msg, chat_id, user_id, gruppo)
+
+        # Conferma nel gruppo che stai inviando l'interfaccia in privato
+        bot.api.send_message(
+          chat_id: chat_id,
+          text: "🏢 Ti ho inviato un messaggio in privato per gestire le carte del gruppo.",
+          reply_to_message_id: msg.message_id,
+        )
+      else
+        bot.api.send_message(chat_id: chat_id, text: "❌ Nessun gruppo attivo. Usa /newgroup in chat privata.")
+      end
+    elsif msg.text&.start_with?("+")
+      handle_plus_command(bot, msg, chat_id, user_id, gruppo)
+    elsif msg.text&.start_with?("/delcartagruppo")
+      CarteFedeltaGruppo.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
+    else
+      handle_pending_actions(bot, msg, chat_id, user_id, gruppo)
+    end
   end
-end
-def self.handle_addcartagruppo(bot, msg, chat_id, user_id, gruppo)
-  return unless gruppo
+  def self.handle_addcartagruppo(bot, msg, chat_id, user_id, gruppo)
+    return unless gruppo
 
-  # Verifica che l'utente sia whitelistato
-  unless Whitelist.is_allowed?(user_id)
-    bot.api.send_message(chat_id: chat_id, text: "❌ Solo utenti autorizzati possono aggiungere carte al gruppo.")
-    return
+    # Verifica che l'utente sia whitelistato
+    unless Whitelist.is_allowed?(user_id)
+      bot.api.send_message(chat_id: chat_id, text: "❌ Solo utenti autorizzati possono aggiungere carte al gruppo.")
+      return
+    end
+
+    # 🔥 CORREZIONE: usa regex per rimuovere il comando con o senza username
+    args = msg.text.sub(/\/addcartagruppo(@\w+)?/, "").strip
+
+    if args.empty?
+      # 🔥 NUOVO: Mostra interfaccia con le carte personali
+      CarteFedeltaGruppo.show_add_to_group_interface(bot, chat_id, gruppo["id"], user_id)
+    else
+      # Comportamento esistente: aggiungi carta manualmente
+      CarteFedeltaGruppo.add_group_card(bot, chat_id, gruppo["id"], user_id, args)
+    end
   end
-
-  # 🔥 CORREZIONE: usa regex per rimuovere il comando con o senza username
-  args = msg.text.sub(/\/addcartagruppo(@\w+)?/, "").strip
-  
-  if args.empty?
-    # 🔥 NUOVO: Mostra interfaccia con le carte personali
-    CarteFedeltaGruppo.show_add_to_group_interface(bot, chat_id, gruppo["id"], user_id)
-  else
-    # Comportamento esistente: aggiungi carta manualmente
-    CarteFedeltaGruppo.add_group_card(bot, chat_id, gruppo["id"], user_id, args)
-  end
-end
-
-
-
 
   def self.handle_question_command(bot, chat_id, user_id, gruppo)
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id)
