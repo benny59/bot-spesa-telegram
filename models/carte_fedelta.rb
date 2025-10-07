@@ -131,7 +131,7 @@ class CarteFedelta
         img_path = row["immagine_path"]
         formatox = row["formato"]  # 🔥 PRENDI IL FORMATO DAL DB
         formato_db = mappa_formato_per_barby(formatox)
-        puts "🔍 [CALLBACK] Formato mappato: #{formato_db} -> #{formato_per_barby}"
+        puts "🔍 [CALLBACK] Formato mappato: #{formatox} -> #{formato_db}"
 
         # Se l'immagine non esiste o è corrotta, rigenera CON IL FORMATO DEL DB
         unless img_path && File.exist?(img_path) && File.size(img_path) > 100
@@ -260,71 +260,78 @@ class CarteFedelta
       :code128
     end
   end
-  def self.genera_barcode_con_nome(codice, nome, user_id, formato_db = nil)
-    nome_file = nome.downcase.gsub(/\s+/, "_")
-    elimina_file_per_nome(user_id, nome_file)
-    img_path = File.join(DATA_DIR, "#{nome_file}_#{user_id}_#{Time.now.to_i}.png")
+  
+def self.genera_barcode_con_nome(codice, nome, user_id, formato_db = nil)
+  nome_file = nome.downcase.gsub(/\s+/, "_")
+  elimina_file_per_nome(user_id, nome_file)
+  img_path = File.join(DATA_DIR, "#{nome_file}_#{user_id}_#{Time.now.to_i}.png")
+  
+  formatox = formato_db || identifica_formato(codice)
+  formato= mappa_formato_per_barby(formatox)
+  puts "🔍 [BARCODE] Generando #{formato} per: #{nome} - #{codice}"
 
-    # 🔥 CORREZIONE: Se il formato viene dal database, mappalo per Barby
-    if formato_db
-      formato = formato_db.is_a?(String) ? mappa_formato_per_barby(formato_db) : formato_db
-    else
-      formato = identifica_formato(codice)
+  begin
+       case formato
+      when :code25interleaved
+        barcode = Barby::Code25Interleaved.new(codice)
+      when :code39
+        barcode = Barby::Code39.new(codice)
+      when :ean8
+        barcode = Barby::EAN8.new(codice)
+      when :ean13
+           if codice.length == 13
+             puts "🔍 [EAN-13] Codice pulito: #{codice} -> #{codice[0..11]}"
+             barcode = Barby::EAN13.new(codice[0..11])
+             else
+             barcode = Barby::EAN13.new(codice)
+
+           end
+    
+      when :code128
+        barcode = Barby::Code128.new(codice)
+      when :qrcode
+        return genera_qrcode(codice, nome, img_path)
+      else
+        barcode = Barby::Code128.new(codice)
     end
 
-    codice_pulito = codice.to_s.gsub(/[^0-9A-Za-z\-\.\ \$\/\+\%]/, "")
+    # Genera con Barby
+    png_data = barcode.to_png(height: 100, margin: 10, xdim: 2)
+    File.open(img_path, "wb") { |f| f.write(png_data) }
+    puts "✅ [BARBY] #{formato.to_s.upcase} generato: #{img_path}"
+    return { success: true, img_path: img_path, formato: formato, provider: :barby }
 
-    puts "🔍 [BARCODE] Generando #{formato} per: #{nome} - #{codice_pulito}"
-
-    begin
-      # PER ITF/Interleaved 2 of 5
-      if [:code25interleaved, :i25, :itf, :itf14].include?(formato)
-        # 🔥 USA Code25Interleaved di Barby per i formati ITF
-        barcode = Barby::Code25Interleaved.new(codice_pulito)
-      else
-        # 🔥 PER TUTTI GLI ALTRI FORMATI USA BARBY
-        case formato
-        when :code39
-          barcode = Barby::Code39.new(codice_pulito)
-        when :ean8
-          barcode = Barby::EAN8.new(codice_pulito)
-        when :upca
-          if codice_pulito.length == 12
-            barcode = Barby::EAN13.new("0#{codice_pulito}")
-          else
-            barcode = Barby::EAN13.new(codice_pulito[0..11])
-          end
-        when :ean13
-          barcode = Barby::EAN13.new(codice_pulito[0..11])
-        when :qrcode
-          return genera_qrcode(codice_pulito, nome, img_path)
-        else
-          barcode = Barby::Code128.new(codice_pulito)
-        end
+  rescue => e
+    puts "❌ [BARBY] Errore generazione #{formato}: #{e.message}"
+    
+    # 🔥 SOLO PER ITF USA STROKES COME FALLBACK
+    if formato == :code25interleaved || formato == :itf
+      begin
+        puts "🔄 [STROKES FALLBACK] Tentativo con Strokes per ITF..."
+        barcode = Strokes::Barcode.new(:itf, codice)
+        barcode.save(img_path, height: 100, margin: 10)
+        puts "✅ [STROKES] ITF generato: #{img_path}"
+        return { success: true, img_path: img_path, formato: :itf, provider: :strokes_fallback }
+      rescue => e2
+        puts "❌ [STROKES] Errore: #{e2.message}"
       end
-
-      # Genera con Barby
+    end
+    
+    # FALLBACK FINALE A CODE-128
+    begin
+      puts "🔄 [FALLBACK] Tentativo con Code128..."
+      barcode = Barby::Code128.new(codice)
       png_data = barcode.to_png(height: 100, margin: 10, xdim: 2)
       File.open(img_path, "wb") { |f| f.write(png_data) }
-      puts "✅ [BARBY] #{formato.to_s.upcase} generato: #{img_path}"
-      return { success: true, img_path: img_path, formato: formato, provider: :barby }
-    rescue => e
-      puts "❌ [BARBY] Errore generazione #{formato}: #{e.message}"
-
-      # FALLBACK FINALE A CODE-128
-      begin
-        puts "🔄 [FALLBACK] Tentativo con Code128..."
-        barcode = Barby::Code128.new(codice_pulito)
-        png_data = barcode.to_png(height: 100, margin: 10, xdim: 2)
-        File.open(img_path, "wb") { |f| f.write(png_data) }
-        puts "✅ [CODE128] Barcode generato: #{img_path}"
-        return { success: true, img_path: img_path, formato: :code128, provider: :fallback }
-      rescue => e3
-        puts "❌ [CODE128] Errore: #{e3.message}"
-        return { success: false, error: e3.message }
-      end
+      puts "✅ [CODE128] Barcode generato: #{img_path}"
+      return { success: true, img_path: img_path, formato: :code128, provider: :fallback }
+    rescue => e3
+      puts "❌ [CODE128] Errore: #{e3.message}"
+      return { success: false, error: e3.message }
     end
   end
+end
+
 
   # 👇 AGGIUNGI QUESTO NUOVO METODO PER GENERARE QR CODE
   def self.genera_qrcode(codice, nome, img_path)
@@ -520,29 +527,26 @@ class CarteFedelta
     end
   end
 
-  def self.mappa_formato_per_barby(formato_originale)
-    # Converti in stringa e lowercase per confronto case-insensitive
-    formato = formato_originale.to_s.downcase
-
-    case formato
-    when "i2/5", "i25", "interleaved2of5", "itf"
-      puts "🔄 Mappatura formato: #{formato_originale} -> :code25interleaved"
-      :code25interleaved
-    when "code39", "c39"
-      :code39
-    when "code128", "c128"
-      :code128
-    when "ean13", "ean-13"
-      :ean13
-    when "ean8", "ean-8"
-      :ean8
-    when "upca", "upc-a"
-      :upca
-    when "qrcode", "qr"
-      :qrcode
-    else
-      puts "⚠️ Formato non riconosciuto '#{formato_originale}', uso code128 come fallback"
-      :code128
-    end
+def self.mappa_formato_per_barby(formato_db)
+  case formato_db.to_s.downcase
+  when 'code25interleaved', 'itf', 'interleaved2of5', 'itf14'
+    :code25interleaved  # 🔥 USA IL NOME CORRETTO DI BARBY
+  when 'code39'
+    :code39
+  when 'ean8'
+    :ean8
+  when 'ean13'
+    :ean13
+  when 'upca', 'upc_a'
+    :upca
+  when 'code128'
+    :code128
+  when 'qrcode', 'qr_code'
+    :qrcode
+  else
+    puts "⚠️ Formato non riconosciuto '#{formato_db}', uso code128 come fallback"
+    :code128
   end
+end
+
 end
