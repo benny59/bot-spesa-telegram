@@ -150,7 +150,8 @@ class CarteFedeltaGruppo < CarteFedelta
 
     bot.api.send_message(
       chat_id: chat_id,
-      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
+#      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
+      text: "🏢 Carte condivise del gruppo:\n",
       reply_markup: keyboard,
     )
   end

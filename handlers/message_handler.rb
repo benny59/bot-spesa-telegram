@@ -255,7 +255,6 @@ class MessageHandler
 
           puts "✅ Barcode rilevato: #{barcode_data} (formato: #{barcode_format})"
 
-
           # 🔥 CREA DIRETTAMENTE LA CARTA - nome dal caption, codice dal barcode
           create_card_from_photo(bot, chat_id, user_id, temp_file.path, caption, barcode_data, barcode_format)
         else
@@ -876,7 +875,7 @@ class MessageHandler
             chat_id: chat_id,
             text: "✅ #{msg.from.first_name} ha aggiunto #{added_count} articolo(i): #{added_items.join(", ")}",
           )
-#          KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id)
+          #          KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id)
         end
       else
         # Solo +
