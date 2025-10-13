@@ -21,13 +21,13 @@ class BarcodeScanner
     # Usa directory corrente invece di Dir.tmpdir
     temp_file = "temp_barcode_decode.py"
     File.write(temp_file, python_code)
-    
+
     # Esegui Python
     out, err, status = Open3.capture3("python3", temp_file)
-    
+
     # Pulizia
     File.delete(temp_file) if File.exist?(temp_file)
-    
+
     if status.success? && !out.strip.empty?
       if out.include?("|")
         code, format = out.strip.split("|", 2)
@@ -39,7 +39,6 @@ class BarcodeScanner
       @logger.warn("ZXing failed for #{path}: #{err.strip}") unless err.empty?
       nil
     end
-    
   rescue => e
     @logger.error("BarcodeScanner error: #{e.class}: #{e.message}")
     nil

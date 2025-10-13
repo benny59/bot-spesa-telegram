@@ -760,6 +760,9 @@ class MessageHandler
     when "?"
       handle_question_command(bot, chat_id, user_id, gruppo)
       return
+    when "!"
+      KeyboardGenerator.genera_lista_testo(bot, chat_id, gruppo["id"], user_id, message_id = nil)
+      return
     when "/delcarta", "/delcarta@#{bot_username}"
       bot.api.send_message(
         chat_id: chat_id,

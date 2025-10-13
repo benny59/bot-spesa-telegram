@@ -150,7 +150,7 @@ class CarteFedeltaGruppo < CarteFedelta
 
     bot.api.send_message(
       chat_id: chat_id,
-#      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
+      #      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
       text: "🏢 Carte condivise del gruppo:\n",
       reply_markup: keyboard,
     )
@@ -591,23 +591,22 @@ class CarteFedeltaGruppo < CarteFedelta
 
       if File.exist?(img_path)
         caption = "🏢 Carta Condivisa\n💳 #{row["nome"]}\n🔢 Codice: #{row["codice"]}"
-       # 🔴 AGGIUNTA: Tastiera con pulsante Chiudi
+        # 🔴 AGGIUNTA: Tastiera con pulsante Chiudi
         inline_keyboard = [
           [
             Telegram::Bot::Types::InlineKeyboardButton.new(
               text: "❌ Chiudi",
-              callback_data: "close_barcode"
-            )
-          ]
+              callback_data: "close_barcode",
+            ),
+          ],
         ]
         keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
 
         bot.api.send_photo(
           chat_id: chat_id,
           photo: Faraday::UploadIO.new(img_path, "image/png"),
-          
           caption: caption,
-                    reply_markup: keyboard  # 🔴 AGGIUNTA
+          reply_markup: keyboard, # 🔴 AGGIUNTA
 
         )
       else

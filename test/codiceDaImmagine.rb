@@ -14,26 +14,25 @@ end
 
 def main
   check_dependencies
-  
+
   if ARGV.empty?
     # Modalità batch - scansiona tutto
     puts "🎯 Scansione batch di tutte le immagini..."
     results = BatchScanner.scan_directory(".")
-    
+
     # Esporta risultati
     BatchScanner.export_to_csv(results)
-    
+
     # Riepilogo
     success_count = results.count { |_, data| data[:data] }
     puts "\n📈 Riepilogo: #{success_count}/#{results.size} codici trovati"
-    
   else
     # Modalità singolo file
     ARGV.each do |file_path|
       if File.exist?(file_path)
         puts "🔍 Scansionando: #{file_path}"
         result = BarcodeScanner.scan_image(file_path)
-        
+
         if result
           puts "✅ Codice: #{result[:data]}"
           puts "📊 Formato: #{result[:format]}"
