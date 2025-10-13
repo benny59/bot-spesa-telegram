@@ -278,6 +278,8 @@ class CarteFedelta
         barcode = Barby::Code39.new(codice)
       when :ean8
         barcode = Barby::EAN8.new(codice)
+      when :upca
+        barcode = Barby::EAN13.new(codice)
       when :ean13
         if codice.length == 13
           puts "🔍 [EAN-13] Codice pulito: #{codice} -> #{codice[0..11]}"

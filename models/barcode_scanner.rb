@@ -8,37 +8,62 @@ class BarcodeScanner
   def self.scan_image(path)
     return nil unless File.exist?(path)
 
-    # Usa zbarimg SENZA --raw per avere formato e codice
+    python_code = <<~PYTHON
+      import zxing
+      reader = zxing.BarCodeReader()
+      result = reader.decode("#{path}", try_harder=True)
+      if result and result.parsed:
+          print(f"{result.parsed}|{result.format}")
+      else:
+          print("")
+    PYTHON
+
+    # Crea file temporaneo
+    temp_file = File.join(Dir.tmpdir, "barcode_decode_#{Time.now.to_i}.py")
+    File.write(temp_file, python_code)
+    
+    # Esegui Python
+    out, err, status = Open3.capture3("python3", temp_file)
+    
+    # Pulizia
+    File.delete(temp_file) if File.exist?(temp_file)
+    
+    if status.success? && !out.strip.empty?
+      if out.include?("|")
+        code, format = out.strip.split("|", 2)
+        { data: code, format: format.downcase }
+      else
+        { data: out.strip, format: "unknown" }
+      end
+    else
+      @logger.warn("ZXing failed for #{path}: #{err.strip}") unless err.empty?
+      nil
+    end
+    
+  rescue => e
+    @logger.error("BarcodeScanner error: #{e.class}: #{e.message}")
+    nil
+  end
+
+  # Metodo di fallback con zbarimg se ZXing non disponibile
+  def self.scan_image_fallback(path)
+    return nil unless File.exist?(path)
+
     cmd = ["zbarimg", path]
     out, err, status = Open3.capture3(*cmd)
 
-    puts "🔍 zbar output completo: '#{out}'"
-
     if status.success?
-      # Pulisci l'output
       cleaned_output = out.strip
-      puts "🔍 Output pulito: '#{cleaned_output}'"
-
-      # Cerca pattern "FORMATO:CODICE" - usa split che è più robusto
       if cleaned_output.include?(":")
-        parts = cleaned_output.split(":", 2)  # Split solo sulla prima occorrenza
-        format = parts[0].downcase.gsub("-", "")  # "EAN-13" -> "ean13"
-        value = parts[1].strip  # Rimuovi eventuali newline/spazi
-        puts "✅ Formato rilevato: #{format}, Codice: #{value}"
+        parts = cleaned_output.split(":", 2)
+        format = parts[0].downcase.gsub("-", "")
+        value = parts[1].strip
         return { data: value, format: format }
-      else
-        puts "❌ Nessun barcode nel formato atteso"
-        nil
       end
-    else
-      @logger.warn("zbarimg failed: #{err.strip}")
-      nil
     end
-  rescue Errno::ENOENT
-    @logger.error("zbarimg non trovato. Installa con: pkg install zbar")
     nil
   rescue => e
-    @logger.error("BarcodeScanner error: #{e.class}: #{e.message}")
+    @logger.error("Fallback scanner error: #{e.message}")
     nil
   end
 end
