@@ -18,8 +18,8 @@ class BarcodeScanner
           print("")
     PYTHON
 
-    # Crea file temporaneo
-    temp_file = File.join(Dir.tmpdir, "barcode_decode_#{Time.now.to_i}.py")
+    # Usa directory corrente invece di Dir.tmpdir
+    temp_file = "temp_barcode_decode.py"
     File.write(temp_file, python_code)
     
     # Esegui Python
@@ -45,11 +45,11 @@ class BarcodeScanner
     nil
   end
 
-  # Metodo di fallback con zbarimg se ZXing non disponibile
+  # Metodo di fallback con zbarimg
   def self.scan_image_fallback(path)
     return nil unless File.exist?(path)
 
-    cmd = ["zbarimg", path]
+    cmd = ["zbarimg", "--quiet", path]
     out, err, status = Open3.capture3(*cmd)
 
     if status.success?

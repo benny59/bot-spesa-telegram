@@ -33,7 +33,49 @@ class CallbackHandler
       CarteFedelta.handle_callback(bot, msg)
     when "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
       CarteFedelta.handle_callback(bot, msg)
-
+      
+when "close_barcode"
+  begin
+    # Prova a cancellare il messaggio
+    bot.api.delete_message(chat_id: msg.message.chat.id, message_id: msg.message.message_id)
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    if e.message.include?("message to delete not found") || e.message.include?("message to edit not found")
+      # Se non può cancellare (es. in gruppi), rispondi con un messaggio temporaneo
+      bot.api.answer_callback_query(
+        callback_query_id: msg.id,
+        text: "✅ Chiuso",
+        show_alert: false
+      )
+    else
+      # Per altri errori, prova a modificare il messaggio
+      begin
+        bot.api.edit_message_text(
+          chat_id: msg.message.chat.id,
+          message_id: msg.message.message_id,
+          text: "✅ Schermata chiusa."
+        )
+      rescue Telegram::Bot::Exceptions::ResponseError
+        # Se anche la modifica fallisce, rispondi semplicemente alla callback
+        bot.api.answer_callback_query(
+          callback_query_id: msg.id,
+          text: "✅ Chiuso"
+        )
+      end
+    end
+  end
+   
+    when "carte_cancel_delete"
+  # Cancella il messaggio con la tastiera
+     begin
+      bot.api.delete_message(chat_id: msg.from.id, message_id: msg.message.message_id)
+      rescue Telegram::Bot::Exceptions::ResponseError
+    # Se non può cancellare, modifica il messaggio
+    bot.api.edit_message_text(
+      chat_id: msg.from.id,
+      message_id: msg.message.message_id,
+      text: "❌ Operazione annullata."
+    )
+end
       # 🔥 AGGIUNTA COMPLETA: Tutte le callback per le carte gruppo
     when /^carte_gruppo:(\d+):(\d+)$/,
          /^carte_gruppo_delete:(\d+):(\d+)$/,

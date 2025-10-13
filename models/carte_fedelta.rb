@@ -99,7 +99,9 @@ class CarteFedelta
     inline_keyboard << [
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "❌ Chiudi",
-        callback_data: "checklist_close:#{user_id}",
+#        callback_data: "checklist_close:#{user_id}",
+        callback_data: "close_barcode",  # Cambiato da "checklist_close:#{user_id}"
+
       ),
     ]
 
@@ -156,11 +158,23 @@ class CarteFedelta
         # Invia l'immagine
         if File.exist?(img_path)
           caption = "💳 #{row["nome"]}\n🔢 Codice: #{row["codice"]}\n📊 Formato: #{formato_db.upcase}"
+  # 🔴 AGGIUNTA: Aggiungi tastiera con pulsante Chiudi
+  inline_keyboard = [
+    [
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "❌ Chiudi",
+        callback_data: "close_barcode"
+      )
+    ]
+  ]
+  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
 
           bot.api.send_photo(
             chat_id: user_id,
             photo: Faraday::UploadIO.new(img_path, "image/png"),
             caption: caption,
+                reply_markup: keyboard  # 🔴 AGGIUNTA: Aggiungi la tastiera
+
           )
         else
           bot.api.send_message(chat_id: user_id, text: "❌ Immagine non disponibile per #{row["nome"]}")
@@ -178,7 +192,7 @@ class CarteFedelta
       show_user_cards(bot, user_id)
     when "carte_back"
       show_user_cards(bot, user_id)
-    end
+  end
   end
   # METODI PRIVATI
   private
@@ -468,8 +482,8 @@ class CarteFedelta
     # Bottone "Indietro" (manteniamo "Indietro" qui invece di "Chiudi" per coerenza)
     inline_keyboard << [
       Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "🔙 Indietro",
-        callback_data: "carte_back",
+        text: "❌ Chiudi",
+        callback_data: "carte_cancel_delete",  # Cambiato da "carte_back"
       ),
     ]
 
