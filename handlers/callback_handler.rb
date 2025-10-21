@@ -83,6 +83,19 @@ class CallbackHandler
          /^carte_gruppo_remove:(\d+):(\d+)$/,
          /^carte_gruppo_add_finish:(\d+)$/
       CarteFedeltaGruppo.handle_callback(bot, msg)
+      
+        when /^checklist_toggle:[^:]+:\d+:\d+$/
+      handled = StoricoManager.gestisci_toggle_checklist(bot, msg, data)
+      unless handled
+        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nel toggle checklist")
+      end
+
+    when /^checklist_confirm:\d+:\d+$/
+      handled = StoricoManager.gestisci_conferma_checklist(bot, msg, data)
+      unless handled
+        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nella conferma checklist")
+      end
+
     when /^checklist_add:[^:]+:\d+:\d+$/ # Delegato a StoricoManager
       handled = StoricoManager.gestisci_click_checklist(bot, msg, data)
       unless handled

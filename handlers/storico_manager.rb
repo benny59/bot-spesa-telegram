@@ -1,5 +1,8 @@
 # handlers/storico_manager.rb
 class StoricoManager
+  # Selezioni temporanee per utente (toggle checklist)
+  @@selezioni_checklist = Hash.new { |h, k| h[k] = [] }
+
   # ========================================
   # 📊 AGGIORNA STORICO - Per toggle articoli
   # ========================================
@@ -117,17 +120,21 @@ class StoricoManager
     righe = top_articoli.map do |articolo|
       nome = articolo["nome"].capitalize
       conteggio = articolo["conteggio"]
+      selezionato = @@selezioni_checklist[user_id].include?(articolo["nome"]) ? "✅" : "➕"
 
       [
         Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "➕ #{nome} (#{conteggio}x)",
-          callback_data: "checklist_add:#{articolo["nome"]}:#{gruppo_id}:#{user_id}",
+          text: "#{selezionato} #{nome} (#{conteggio}x)",
+          callback_data: "checklist_toggle:#{articolo["nome"]}:#{gruppo_id}:#{user_id}",
         ),
       ]
     end
 
-    # Aggiungi pulsante chiudi
     righe << [
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "✅ Conferma aggiunta",
+        callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}",
+      ),
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "❌ Chiudi",
         callback_data: "checklist_close:#{chat_id}",
@@ -145,6 +152,108 @@ class StoricoManager
 
     puts "✅ [CHECKLIST] Checklist inviata con successo"
   end
+
+  # ========================================
+  # 🔁 GESTIONE TOGGLE ARTICOLI
+  # ========================================
+  def self.gestisci_toggle_checklist(bot, msg, callback_data)
+    if callback_data =~ /^checklist_toggle:(.+):(\d+):(\d+)$/
+      nome_articolo = $1
+      gruppo_id = $2.to_i
+      user_id = $3.to_i
+
+      selezioni = @@selezioni_checklist[user_id]
+      if selezioni.include?(nome_articolo)
+        selezioni.delete(nome_articolo)
+      else
+        selezioni << nome_articolo
+      end
+
+      # Aggiorna la tastiera con i nuovi stati ✅ / ➕
+      top_articoli = self.top_articoli(gruppo_id, 10)
+
+      righe = top_articoli.map do |articolo|
+        nome = articolo["nome"].capitalize
+        conteggio = articolo["conteggio"]
+        selezionato = selezioni.include?(articolo["nome"]) ? "✅" : "➕"
+
+        [
+          Telegram::Bot::Types::InlineKeyboardButton.new(
+            text: "#{selezionato} #{nome} (#{conteggio}x)",
+            callback_data: "checklist_toggle:#{articolo["nome"]}:#{gruppo_id}:#{user_id}",
+          ),
+        ]
+      end
+
+      righe << [
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "✅ Conferma aggiunta",
+          callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}",
+        ),
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "❌ Chiudi",
+          callback_data: "checklist_close:#{msg.message.chat.id}",
+        ),
+      ]
+
+      markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe)
+      bot.api.edit_message_reply_markup(
+        chat_id: msg.message.chat.id,
+        message_id: msg.message.message_id,
+        reply_markup: markup,
+      )
+
+      bot.api.answer_callback_query(callback_query_id: msg.id)
+      return true
+    end
+    false
+  end
+
+  # ========================================
+  # ✅ CONFERMA SELEZIONI
+  # ========================================
+  def self.gestisci_conferma_checklist(bot, msg, callback_data)
+    if callback_data =~ /^checklist_confirm:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      user_id = $2.to_i
+      chat_id = msg.message.chat.id
+
+      selezioni = @@selezioni_checklist[user_id]
+      return false if selezioni.empty?
+
+      aggiunti = []
+
+      selezioni.each do |nome_articolo|
+        esistente = DB.get_first_row(
+          "SELECT 1 FROM items WHERE gruppo_id = ? AND LOWER(nome) = LOWER(?) AND comprato IS NULL",
+          [gruppo_id, nome_articolo]
+        )
+        next if esistente
+
+        DB.execute(
+          "INSERT INTO items (nome, gruppo_id, creato_da, creato_il) VALUES (?, ?, ?, datetime('now'))",
+          [nome_articolo.capitalize, gruppo_id, user_id]
+        )
+        self.aggiorna_da_aggiunta(nome_articolo, gruppo_id)
+        aggiunti << nome_articolo.capitalize
+      end
+
+      @@selezioni_checklist.delete(user_id)
+
+      bot.api.edit_message_text(
+        chat_id: chat_id,
+        message_id: msg.message.message_id,
+        text: "✅ Aggiunti: #{aggiunti.join(', ')}",
+        parse_mode: "Markdown",
+      )
+
+      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id)
+      bot.api.answer_callback_query(callback_query_id: msg.id)
+      return true
+    end
+    false
+  end
+
 
   # Aggiungi in storico_manager.rb
   def self.gestisci_click_checklist(bot, msg, callback_data)
