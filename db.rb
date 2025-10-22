@@ -47,15 +47,16 @@ def init_db
     );
   SQL
 
-  db.execute <<-SQL
-    CREATE TABLE IF NOT EXISTS pending_actions (
-      chat_id INTEGER,
-      action TEXT,
-      gruppo_id INTEGER,
-      item_id INTEGER,
-      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-  SQL
+db.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS pending_actions (
+    chat_id INTEGER,
+    action TEXT,
+    gruppo_id INTEGER,
+    item_id INTEGER,
+    initiator_id INTEGER,
+    creato_il DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+SQL
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS item_images (

@@ -316,8 +316,16 @@ class CallbackHandler
   end
 
   def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id)
-    DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id) VALUES (?, ?, ?, ?)",
-               [chat_id, "upload_foto:#{msg.from.first_name}:#{gruppo_id}:#{item_id}", gruppo_id, item_id])
+DB.execute(
+  "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id, initiator_id, creato_il) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+  [
+    chat_id,
+    "upload_foto:#{msg.from.first_name}:#{gruppo_id}:#{item_id}",
+    gruppo_id,
+    item_id,
+    user_id
+  ]
+)
 
     bot.api.answer_callback_query(callback_query_id: msg.id)
     bot.api.send_message(
@@ -480,12 +488,24 @@ class CallbackHandler
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
   end
 
-  def self.handle_aggiungi(bot, msg, chat_id, gruppo_id)
-    DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id) VALUES (?, ?, ?)",
-               [chat_id, "add:#{msg.from.first_name}", gruppo_id])
-    bot.api.answer_callback_query(callback_query_id: msg.id)
-    bot.api.send_message(chat_id: chat_id, text: "✍️ #{msg.from.first_name}, scrivi gli articoli separati da virgola:")
-  end
+def self.handle_aggiungi(bot, msg, chat_id, gruppo_id)
+  user_id   = msg.from.id
+  user_name = msg.from.first_name
+  action    = "add:#{user_name}"  # ✅ definisce correttamente l’azione
+
+  DB.execute(
+    "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, initiator_id, creato_il)
+     VALUES (?, ?, ?, ?, datetime('now'))",
+    [chat_id, action, gruppo_id, user_id]
+  )
+
+  bot.api.answer_callback_query(callback_query_id: msg.id)
+  bot.api.send_message(
+    chat_id: chat_id,
+    text: "✍️ #{user_name}, scrivi gli articoli separati da virgola (oppure /annulla per annullare)."
+  )
+end
+
 
   def self.handle_cancel_foto(bot, msg, chat_id)
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Operazione annullata")

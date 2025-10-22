@@ -16,6 +16,7 @@ require "prawn"
 require "prawn/table"
 require "tempfile"
 require "open-uri"
+require 'time'  # aggiungi in cima al file se non presente
 
 class MessageHandler
   def self.ensure_group_name(bot, msg, gruppo)
@@ -894,30 +895,53 @@ class MessageHandler
   # ========================================
   # PENDING ACTIONS
   # ========================================
-  def self.handle_pending_actions(bot, msg, chat_id, user_id, gruppo)
-    return unless gruppo
-    pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ?", [chat_id])
-    return unless pending && pending["action"].to_s.start_with?("add") && pending["gruppo_id"] == gruppo["id"]
 
-    if msg.text == "/annulla"
-      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-      bot.api.send_message(chat_id: chat_id, text: "❌ Aggiunta annullata")
-      return
-    end
+def self.handle_pending_actions(bot, msg, chat_id, user_id, gruppo)
+  return unless gruppo
 
-    if msg.text && !msg.text.start_with?("/")
-      Lista.aggiungi(pending["gruppo_id"], user_id, msg.text)
-      added_items = msg.text.split(",").map(&:strip)  # ← DEFINISCI added_items QUI
-      added_items.each do |articolo|
-        nome_normalizzato = articolo.strip.capitalize
-        StoricoManager.aggiorna_da_aggiunta(nome_normalizzato, gruppo["id"])
-      end
+  pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ?", [chat_id])
+  return unless pending && pending["action"].to_s.start_with?("add") && pending["gruppo_id"] == gruppo["id"]
 
-      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-      bot.api.send_message(chat_id: chat_id, text: "✅ #{msg.from.first_name} ha aggiunto: #{msg.text}")
-      KeyboardGenerator.genera_lista(bot, chat_id, pending["gruppo_id"], user_id)
-    end
+  # ⏱ Timeout (120 secondi)
+  timeout_seconds = 120
+  created_time = DateTime.strptime(pending["creato_il"], "%Y-%m-%d %H:%M:%S").to_time
+  expired = (Time.now - created_time) > timeout_seconds
+
+  if expired
+    DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+    bot.api.send_message(chat_id: chat_id, text: "⏰ Tempo scaduto, aggiunta annullata.")
+    return
   end
+
+  # ❌ Solo chi ha iniziato il pending può completarlo
+  initiator_id = pending["initiator_id"].to_i
+  if initiator_id != user_id
+    bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo chi ha avviato l'aggiunta può completarla o annullarla.")
+    return
+  end
+
+  # ✅ Annulla manualmente
+  if msg.text == "/annulla"
+    DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+    bot.api.send_message(chat_id: chat_id, text: "❌ Aggiunta annullata.")
+    return
+  end
+
+  # ➕ Aggiunta vera e propria
+  if msg.text && !msg.text.start_with?("/")
+    added_items = msg.text.split(",").map(&:strip)
+    added_items.each do |articolo|
+      next if articolo.empty?
+      Lista.aggiungi(pending["gruppo_id"], user_id, articolo)
+      StoricoManager.aggiorna_da_aggiunta(articolo, gruppo["id"])
+    end
+
+    DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+    bot.api.send_message(chat_id: chat_id, text: "✅ #{msg.from.first_name} ha aggiunto: #{added_items.join(', ')}")
+    KeyboardGenerator.genera_lista(bot, chat_id, pending["gruppo_id"], user_id)
+  end
+end
+
 
   # Helper: trova un TTF disponibile su Android/Termux
   def self.find_ttf_font_path
