@@ -14,6 +14,10 @@ class CallbackHandler
     puts "🖱 Callback: #{data} - User: #{user_id} - Chat: #{chat_id}"
 
     case data
+    when "noop"
+      handle_noop(bot, msg)
+    when /^lista_page:(\d+):(\d+)$/
+    handle_lista_page(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
     when /^comprato:(\d+):(\d+)$/
       handle_comprato(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
     when /^cancella:(\d+):(\d+)$/
@@ -241,6 +245,29 @@ class CallbackHandler
       reply_markup: markup,
     )
   end
+  
+  
+  def self.handle_noop(bot, msg)
+    # Non fare nulla, ma rispondi per chiudere l'indicatore di caricamento
+    bot.api.answer_callback_query(callback_query_id: msg.id)
+  end
+
+  
+def self.handle_lista_page(bot, msg, chat_id, user_id, gruppo_id, page)
+  # Rispondi immediatamente alla callback
+  bot.api.answer_callback_query(callback_query_id: msg.id, text: "Caricamento pagina #{page + 1}...")
+  
+  # Genera la lista con la nuova pagina
+  success = KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, page)
+  
+  # Se non è stato possibile aggiornare, rispondi comunque
+  unless success
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id, 
+      text: "Nessun cambiamento necessario"
+    )
+  end
+end
 
   def self.handle_cancel_azioni(bot, msg, chat_id)
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "↩️ Tornato alla lista")
