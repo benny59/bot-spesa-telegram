@@ -16,7 +16,9 @@ require "prawn"
 require "prawn/table"
 require "tempfile"
 require "open-uri"
-require 'time'  # aggiungi in cima al file se non presente
+require "time"  # aggiungi in cima al file se non presente
+ITEMS_PER_PAGE = 3  # Numero di gruppi per pagina
+GROUPS_PER_PAGE = 2  # Numero di gruppi per pagina
 
 class MessageHandler
   def self.ensure_group_name(bot, msg, gruppo)
@@ -86,58 +88,58 @@ class MessageHandler
   # ========================================
   # 📸 FOTO
   # ========================================
-def self.handle_photo_message(bot, msg, chat_id, user_id)
-  puts "📸 Messaggio foto ricevuto"
-  
-  # Cerca la pending action specifica per questo utente
-  pending = DB.get_first_row(
-    "SELECT * FROM pending_actions WHERE chat_id = ? AND initiator_id = ? AND action LIKE 'upload_foto%'", 
-    [chat_id, user_id]
-  )
-  
-  if pending
-    puts "📸 Trovata pending action: #{pending["action"]}"
-    
-    # Estrai i parametri dalla pending action
-    if pending["action"] =~ /upload_foto:(.+):(\d+):(\d+)/
-      item_id = $3.to_i
-      gruppo_id = pending["gruppo_id"]
-      photo = msg.photo.last
+  def self.handle_photo_message(bot, msg, chat_id, user_id)
+    puts "📸 Messaggio foto ricevuto"
 
-      puts "📸 Associando foto all'item #{item_id} nel gruppo #{gruppo_id}"
+    # Cerca la pending action specifica per questo utente
+    pending = DB.get_first_row(
+      "SELECT * FROM pending_actions WHERE chat_id = ? AND initiator_id = ? AND action LIKE 'upload_foto%'",
+      [chat_id, user_id]
+    )
 
-      # CORREZIONE: Prima rimuovi TUTTE le foto esistenti per questo item, poi inserisci la nuova
-      DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])
-      DB.execute("INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
-                 [item_id, photo.file_id, photo.file_unique_id])
-      
-      # Cancella la pending action di questo utente
-      DB.execute("DELETE FROM pending_actions WHERE chat_id = ? AND initiator_id = ?", [chat_id, user_id])
+    if pending
+      puts "📸 Trovata pending action: #{pending["action"]}"
 
-      # Determina se era una sostituzione o un'aggiunta
-      had_previous_image = Lista.ha_immagine?(item_id)
-      action_text = had_previous_image ? 'sostituita' : 'aggiunta'
-      
-      # Invia conferma
+      # Estrai i parametri dalla pending action
+      if pending["action"] =~ /upload_foto:(.+):(\d+):(\d+)/
+        item_id = $3.to_i
+        gruppo_id = pending["gruppo_id"]
+        photo = msg.photo.last
+
+        puts "📸 Associando foto all'item #{item_id} nel gruppo #{gruppo_id}"
+
+        # CORREZIONE: Prima rimuovi TUTTE le foto esistenti per questo item, poi inserisci la nuova
+        DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])
+        DB.execute("INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
+                   [item_id, photo.file_id, photo.file_unique_id])
+
+        # Cancella la pending action di questo utente
+        DB.execute("DELETE FROM pending_actions WHERE chat_id = ? AND initiator_id = ?", [chat_id, user_id])
+
+        # Determina se era una sostituzione o un'aggiunta
+        had_previous_image = Lista.ha_immagine?(item_id)
+        action_text = had_previous_image ? "sostituita" : "aggiunta"
+
+        # Invia conferma
+        bot.api.send_message(
+          chat_id: chat_id,
+          text: "✅ Foto #{action_text} all'articolo!",
+        )
+
+        # Aggiorna la lista
+        KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id)
+      else
+        puts "❌ Formato pending action non riconosciuto: #{pending["action"]}"
+        bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'associazione della foto.")
+      end
+    else
+      puts "📸 Foto ricevuta ma nessuna azione pending trovata per l'utente #{user_id}"
       bot.api.send_message(
         chat_id: chat_id,
-        text: "✅ Foto #{action_text} all'articolo!"
+        text: "📸 Per associare una foto a un articolo, prima clicca sull'icona 📸 accanto all'articolo nella lista.",
       )
-      
-      # Aggiorna la lista
-      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id)
-    else
-      puts "❌ Formato pending action non riconosciuto: #{pending["action"]}"
-      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'associazione della foto.")
     end
-  else
-    puts "📸 Foto ricevuta ma nessuna azione pending trovata per l'utente #{user_id}"
-    bot.api.send_message(
-      chat_id: chat_id, 
-      text: "📸 Per associare una foto a un articolo, prima clicca sull'icona 📸 accanto all'articolo nella lista."
-    )
   end
-end
 
   # ========================================
   # 🔑 MESSAGGI PRIVATI
@@ -171,6 +173,8 @@ end
       CarteFedelta.show_delete_interface(bot, user_id)
     when "/reportcarte"
       CarteFedeltaGruppo.show_user_shared_cards_report(bot, user_id)
+    when "/myitems", "/miei"
+      handle_myitems(bot, chat_id, user_id)
     when "/whitelist_show"
       if Whitelist.is_creator?(user_id)
         handle_whitelist_show(bot, chat_id, user_id)
@@ -486,6 +490,125 @@ end
       puts "❌ Errore nella scansione barcode: #{e.message}"
       puts e.backtrace.join("\n")
       bot.api.send_message(chat_id: chat_id, text: "❌ Errore durante la scansione del codice a barre: #{e.message}")
+    end
+  end
+
+  def self.handle_myitems(bot, chat_id, user_id, message_id = nil, page = 0)
+    groups = DB.execute("
+    SELECT DISTINCT g.id, g.nome 
+    FROM gruppi g
+    JOIN items i ON g.id = i.gruppo_id
+    WHERE i.creato_da = ?
+    ORDER BY g.nome
+  ", [user_id])
+
+    if groups.empty?
+      if message_id
+        bot.api.edit_message_text(
+          chat_id: chat_id,
+          message_id: message_id,
+          text: "📭 Non hai articoli in nessun gruppo.",
+        )
+      else
+        bot.api.send_message(chat_id: chat_id, text: "📭 Non hai articoli in nessun gruppo.")
+      end
+      return
+    end
+
+    # Paginazione per gruppi
+    total_pages = (groups.size.to_f / GROUPS_PER_PAGE).ceil
+    page = [page, total_pages - 1].min
+    page = [page, 0].max
+
+    start_index = page * GROUPS_PER_PAGE
+    end_index = [start_index + GROUPS_PER_PAGE - 1, groups.size - 1].min
+    groups_pagina = groups[start_index..end_index] || []
+
+    # Costruisci il testo usando il metodo helper per ogni gruppo
+    text = "<b>📋 I TUOI ARTICOLI - Pagina #{page + 1}/#{total_pages}</b>\n\n"
+
+    groups_pagina.each do |group|
+      group_id = group["id"]
+      group_name = group["nome"]
+
+      # Prendi solo gli articoli di questo utente in questo gruppo
+      user_items = DB.execute("
+      SELECT i.*, u.initials as user_initials
+      FROM items i
+      LEFT JOIN user_names u ON i.creato_da = u.user_id
+      WHERE i.gruppo_id = ? AND i.creato_da = ?
+      ORDER BY i.comprato, i.nome
+    ", [group_id, user_id])
+
+      # Aggiungi l'header del gruppo
+      text += "🏠 <b>#{group_name}</b> (#{user_items.size} articoli)\n"
+
+      # Usa il metodo helper per formattare gli articoli di questo gruppo con TUTTE le icone
+      articles_text = KeyboardGenerator.formatta_articoli_per_myitems(user_items)
+      text += articles_text
+
+      text += "\n" + "─" * 30 + "\n\n"
+    end
+
+    # Bottoni di navigazione
+    nav_buttons = []
+    if total_pages > 1
+      row = []
+
+      if page > 0
+        row << Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "◀️ Pagina #{page}",
+          callback_data: "myitems_page:#{user_id}:#{page - 1}",
+        )
+      end
+
+      row << Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "#{page + 1}/#{total_pages}",
+        callback_data: "noop",
+      )
+
+      if page < total_pages - 1
+        row << Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "Pagina #{page + 2} ▶️",
+          callback_data: "myitems_page:#{user_id}:#{page + 1}",
+        )
+      end
+
+      nav_buttons = [row] if row.any?
+    end
+
+    # Bottoni di controllo
+    control_buttons = [
+      [
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "🔄 Aggiorna",
+          callback_data: "myitems_refresh:#{user_id}:#{page}",
+        ),
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "❌ Chiudi",
+          callback_data: "checklist_close:#{chat_id}",
+        ),
+      ],
+    ]
+
+    inline_keyboard = nav_buttons + control_buttons
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
+
+    if message_id
+      bot.api.edit_message_text(
+        chat_id: chat_id,
+        message_id: message_id,
+        text: text,
+        reply_markup: markup,
+        parse_mode: "HTML",
+      )
+    else
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: text,
+        reply_markup: markup,
+        parse_mode: "HTML",
+      )
     end
   end
 
@@ -927,52 +1050,51 @@ end
   # PENDING ACTIONS
   # ========================================
 
-def self.handle_pending_actions(bot, msg, chat_id, user_id, gruppo)
-  return unless gruppo
+  def self.handle_pending_actions(bot, msg, chat_id, user_id, gruppo)
+    return unless gruppo
 
-  pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ?", [chat_id])
-  return unless pending && pending["action"].to_s.start_with?("add") && pending["gruppo_id"] == gruppo["id"]
+    pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ?", [chat_id])
+    return unless pending && pending["action"].to_s.start_with?("add") && pending["gruppo_id"] == gruppo["id"]
 
-  # ⏱ Timeout (120 secondi)
-  timeout_seconds = 120
-  created_time = DateTime.strptime(pending["creato_il"], "%Y-%m-%d %H:%M:%S").to_time
-  expired = (Time.now - created_time) > timeout_seconds
+    # ⏱ Timeout (120 secondi)
+    timeout_seconds = 120
+    created_time = DateTime.strptime(pending["creato_il"], "%Y-%m-%d %H:%M:%S").to_time
+    expired = (Time.now - created_time) > timeout_seconds
 
-  if expired
-    DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-    bot.api.send_message(chat_id: chat_id, text: "⏰ Tempo scaduto, aggiunta annullata.")
-    return
-  end
-
-  # ❌ Solo chi ha iniziato il pending può completarlo
-  initiator_id = pending["initiator_id"].to_i
-  if initiator_id != user_id
-    bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo chi ha avviato l'aggiunta può completarla o annullarla.")
-    return
-  end
-
-  # ✅ Annulla manualmente
-  if msg.text == "/annulla"
-    DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-    bot.api.send_message(chat_id: chat_id, text: "❌ Aggiunta annullata.")
-    return
-  end
-
-  # ➕ Aggiunta vera e propria
-  if msg.text && !msg.text.start_with?("/")
-    added_items = msg.text.split(",").map(&:strip)
-    added_items.each do |articolo|
-      next if articolo.empty?
-      Lista.aggiungi(pending["gruppo_id"], user_id, articolo)
-      StoricoManager.aggiorna_da_aggiunta(articolo, gruppo["id"])
+    if expired
+      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+      bot.api.send_message(chat_id: chat_id, text: "⏰ Tempo scaduto, aggiunta annullata.")
+      return
     end
 
-    DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-    bot.api.send_message(chat_id: chat_id, text: "✅ #{msg.from.first_name} ha aggiunto: #{added_items.join(', ')}")
-    KeyboardGenerator.genera_lista(bot, chat_id, pending["gruppo_id"], user_id)
-  end
-end
+    # ❌ Solo chi ha iniziato il pending può completarlo
+    initiator_id = pending["initiator_id"].to_i
+    if initiator_id != user_id
+      bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo chi ha avviato l'aggiunta può completarla o annullarla.")
+      return
+    end
 
+    # ✅ Annulla manualmente
+    if msg.text == "/annulla"
+      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+      bot.api.send_message(chat_id: chat_id, text: "❌ Aggiunta annullata.")
+      return
+    end
+
+    # ➕ Aggiunta vera e propria
+    if msg.text && !msg.text.start_with?("/")
+      added_items = msg.text.split(",").map(&:strip)
+      added_items.each do |articolo|
+        next if articolo.empty?
+        Lista.aggiungi(pending["gruppo_id"], user_id, articolo)
+        StoricoManager.aggiorna_da_aggiunta(articolo, gruppo["id"])
+      end
+
+      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+      bot.api.send_message(chat_id: chat_id, text: "✅ #{msg.from.first_name} ha aggiunto: #{added_items.join(", ")}")
+      KeyboardGenerator.genera_lista(bot, chat_id, pending["gruppo_id"], user_id)
+    end
+  end
 
   # Helper: trova un TTF disponibile su Android/Termux
   def self.find_ttf_font_path

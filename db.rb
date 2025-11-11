@@ -47,7 +47,7 @@ def init_db
     );
   SQL
 
-db.execute <<-SQL
+  db.execute <<-SQL
   CREATE TABLE IF NOT EXISTS pending_actions (
     chat_id INTEGER,
     action TEXT,

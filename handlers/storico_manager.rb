@@ -243,7 +243,7 @@ class StoricoManager
       bot.api.edit_message_text(
         chat_id: chat_id,
         message_id: msg.message.message_id,
-        text: "✅ Aggiunti: #{aggiunti.join(', ')}",
+        text: "✅ Aggiunti: #{aggiunti.join(", ")}",
         parse_mode: "Markdown",
       )
 
@@ -253,7 +253,6 @@ class StoricoManager
     end
     false
   end
-
 
   # Aggiungi in storico_manager.rb
   def self.gestisci_click_checklist(bot, msg, callback_data)

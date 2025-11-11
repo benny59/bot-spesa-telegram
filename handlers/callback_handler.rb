@@ -16,8 +16,32 @@ class CallbackHandler
     case data
     when "noop"
       handle_noop(bot, msg)
+    when /^myitems_page:(\d+):(\d+)$/
+      target_user_id = $1.to_i
+      page = $2.to_i
+      # Verifica che l'utente che interagisce sia lo stesso proprietario degli items
+      if target_user_id == user_id
+        MessageHandler.handle_myitems(bot, chat_id, user_id, msg.message.message_id, page)
+      else
+        bot.api.answer_callback_query(
+          callback_query_id: msg.id,
+          text: "❌ Non puoi navigare questa lista",
+        )
+      end
+    when /^myitems_refresh:(\d+):(\d+)$/
+      target_user_id = $1.to_i
+      page = $2.to_i
+      # Verifica che l'utente che interagisce sia lo stesso proprietario degli items
+      if target_user_id == user_id
+        MessageHandler.handle_myitems(bot, chat_id, user_id, msg.message.message_id, page)
+      else
+        bot.api.answer_callback_query(
+          callback_query_id: msg.id,
+          text: "❌ Non puoi aggiornare questa lista",
+        )
+      end
     when /^lista_page:(\d+):(\d+)$/
-    handle_lista_page(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
+      handle_lista_page(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
     when /^comprato:(\d+):(\d+)$/
       handle_comprato(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
     when /^cancella:(\d+):(\d+)$/
@@ -87,19 +111,16 @@ class CallbackHandler
          /^carte_gruppo_remove:(\d+):(\d+)$/,
          /^carte_gruppo_add_finish:(\d+)$/
       CarteFedeltaGruppo.handle_callback(bot, msg)
-      
-        when /^checklist_toggle:[^:]+:\d+:\d+$/
+    when /^checklist_toggle:[^:]+:\d+:\d+$/
       handled = StoricoManager.gestisci_toggle_checklist(bot, msg, data)
       unless handled
         bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nel toggle checklist")
       end
-
     when /^checklist_confirm:\d+:\d+$/
       handled = StoricoManager.gestisci_conferma_checklist(bot, msg, data)
       unless handled
         bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nella conferma checklist")
       end
-
     when /^checklist_add:[^:]+:\d+:\d+$/ # Delegato a StoricoManager
       handled = StoricoManager.gestisci_click_checklist(bot, msg, data)
       unless handled
@@ -245,50 +266,47 @@ class CallbackHandler
       reply_markup: markup,
     )
   end
-  
-  
+
   def self.handle_noop(bot, msg)
     # Non fare nulla, ma rispondi per chiudere l'indicatore di caricamento
     bot.api.answer_callback_query(callback_query_id: msg.id)
   end
 
-  
-def self.handle_lista_page(bot, msg, chat_id, user_id, gruppo_id, page)
-  # Rispondi immediatamente alla callback
-  bot.api.answer_callback_query(callback_query_id: msg.id, text: "Caricamento pagina #{page + 1}...")
-  
-  # Genera la lista con la nuova pagina
-  success = KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, page)
-  
-  # Se non è stato possibile aggiornare, rispondi comunque
-  unless success
-    bot.api.answer_callback_query(
-      callback_query_id: msg.id, 
-      text: "Nessun cambiamento necessario"
-    )
+  def self.handle_lista_page(bot, msg, chat_id, user_id, gruppo_id, page)
+    # Rispondi immediatamente alla callback
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "Caricamento pagina #{page + 1}...")
+
+    # Genera la lista con la nuova pagina
+    success = KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, page)
+
+    # Se non è stato possibile aggiornare, rispondi comunque
+    unless success
+      bot.api.answer_callback_query(
+        callback_query_id: msg.id,
+        text: "Nessun cambiamento necessario",
+      )
+    end
   end
-end
 
   def self.handle_cancel_azioni(bot, msg, chat_id)
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "↩️ Tornato alla lista")
     bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
   end
 
-def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id)
-  immagine = Lista.get_immagine(item_id)
-  item = Lista.trova(item_id)
+  def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id)
+    immagine = Lista.get_immagine(item_id)
+    item = Lista.trova(item_id)
 
-  if immagine && item && immagine["file_id"]
-    caption = "📸 Foto associata all'articolo: \"#{item["nome"]}\""
-    bot.api.send_photo(chat_id: chat_id, photo: immagine["file_id"], caption: caption)
-    
-    # RISPOSTA ALLA CALLBACK PER CHIUDERE L'INDICATORE DI CARICAMENTO
-    bot.api.answer_callback_query(callback_query_id: msg.id, text: "Foto visualizzata")
-  else
-    bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Nessuna foto trovata")
+    if immagine && item && immagine["file_id"]
+      caption = "📸 Foto associata all'articolo: \"#{item["nome"]}\""
+      bot.api.send_photo(chat_id: chat_id, photo: immagine["file_id"], caption: caption)
+
+      # RISPOSTA ALLA CALLBACK PER CHIUDERE L'INDICATORE DI CARICAMENTO
+      bot.api.answer_callback_query(callback_query_id: msg.id, text: "Foto visualizzata")
+    else
+      bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Nessuna foto trovata")
+    end
   end
-end
-
 
   def self.handle_approve_user(bot, msg, chat_id, user_id, username, full_name)
     # ✅ Aggiungi l'utente alla whitelist
@@ -338,37 +356,37 @@ end
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id)
   end
 
- def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id)
-  user_id = msg.from.id  # AGGIUNTA: Ottieni l'user_id dal messaggio
-  user_name = msg.from.first_name
-  
-  DB.execute(
-    "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id, initiator_id, creato_il) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-    [
-      chat_id,
-      "upload_foto:#{user_name}:#{gruppo_id}:#{item_id}",
-      gruppo_id,
-      item_id,
-      user_id  # AGGIORNATA: usa la variabile user_id definita sopra
-    ]
-  )
+  def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id)
+    user_id = msg.from.id  # AGGIUNTA: Ottieni l'user_id dal messaggio
+    user_name = msg.from.first_name
 
-  bot.api.answer_callback_query(callback_query_id: msg.id)
-  bot.api.send_message(
-    chat_id: chat_id,
-    text: "📸 Inviami la foto che vuoi associare a questo articolo...",
-  )
-end
+    DB.execute(
+      "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id, initiator_id, creato_il) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+      [
+        chat_id,
+        "upload_foto:#{user_name}:#{gruppo_id}:#{item_id}",
+        gruppo_id,
+        item_id,
+        user_id,  # AGGIORNATA: usa la variabile user_id definita sopra
+      ]
+    )
 
-def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id)
-  Lista.rimuovi_immagine(item_id)
+    bot.api.answer_callback_query(callback_query_id: msg.id)
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "📸 Inviami la foto che vuoi associare a questo articolo...",
+    )
+  end
 
-  bot.api.answer_callback_query(
-    callback_query_id: msg.id,
-    text: "✅ Foto rimossa",
-  )
-  KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
-end
+  def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id)
+    Lista.rimuovi_immagine(item_id)
+
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "✅ Foto rimossa",
+    )
+    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
+  end
 
   def self.handle_foto_menu(bot, msg, chat_id, item_id, gruppo_id)
     has_image = Lista.ha_immagine?(item_id)
@@ -514,24 +532,23 @@ end
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
   end
 
-def self.handle_aggiungi(bot, msg, chat_id, gruppo_id)
-  user_id   = msg.from.id
-  user_name = msg.from.first_name
-  action    = "add:#{user_name}"  # ✅ definisce correttamente l’azione
+  def self.handle_aggiungi(bot, msg, chat_id, gruppo_id)
+    user_id = msg.from.id
+    user_name = msg.from.first_name
+    action = "add:#{user_name}"  # ✅ definisce correttamente l’azione
 
-  DB.execute(
-    "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, initiator_id, creato_il)
+    DB.execute(
+      "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, initiator_id, creato_il)
      VALUES (?, ?, ?, ?, datetime('now'))",
-    [chat_id, action, gruppo_id, user_id]
-  )
+      [chat_id, action, gruppo_id, user_id]
+    )
 
-  bot.api.answer_callback_query(callback_query_id: msg.id)
-  bot.api.send_message(
-    chat_id: chat_id,
-    text: "✍️ #{user_name}, scrivi gli articoli separati da virgola (oppure /annulla per annullare)."
-  )
-end
-
+    bot.api.answer_callback_query(callback_query_id: msg.id)
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "✍️ #{user_name}, scrivi gli articoli separati da virgola (oppure /annulla per annullare).",
+    )
+  end
 
   def self.handle_cancel_foto(bot, msg, chat_id)
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Operazione annullata")
