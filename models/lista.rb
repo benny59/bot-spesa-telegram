@@ -71,6 +71,14 @@ class Lista
     end
   end
 
+def self.aggiungi_immagine(item_id, file_id, file_unique_id = nil)
+  DB.execute(
+    "INSERT OR REPLACE INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
+    [item_id, file_id, file_unique_id]
+  )
+end
+
+
   def self.trova(item_id)
     DB.get_first_row("SELECT * FROM items WHERE id = ?", [item_id])
   end
@@ -80,11 +88,12 @@ class Lista
     count > 0
   end
 
-  def self.get_immagine(item_id)
-    # Assicurati di restituire solo se c'è un file_id valido
-    row = DB.get_first_row("SELECT * FROM item_images WHERE item_id = ?", [item_id])
-    row if row && row["file_id"] && !row["file_id"].empty?
-  end
+def self.get_immagine(item_id)
+  # Prendi la prima riga (dovrebbe essere l'unica dopo le nostre modifiche)
+  row = DB.get_first_row("SELECT * FROM item_images WHERE item_id = ?", [item_id])
+  row if row && row["file_id"] && !row["file_id"].empty?
+end
+
 
   def self.rimuovi_immagine(item_id)
     DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])

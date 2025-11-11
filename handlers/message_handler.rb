@@ -86,27 +86,58 @@ class MessageHandler
   # ========================================
   # 📸 FOTO
   # ========================================
-  def self.handle_photo_message(bot, msg, chat_id, user_id)
-    puts "📸 Messaggio foto ricevuto"
-    pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ? AND action LIKE 'upload_foto%'", [chat_id])
-    if pending
-      if pending["action"] =~ /upload_foto:(.+):(\d+):(\d+)/
-        item_id = $3.to_i
-        gruppo_id = pending["gruppo_id"]
-        photo = msg.photo.last
-        file_id = photo.file_id
+def self.handle_photo_message(bot, msg, chat_id, user_id)
+  puts "📸 Messaggio foto ricevuto"
+  
+  # Cerca la pending action specifica per questo utente
+  pending = DB.get_first_row(
+    "SELECT * FROM pending_actions WHERE chat_id = ? AND initiator_id = ? AND action LIKE 'upload_foto%'", 
+    [chat_id, user_id]
+  )
+  
+  if pending
+    puts "📸 Trovata pending action: #{pending["action"]}"
+    
+    # Estrai i parametri dalla pending action
+    if pending["action"] =~ /upload_foto:(.+):(\d+):(\d+)/
+      item_id = $3.to_i
+      gruppo_id = pending["gruppo_id"]
+      photo = msg.photo.last
 
-        DB.execute("INSERT OR REPLACE INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
-                   [item_id, file_id, photo.file_unique_id])
-        DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+      puts "📸 Associando foto all'item #{item_id} nel gruppo #{gruppo_id}"
 
-        bot.api.send_message(chat_id: chat_id, text: "✅ Foto aggiunta all'articolo!")
-        KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id)
-      end
+      # CORREZIONE: Prima rimuovi TUTTE le foto esistenti per questo item, poi inserisci la nuova
+      DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])
+      DB.execute("INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
+                 [item_id, photo.file_id, photo.file_unique_id])
+      
+      # Cancella la pending action di questo utente
+      DB.execute("DELETE FROM pending_actions WHERE chat_id = ? AND initiator_id = ?", [chat_id, user_id])
+
+      # Determina se era una sostituzione o un'aggiunta
+      had_previous_image = Lista.ha_immagine?(item_id)
+      action_text = had_previous_image ? 'sostituita' : 'aggiunta'
+      
+      # Invia conferma
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "✅ Foto #{action_text} all'articolo!"
+      )
+      
+      # Aggiorna la lista
+      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id)
     else
-      puts "📸 Foto ricevuta ma nessuna azione pending trovata"
+      puts "❌ Formato pending action non riconosciuto: #{pending["action"]}"
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'associazione della foto.")
     end
+  else
+    puts "📸 Foto ricevuta ma nessuna azione pending trovata per l'utente #{user_id}"
+    bot.api.send_message(
+      chat_id: chat_id, 
+      text: "📸 Per associare una foto a un articolo, prima clicca sull'icona 📸 accanto all'articolo nella lista."
+    )
   end
+end
 
   # ========================================
   # 🔑 MESSAGGI PRIVATI

@@ -274,25 +274,21 @@ end
     bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
   end
 
-  def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id)
-    immagine = Lista.get_immagine(item_id)
-    item = Lista.trova(item_id)
+def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id)
+  immagine = Lista.get_immagine(item_id)
+  item = Lista.trova(item_id)
 
-    if immagine && item && immagine["file_id"]
-      caption = "📸 Foto associata all'articolo: \"#{item["nome"]}\""
-      bot.api.send_photo(chat_id: chat_id, photo: immagine["file_id"], caption: caption)
-
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: "Cosa vuoi fare ora?",
-        reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: [
-                                                                       [Telegram::Bot::Types::InlineKeyboardButton.new(text: "📋 Torna alla lista", callback_data: "show_list:#{gruppo_id}")],
-                                                                     ]),
-      )
-    else
-      bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Nessuna foto trovata")
-    end
+  if immagine && item && immagine["file_id"]
+    caption = "📸 Foto associata all'articolo: \"#{item["nome"]}\""
+    bot.api.send_photo(chat_id: chat_id, photo: immagine["file_id"], caption: caption)
+    
+    # RISPOSTA ALLA CALLBACK PER CHIUDERE L'INDICATORE DI CARICAMENTO
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "Foto visualizzata")
+  else
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Nessuna foto trovata")
   end
+end
+
 
   def self.handle_approve_user(bot, msg, chat_id, user_id, username, full_name)
     # ✅ Aggiungi l'utente alla whitelist
@@ -342,34 +338,37 @@ end
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id)
   end
 
-  def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id)
-DB.execute(
-  "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id, initiator_id, creato_il) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-  [
-    chat_id,
-    "upload_foto:#{msg.from.first_name}:#{gruppo_id}:#{item_id}",
-    gruppo_id,
-    item_id,
-    user_id
-  ]
-)
+ def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id)
+  user_id = msg.from.id  # AGGIUNTA: Ottieni l'user_id dal messaggio
+  user_name = msg.from.first_name
+  
+  DB.execute(
+    "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id, initiator_id, creato_il) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+    [
+      chat_id,
+      "upload_foto:#{user_name}:#{gruppo_id}:#{item_id}",
+      gruppo_id,
+      item_id,
+      user_id  # AGGIORNATA: usa la variabile user_id definita sopra
+    ]
+  )
 
-    bot.api.answer_callback_query(callback_query_id: msg.id)
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "📸 Inviami la foto per questo articolo...",
-    )
-  end
+  bot.api.answer_callback_query(callback_query_id: msg.id)
+  bot.api.send_message(
+    chat_id: chat_id,
+    text: "📸 Inviami la foto che vuoi associare a questo articolo...",
+  )
+end
 
-  def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id)
-    Lista.rimuovi_immagine(item_id)
+def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id)
+  Lista.rimuovi_immagine(item_id)
 
-    bot.api.answer_callback_query(
-      callback_query_id: msg.id,
-      text: "✅ Foto rimossa",
-    )
-    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
-  end
+  bot.api.answer_callback_query(
+    callback_query_id: msg.id,
+    text: "✅ Foto rimossa",
+  )
+  KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
+end
 
   def self.handle_foto_menu(bot, msg, chat_id, item_id, gruppo_id)
     has_image = Lista.ha_immagine?(item_id)
