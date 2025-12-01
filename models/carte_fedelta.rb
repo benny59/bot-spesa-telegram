@@ -547,7 +547,7 @@ class CarteFedelta
       :code39
     when "ean8"
       :ean8
-    when "ean13"
+    when "ean13", "ean_13"
       :ean13
     when "upca", "upc_a"
       :upca
