@@ -7,7 +7,6 @@ def init_db
   db = SQLite3::Database.new(DB_PATH)
   db.results_as_hash = true
 
-  # Crea tutte le tabelle con lo schema corretto
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS config (
       key TEXT PRIMARY KEY,
@@ -35,28 +34,32 @@ def init_db
     );
   SQL
 
+  # 🔧 items → aggiunto topic_id
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       gruppo_id INTEGER,
+      topic_id INTEGER DEFAULT 0,
       creato_da INTEGER,
       nome TEXT,
-      comprato TEXT DEFAULT '', -- ✅ già corretto: stringa vuota = non comprato
+      comprato TEXT DEFAULT '',
       creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (gruppo_id) REFERENCES gruppi (id)
     );
   SQL
 
+  # 🔧 pending_actions → aggiunto topic_id
   db.execute <<-SQL
-  CREATE TABLE IF NOT EXISTS pending_actions (
-    chat_id INTEGER,
-    action TEXT,
-    gruppo_id INTEGER,
-    item_id INTEGER,
-    initiator_id INTEGER,
-    creato_il DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-SQL
+    CREATE TABLE IF NOT EXISTS pending_actions (
+      chat_id INTEGER,
+      topic_id INTEGER DEFAULT 0,
+      action TEXT,
+      gruppo_id INTEGER,
+      item_id INTEGER,
+      initiator_id INTEGER,
+      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS item_images (
@@ -106,16 +109,18 @@ SQL
     );
   SQL
 
+  # 🔧 storico_articoli → aggiunto topic_id
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS storico_articoli (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nome TEXT NOT NULL,
       gruppo_id INTEGER NOT NULL,
+      topic_id INTEGER DEFAULT 0,
       conteggio INTEGER DEFAULT 0,
       ultima_aggiunta DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(nome, gruppo_id),
+      UNIQUE(nome, gruppo_id, topic_id),
       FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE
     );
   SQL
@@ -133,22 +138,26 @@ SQL
     );
   SQL
 
-  # Crea indici per performance
+  # 🔧 indici aggiornati
   db.execute <<-SQL
-    CREATE INDEX IF NOT EXISTS idx_storico_gruppo_conteggio 
-    ON storico_articoli (gruppo_id, conteggio DESC, ultima_aggiunta DESC);
+    CREATE INDEX IF NOT EXISTS idx_items_gruppo_topic
+    ON items (gruppo_id, topic_id);
   SQL
 
   db.execute <<-SQL
-    CREATE INDEX IF NOT EXISTS idx_storico_gruppo_nome 
-    ON storico_articoli (gruppo_id, nome);
+    CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_topic
+    ON pending_actions (chat_id, topic_id);
   SQL
 
-  puts "✅ Database inizializzato con schema corretto"
+  db.execute <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_storico_gruppo_topic
+    ON storico_articoli (gruppo_id, topic_id, conteggio DESC, ultima_aggiunta DESC);
+  SQL
+
+  puts "✅ Database inizializzato / aggiornato (supporto topic_id)"
   db
 end
 
-# Metodi di utilità per il database
 class DB
   def self.execute(*args)
     db.execute(*args)

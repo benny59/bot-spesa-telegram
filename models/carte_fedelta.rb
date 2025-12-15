@@ -113,6 +113,7 @@ class CarteFedelta
   def self.handle_callback(bot, callback_query)
     aggiorna_schema_db
     user_id = callback_query.from.id
+    topic_id = callback_query.message.message_thread_id
     data = callback_query.data
 
     case data
@@ -171,6 +172,7 @@ class CarteFedelta
 
           bot.api.send_photo(
             chat_id: user_id,
+            topic_id: topic_id,
             photo: Faraday::UploadIO.new(img_path, "image/png"),
             caption: caption,
             reply_markup: keyboard, # 🔴 AGGIUNTA: Aggiungi la tastiera

@@ -100,32 +100,34 @@ class StoricoManager
   def self.genera_checklist(bot, message, gruppo_id)
     chat_id = message.chat.id
     user_id = message.from.id
+    topic_id = message.message_thread_id || 0
 
-    puts "🔍 [CHECKLIST] Richiesta per gruppo #{gruppo_id}"
+    puts "🔍 [CHECKLIST] Richiesta per gruppo #{gruppo_id} topic #{topic_id}"
 
     top_articoli = self.top_articoli(gruppo_id, 10)
 
     if top_articoli.empty?
       bot.api.send_message(
         chat_id: chat_id,
-        text: "📊 *Checklist Articoli Frequenti*\n\nNessun articolo nello storico per questo gruppo.\n\nInizia aggiungendo articoli con /+ per popolare la checklist!",
+        message_thread_id: topic_id,
+        text: "📊 *Checklist Articoli Frequenti*\n\nNessun articolo disponibile.",
         parse_mode: "Markdown",
       )
       return
     end
 
-    puts "🔍 [CHECKLIST] Genero tastiera con #{top_articoli.length} articoli"
+    context_key = "#{user_id}:#{topic_id}"
+    @@selezioni_checklist[context_key] ||= []
 
-    # Crea i pulsanti per gli articoli
     righe = top_articoli.map do |articolo|
-      nome = articolo["nome"].capitalize
+      nome = articolo["nome"]
       conteggio = articolo["conteggio"]
-      selezionato = @@selezioni_checklist[user_id].include?(articolo["nome"]) ? "✅" : "➕"
+      selezionato = @@selezioni_checklist[context_key].include?(nome) ? "✅" : "➕"
 
       [
         Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "#{selezionato} #{nome} (#{conteggio}x)",
-          callback_data: "checklist_toggle:#{articolo["nome"]}:#{gruppo_id}:#{user_id}",
+          text: "#{selezionato} #{nome.capitalize} (#{conteggio}x)",
+          callback_data: "checklist_toggle:#{nome}:#{gruppo_id}:#{user_id}:#{topic_id}",
         ),
       ]
     end
@@ -133,11 +135,11 @@ class StoricoManager
     righe << [
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "✅ Conferma aggiunta",
-        callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}",
+        callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}:#{topic_id}",
       ),
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "❌ Chiudi",
-        callback_data: "checklist_close:#{chat_id}",
+        callback_data: "checklist_close:#{chat_id}:#{topic_id}",
       ),
     ]
 
@@ -145,12 +147,13 @@ class StoricoManager
 
     bot.api.send_message(
       chat_id: chat_id,
-      text: "📋 *Checklist Articoli Frequenti*\n\nClicca '+' per aggiungere direttamente alla lista:",
+      message_thread_id: topic_id,
+      text: "📋 *Checklist Articoli Frequenti*\n\nSeleziona gli articoli da aggiungere:",
       parse_mode: "Markdown",
       reply_markup: markup,
     )
 
-    puts "✅ [CHECKLIST] Checklist inviata con successo"
+    puts "✅ [CHECKLIST] Checklist inviata nel topic #{topic_id}"
   end
 
   # ========================================

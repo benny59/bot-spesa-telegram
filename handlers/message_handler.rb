@@ -913,7 +913,8 @@ class MessageHandler
       KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id)
       return
     when "?"
-      handle_question_command(bot, chat_id, user_id, gruppo)
+      topic_id = msg.message_thread_id || 0
+      handle_question_command(bot, chat_id, user_id, gruppo, topic_id)
       return
     when "!"
       KeyboardGenerator.genera_lista_testo(bot, chat_id, gruppo["id"], user_id, message_id = nil)
@@ -982,10 +983,10 @@ class MessageHandler
     end
   end
 
-  def self.handle_question_command(bot, chat_id, user_id, gruppo)
-    KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id)
+  def self.handle_question_command(bot, chat_id, user_id, gruppo, topic_id)
+    # MODIFICA: Passa topic_id al generatore normale
+    KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id, nil, 0, topic_id)
   end
-
   # Metodo helper per aggiungere articolo dalla checklist (richiama handle_plus_command esistente)
 
   # ========================================
@@ -996,6 +997,10 @@ class MessageHandler
       bot.api.send_message(chat_id: chat_id, text: "❌ Nessuna lista attiva. Usa /newgroup in chat privata.")
       return
     end
+
+    # MODIFICA: Ottieni il topic_id dal messaggio
+    topic_id = msg.message_thread_id || 0
+
     begin
       text = msg.text.strip
 
@@ -1018,12 +1023,14 @@ class MessageHandler
         items_text = text[1..-1].strip
         if items_text.empty?
           # Solo + senza testo
-          DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id) VALUES (?, ?, ?)",
-                     [chat_id, "add:#{msg.from.first_name}", gruppo["id"]])
+          DB.execute(
+            "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, topic_id) VALUES (?, ?, ?, ?)",
+            [chat_id, "add:#{msg.from.first_name}", gruppo["id"], topic_id]
+          )
           bot.api.send_message(chat_id: chat_id, text: "✍️ #{msg.from.first_name}, scrivi gli articoli separati da virgola:")
         else
-          # + seguito da testo
-          Lista.aggiungi(gruppo["id"], user_id, items_text)
+          # + seguito da testo - MODIFICA: Passa topic_id a Lista.aggiungi
+          Lista.aggiungi(gruppo["id"], user_id, items_text, topic_id)
           added_items = items_text.split(",").map(&:strip)
           added_count = added_items.count
           added_items.each do |articolo|
@@ -1031,19 +1038,27 @@ class MessageHandler
           end
           bot.api.send_message(
             chat_id: chat_id,
+            message_thread_id: topic_id,
             text: "✅ #{msg.from.first_name} ha aggiunto #{added_count} articolo(i): #{added_items.join(", ")}",
           )
-          #          KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id)
+          # MODIFICA: Aggiorna la lista passando topic_id
+          KeyboardGenerator.genera_lista(bot, chat_id, gruppo["id"], user_id, nil, 0, topic_id)
         end
       else
         # Solo +
-        DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id) VALUES (?, ?, ?)",
-                   [chat_id, "add:#{msg.from.first_name}", gruppo["id"]])
+        DB.execute(
+          "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, topic_id) VALUES (?, ?, ?, ?)",
+          [chat_id, "add:#{msg.from.first_name}", gruppo["id"], topic_id]
+        )
         bot.api.send_message(chat_id: chat_id, text: "✍️ #{msg.from.first_name}, scrivi gli articoli separati da virgola:")
       end
     rescue => e
       puts "❌ Errore nel comando +: #{e.message}"
-      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'aggiunta degli articoli")
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "❌ Errore nell'aggiunta degli articoli",
+      )
     end
   end
   # ========================================
@@ -1053,46 +1068,92 @@ class MessageHandler
   def self.handle_pending_actions(bot, msg, chat_id, user_id, gruppo)
     return unless gruppo
 
-    pending = DB.get_first_row("SELECT * FROM pending_actions WHERE chat_id = ?", [chat_id])
-    return unless pending && pending["action"].to_s.start_with?("add") && pending["gruppo_id"] == gruppo["id"]
+    pending = DB.get_first_row(
+      "SELECT * FROM pending_actions WHERE chat_id = ?",
+      [chat_id]
+    )
+    return unless pending &&
+                  pending["action"].to_s.start_with?("add") &&
+                  pending["gruppo_id"] == gruppo["id"]
+
+    # 🔥 TOPIC SEMPRE DAL MESSAGGIO
+    topic_id = msg.message_thread_id || 0
 
     # ⏱ Timeout (120 secondi)
     timeout_seconds = 120
-    created_time = DateTime.strptime(pending["creato_il"], "%Y-%m-%d %H:%M:%S").to_time
+    created_time = DateTime
+      .strptime(pending["creato_il"], "%Y-%m-%d %H:%M:%S")
+      .to_time
     expired = (Time.now - created_time) > timeout_seconds
 
     if expired
       DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-      bot.api.send_message(chat_id: chat_id, text: "⏰ Tempo scaduto, aggiunta annullata.")
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "⏰ Tempo scaduto, aggiunta annullata.",
+      )
       return
     end
 
     # ❌ Solo chi ha iniziato il pending può completarlo
     initiator_id = pending["initiator_id"].to_i
     if initiator_id != user_id
-      bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo chi ha avviato l'aggiunta può completarla o annullarla.")
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "⚠️ Solo chi ha avviato l'aggiunta può completarla o annullarla.",
+      )
       return
     end
 
-    # ✅ Annulla manualmente
+    # ❌ Annulla manualmente
     if msg.text == "/annulla"
       DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-      bot.api.send_message(chat_id: chat_id, text: "❌ Aggiunta annullata.")
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "❌ Aggiunta annullata.",
+      )
       return
     end
 
     # ➕ Aggiunta vera e propria
     if msg.text && !msg.text.start_with?("/")
       added_items = msg.text.split(",").map(&:strip)
+
       added_items.each do |articolo|
         next if articolo.empty?
-        Lista.aggiungi(pending["gruppo_id"], user_id, articolo)
-        StoricoManager.aggiorna_da_aggiunta(articolo, gruppo["id"])
+
+        Lista.aggiungi(
+          pending["gruppo_id"],
+          user_id,
+          articolo,
+          topic_id
+        )
+        StoricoManager.aggiorna_da_aggiunta(
+          articolo,
+          gruppo["id"]
+        )
       end
 
       DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
-      bot.api.send_message(chat_id: chat_id, text: "✅ #{msg.from.first_name} ha aggiunto: #{added_items.join(", ")}")
-      KeyboardGenerator.genera_lista(bot, chat_id, pending["gruppo_id"], user_id)
+
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "✅ #{msg.from.first_name} ha aggiunto: #{added_items.join(", ")}",
+      )
+
+      KeyboardGenerator.genera_lista(
+        bot,
+        chat_id,
+        pending["gruppo_id"],
+        user_id,
+        nil,
+        0,
+        topic_id
+      )
     end
   end
 
@@ -1121,9 +1182,10 @@ class MessageHandler
   end
 
   def self.handle_screenshot_command(bot, msg, gruppo)
-    begin
-      items = Lista.tutti(gruppo["id"])
+    topic_id = msg.message_thread_id || 0
 
+    begin
+      items = Lista.tutti(gruppo["id"], topic_id)
       if items.nil? || items.empty?
         bot.api.send_message(chat_id: msg.chat.id, text: "📝 La lista è vuota! Non c'è nulla da condividere.")
         return

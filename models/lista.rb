@@ -2,12 +2,16 @@
 require_relative "../db"
 
 class Lista
-  def self.tutti(gruppo_id)
-    DB.execute("SELECT i.*, u.initials as user_initials 
-              FROM items i 
-              LEFT JOIN user_names u ON i.creato_da = u.user_id 
-              WHERE i.gruppo_id = ? 
-              ORDER BY i.comprato, i.id", [gruppo_id])
+  def self.tutti(gruppo_id, topic_id)
+    DB.execute(
+      "SELECT i.*, u.initials AS user_initials
+     FROM items i
+     LEFT JOIN user_names u ON i.creato_da = u.user_id
+     WHERE i.gruppo_id = ?
+       AND i.topic_id = ?
+     ORDER BY i.comprato, i.id",
+      [gruppo_id, topic_id]
+    )
   end
   # models/lista.rb
   def self.toggle_comprato(gruppo_id, item_id, user_id)
@@ -63,11 +67,11 @@ class Lista
     true
   end
 
-  def self.aggiungi(gruppo_id, user_id, testo)
+  def self.aggiungi(gruppo_id, user_id, testo, topic_id)
     articoli = testo.split(",").map(&:strip)
     articoli.each do |articolo|
-      DB.execute("INSERT INTO items (gruppo_id, creato_da, nome) VALUES (?, ?, ?)",
-                 [gruppo_id, user_id, articolo])
+      DB.execute("INSERT INTO items (gruppo_id, creato_da, nome, creato_il,topic_id) VALUES (?, ?, ?, datetime('now'),?)",
+                 [gruppo_id, user_id, articolo, topic_id])
     end
   end
 

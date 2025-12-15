@@ -12,7 +12,11 @@ class GroupManager
   end
 
   def self.update_chat_id(group_id, chat_id, title)
-    DB.execute("UPDATE gruppi SET chat_id = ?, nome = ? WHERE id = ?", [chat_id, title, group_id])
+    #    DB.execute("UPDATE gruppi SET chat_id = ?, nome = ? WHERE id = ?", [chat_id, title, group_id])
+    DB.execute(
+      "UPDATE gruppi SET chat_id = ?, nome = ?, topic_id = ? WHERE id = ?",
+      [chat_id, msg.chat.title, msg.message_thread_id, gruppo_in_attesa["id"]]
+    )
   end
 
   def self.find_by_chat_id(chat_id)

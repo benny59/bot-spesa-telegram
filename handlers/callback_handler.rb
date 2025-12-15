@@ -10,6 +10,9 @@ class CallbackHandler
   def self.handle(bot, msg)
     chat_id = msg.message.respond_to?(:chat) ? msg.message.chat.id : msg.from.id
     user_id = msg.from.id
+    topic_id = msg.message.message_thread_id || 0
+    puts "🧵 CALLBACK topic_id=#{topic_id}"
+
     data = msg.data.to_s
     puts "🖱 Callback: #{data} - User: #{user_id} - Chat: #{chat_id}"
 
@@ -40,23 +43,24 @@ class CallbackHandler
           text: "❌ Non puoi aggiornare questa lista",
         )
       end
-    when /^lista_page:(\d+):(\d+)$/
-      handle_lista_page(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^comprato:(\d+):(\d+)$/
-      handle_comprato(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^cancella:(\d+):(\d+)$/
-      handle_cancella(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^cancella_tutti:(\d+)$/
-      handle_cancella_tutti(bot, msg, chat_id, user_id, $1.to_i)
-    when /^azioni_menu:(\d+):(\d+)$/
-      handle_azioni_menu(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^cancel_azioni:(\d+):(\d+)$/
+      # 🔥 MODIFICA: Aggiungi topic_id opzionale a tutti i callback pattern
+    when /^lista_page:(\d+):(\d+)(?::(\d+))?$/
+      handle_lista_page(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^comprato:(\d+):(\d+)(?::(\d+))?$/
+      handle_comprato(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^cancella:(\d+):(\d+)(?::(\d+))?$/
+      handle_cancella(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^cancella_tutti:(\d+)(?::(\d+))?$/
+      handle_cancella_tutti(bot, msg, chat_id, user_id, $1.to_i, $2&.to_i || 0)
+    when /^azioni_menu:(\d+):(\d+)(?::(\d+))?$/
+      handle_azioni_menu(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^cancel_azioni:(\d+):(\d+)(?::(\d+))?$/
       handle_cancel_azioni(bot, msg, chat_id)
-    when /^view_foto:(\d+):(\d+)$/
-      handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i)
-    when /^mostra_carte:(\d+)$/
+    when /^view_foto:(\d+):(\d+)(?::(\d+))?$/
+      handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^mostra_carte:(\d+)(?::(\d+))?$/
       gruppo_id = $1.to_i
-      CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id)
+      CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id)
     when /^carte:(\d+):(\d+)$/
       CarteFedelta.handle_callback(bot, msg)
     when "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
@@ -103,14 +107,17 @@ class CallbackHandler
         )
       end
       # 🔥 AGGIUNTA COMPLETA: Tutte le callback per le carte gruppo
-    when /^carte_gruppo:(\d+):(\d+)$/,
-         /^carte_gruppo_delete:(\d+):(\d+)$/,
+    when /^carte_gruppo_delete:(\d+):(\d+)$/,
          /^carte_gruppo_confirm_delete:(\d+):(\d+)$/,
          /^carte_gruppo_back:(\d+)$/,
          /^carte_gruppo_add:(\d+):(\d+)$/,
          /^carte_gruppo_remove:(\d+):(\d+)$/,
          /^carte_gruppo_add_finish:(\d+)$/
       CarteFedeltaGruppo.handle_callback(bot, msg)
+    when /^carte_gruppo:(\d+):(\d+)(?::(\d+))?$/
+      gruppo_id, carta_id = $1.to_i, $2.to_i
+      topic_id = $3&.to_i || 0  # 🔥 Estrai topic_id
+      CarteFedeltaGruppo.handle_callback(bot, msg)  # Questo passa alla classe corretta
     when /^checklist_toggle:[^:]+:\d+:\d+$/
       handled = StoricoManager.gestisci_toggle_checklist(bot, msg, data)
       unless handled
@@ -126,34 +133,38 @@ class CallbackHandler
       unless handled
         bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nell'aggiunta")
       end
-    when /^checklist_close:-?\d+$/
-      # Delegato a StoricoManager
-      handled = StoricoManager.gestisci_chiusura_checklist(bot, msg, data)
-      unless handled
-        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nella chiusura")
-      end
+      # 🔥 MODIFICA: Aggiungi topic_id opzionale
+    when /^checklist_close:(-?\d+)(?::(\d+))?$/
+      chat_id_param = $1.to_i
+      topic_id = $2&.to_i || 0
+      # Chiama il metodo corretto (potresti dover modificare StoricoManager)
+      bot.api.delete_message(chat_id: msg.message.chat.id, message_id: msg.message.message_id)
+      bot.api.answer_callback_query(callback_query_id: msg.id, text: "✅ Chiuso")
     when /^approve_user:(\d+):([^:]*):(.+)$/
       handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
     when /^reject_user:(\d+)$/
       handle_reject_user(bot, msg, chat_id, $1.to_i)
-    when /^show_list:(\d+)$/
-      handle_show_list(bot, msg, chat_id, user_id, $1.to_i)
-    when /^(add_foto|replace_foto):(\d+):(\d+)$/
-      handle_add_replace_foto(bot, msg, chat_id, $2.to_i, $3.to_i)
-    when /^remove_foto:(\d+):(\d+)$/
-      handle_remove_foto(bot, msg, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^foto_menu:(\d+):(\d+)$/
-      handle_foto_menu(bot, msg, chat_id, $1.to_i, $2.to_i)
-    when /^toggle:(\d+):(\d+)$/
-      handle_toggle(bot, msg, $1.to_i, $2.to_i)
-    when /^toggle_view_mode:(\d+)$/
-      handle_toggle_view_mode(bot, msg, chat_id, user_id, $1.to_i)
-    when /^aggiungi:(\d+)$/
-      handle_aggiungi(bot, msg, chat_id, $1.to_i)
-    when /^cancel_foto:(\d+):(\d+)$/
+    when /^show_list:(\d+)(?::(\d+))?$/
+      handle_show_list(bot, msg, chat_id, user_id, $1.to_i, $2&.to_i || 0)
+      # 🔥 MODIFICA: Aggiungi topic_id opzionale
+    when /^(add_foto|replace_foto):(\d+):(\d+)(?::(\d+))?$/
+      handle_add_replace_foto(bot, msg, chat_id, $2.to_i, $3.to_i, $4&.to_i || 0)
+    when /^remove_foto:(\d+):(\d+)(?::(\d+))?$/
+      handle_remove_foto(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^foto_menu:(\d+):(\d+)(?::(\d+))?$/
+      handle_foto_menu(bot, msg, chat_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^toggle:(\d+):(\d+)(?::(\d+))?$/
+      handle_toggle(bot, msg, $1.to_i, $2.to_i, $3&.to_i || 0)
+      # 🔥 MODIFICA: Aggiungi topic_id opzionale
+    when /^toggle_view_mode:(\d+)(?::(\d+))?$/
+      handle_toggle_view_mode(bot, msg, chat_id, user_id, $1.to_i, $2&.to_i || 0)
+      # 🔥 MODIFICA: Aggiungi topic_id opzionale
+    when /^aggiungi:(\d+)(?::(\d+))?$/
+      handle_aggiungi(bot, msg, chat_id, $1.to_i, $2&.to_i || 0)
+    when /^cancel_foto:(\d+):(\d+)(?::(\d+))?$/
       handle_cancel_foto(bot, msg, chat_id)
-    when /^info:(\d+):(\d+)$/
-      handle_info(bot, msg, $1.to_i, $2.to_i)
+    when /^info:(\d+):(\d+)(?::(\d+))?$/
+      handle_info(bot, msg, $1.to_i, $2.to_i, $3&.to_i || 0)
     else
       puts "❌ Callback non riconosciuto: #{data}"
     end
@@ -161,35 +172,40 @@ class CallbackHandler
 
   private
 
-  def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id)
+  # 🔥 MODIFICA: Aggiungi topic_id ai metodi principali
+  def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
     nuovo = Lista.toggle_comprato(gruppo_id, item_id, user_id)
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "Stato aggiornato")
-    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
+    # 🔥 MODIFICA: Passa topic_id
+    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
   end
 
-  def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id)
+  def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
     if Lista.cancella(gruppo_id, item_id, user_id)
       bot.api.answer_callback_query(callback_query_id: msg.id, text: "Elemento cancellato")
-      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
+      # 🔥 MODIFICA: Passa topic_id
+      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
     else
       bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Non puoi cancellare questo elemento")
     end
   end
 
-  def self.handle_cancella_tutti(bot, msg, chat_id, user_id, gruppo_id)
+  def self.handle_cancella_tutti(bot, msg, chat_id, user_id, gruppo_id, topic_id = 0)
     if Lista.cancella_tutti(gruppo_id, user_id)
       bot.api.answer_callback_query(
         callback_query_id: msg.id,
         text: "✅ Articoli comprati rimossi",
       )
 
-      # aggiorna la lista dopo la cancellazione
+      # 🔥 MODIFICA: Passa topic_id
       KeyboardGenerator.genera_lista(
         bot,
         chat_id,
         gruppo_id,
         user_id,
-        msg.message.message_id
+        msg.message.message_id,
+        0,
+        topic_id
       )
     else
       bot.api.answer_callback_query(
@@ -199,7 +215,7 @@ class CallbackHandler
     end
   end
 
-  def self.handle_azioni_menu(bot, msg, chat_id, user_id, item_id, gruppo_id)
+  def self.handle_azioni_menu(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
     has_image = Lista.ha_immagine?(item_id)
     item = Lista.trova(item_id)
     return unless item
@@ -208,7 +224,8 @@ class CallbackHandler
     buttons << [
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: item["comprato"] == 1 ? "❌ Segna da comprare" : "✅ Segna comprato",
-        callback_data: "comprato:#{item_id}:#{gruppo_id}",
+        # 🔥 MODIFICA: Aggiungi topic_id al callback_data
+        callback_data: "comprato:#{item_id}:#{gruppo_id}:#{topic_id}",
       ),
     ]
 
@@ -216,22 +233,26 @@ class CallbackHandler
       buttons << [
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "👁️ Visualizza foto",
-          callback_data: "view_foto:#{item_id}:#{gruppo_id}",
+          # 🔥 MODIFICA: Aggiungi topic_id al callback_data
+          callback_data: "view_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "🔄 Sostituisci",
-          callback_data: "replace_foto:#{item_id}:#{gruppo_id}",
+          # 🔥 MODIFICA: Aggiungi topic_id al callback_data
+          callback_data: "replace_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "🗑️ Rimuovi",
-          callback_data: "remove_foto:#{item_id}:#{gruppo_id}",
+          # 🔥 MODIFICA: Aggiungi topic_id al callback_data
+          callback_data: "remove_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
         ),
       ]
     else
       buttons << [
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "📷 Aggiungi foto",
-          callback_data: "add_foto:#{item_id}:#{gruppo_id}",
+          # 🔥 MODIFICA: Aggiungi topic_id al callback_data
+          callback_data: "add_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
         ),
       ]
     end
@@ -239,21 +260,24 @@ class CallbackHandler
     buttons << [
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "ℹ️ Informazioni",
-        callback_data: "toggle:#{item_id}:#{gruppo_id}",
+        # 🔥 MODIFICA: Aggiungi topic_id al callback_data
+        callback_data: "toggle:#{item_id}:#{gruppo_id}:#{topic_id}",
       ),
     ]
 
     buttons << [
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "❌ Cancella articolo",
-        callback_data: "cancella:#{item_id}:#{gruppo_id}",
+        # 🔥 MODIFICA: Aggiungi topic_id al callback_data
+        callback_data: "cancella:#{item_id}:#{gruppo_id}:#{topic_id}",
       ),
     ]
 
     buttons << [
       Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "↩️ Torna alla lista",
-        callback_data: "cancel_azioni:#{item_id}:#{gruppo_id}",
+        # 🔥 MODIFICA: Aggiungi topic_id al callback_data
+        callback_data: "cancel_azioni:#{item_id}:#{gruppo_id}:#{topic_id}",
       ),
     ]
 
@@ -272,12 +296,12 @@ class CallbackHandler
     bot.api.answer_callback_query(callback_query_id: msg.id)
   end
 
-  def self.handle_lista_page(bot, msg, chat_id, user_id, gruppo_id, page)
+  def self.handle_lista_page(bot, msg, chat_id, user_id, gruppo_id, page, topic_id = 0)
     # Rispondi immediatamente alla callback
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "Caricamento pagina #{page + 1}...")
 
-    # Genera la lista con la nuova pagina
-    success = KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, page)
+    # 🔥 MODIFICA: Passa topic_id
+    success = KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, page, topic_id)
 
     # Se non è stato possibile aggiornare, rispondi comunque
     unless success
@@ -293,7 +317,7 @@ class CallbackHandler
     bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
   end
 
-  def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id)
+  def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
     immagine = Lista.get_immagine(item_id)
     item = Lista.trova(item_id)
 
@@ -351,23 +375,25 @@ class CallbackHandler
     end
   end
 
-  def self.handle_show_list(bot, msg, chat_id, user_id, gruppo_id)
+  def self.handle_show_list(bot, msg, chat_id, user_id, gruppo_id, topic_id = 0)
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "📋 Mostro la lista")
-    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id)
+    # 🔥 MODIFICA: Passa topic_id
+    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, nil, 0, topic_id)
   end
 
-  def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id)
+  def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
     user_id = msg.from.id  # AGGIUNTA: Ottieni l'user_id dal messaggio
     user_name = msg.from.first_name
 
     DB.execute(
-      "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id, initiator_id, creato_il) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+      "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id, initiator_id, topic_id, creato_il) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
       [
         chat_id,
         "upload_foto:#{user_name}:#{gruppo_id}:#{item_id}",
         gruppo_id,
         item_id,
-        user_id,  # AGGIORNATA: usa la variabile user_id definita sopra
+        user_id,
+        topic_id,  # 🔥 MODIFICA: Aggiungi topic_id
       ]
     )
 
@@ -378,17 +404,18 @@ class CallbackHandler
     )
   end
 
-  def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id)
+  def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
     Lista.rimuovi_immagine(item_id)
 
     bot.api.answer_callback_query(
       callback_query_id: msg.id,
       text: "✅ Foto rimossa",
     )
-    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
+    # 🔥 MODIFICA: Passa topic_id
+    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
   end
 
-  def self.handle_foto_menu(bot, msg, chat_id, item_id, gruppo_id)
+  def self.handle_foto_menu(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
     has_image = Lista.ha_immagine?(item_id)
 
     if has_image
@@ -396,25 +423,29 @@ class CallbackHandler
         [
           Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "👁️ Visualizza foto",
-            callback_data: "view_foto:#{item_id}:#{gruppo_id}",
+            # 🔥 MODIFICA: Aggiungi topic_id
+            callback_data: "view_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
           ),
         ],
         [
           Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "🔄 Sostituisci foto",
-            callback_data: "replace_foto:#{item_id}:#{gruppo_id}",
+            # 🔥 MODIFICA: Aggiungi topic_id
+            callback_data: "replace_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
           ),
         ],
         [
           Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "🗑️ Rimuovi foto",
-            callback_data: "remove_foto:#{item_id}:#{gruppo_id}",
+            # 🔥 MODIFICA: Aggiungi topic_id
+            callback_data: "remove_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
           ),
         ],
         [
           Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "❌ Annulla",
-            callback_data: "cancel_foto:#{item_id}:#{gruppo_id}",
+            # 🔥 MODIFICA: Aggiungi topic_id
+            callback_data: "cancel_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
           ),
         ],
       ]
@@ -423,13 +454,15 @@ class CallbackHandler
         [
           Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "📷 Aggiungi foto",
-            callback_data: "add_foto:#{item_id}:#{gruppo_id}",
+            # 🔥 MODIFICA: Aggiungi topic_id
+            callback_data: "add_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
           ),
         ],
         [
           Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "❌ Annulla",
-            callback_data: "cancel_foto:#{item_id}:#{gruppo_id}",
+            # 🔥 MODIFICA: Aggiungi topic_id
+            callback_data: "cancel_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
           ),
         ],
       ]
@@ -446,7 +479,7 @@ class CallbackHandler
     )
   end
 
-  def self.handle_toggle(bot, msg, item_id, gruppo_id)
+  def self.handle_toggle(bot, msg, item_id, gruppo_id, topic_id = 0)
     item = DB.get_first_row("SELECT i.*, u.first_name, u.last_name, un.initials 
                           FROM items i
                           LEFT JOIN user_names u ON i.creato_da = u.user_id
@@ -465,7 +498,7 @@ class CallbackHandler
         info = "#{item["nome"]} comprato da #{initials}"
 
         # AGGIORNA STORICO: incrementa conteggio
-        StoricoManager.aggiorna_da_toggle(item["nome"], gruppo_id, incremento)
+        StoricoManager.aggiorna_da_toggle(item["nome"], gruppo_id, 1)
       else
         # già comprato → lo resetto
         DB.execute("UPDATE items SET comprato = NULL WHERE id = ?", [item_id])
@@ -473,7 +506,7 @@ class CallbackHandler
         info = "#{item["nome"]} di nuovo da comprare"
 
         # AGGIORNA STORICO: decrementa conteggio
-        StoricoManager.aggiorna_da_toggle(item["nome"], gruppo_id, decremento)
+        StoricoManager.aggiorna_da_toggle(item["nome"], gruppo_id, -1)
       end
 
       bot.api.answer_callback_query(
@@ -482,8 +515,8 @@ class CallbackHandler
         show_alert: true,
       )
 
-      # aggiorno tastiera / vista lista
-      KeyboardGenerator.genera_lista(bot, msg.message.chat.id, gruppo_id, msg.from.id, msg.message.message_id)
+      # 🔥 MODIFICA: Passa topic_id
+      KeyboardGenerator.genera_lista(bot, msg.message.chat.id, gruppo_id, msg.from.id, msg.message.message_id, 0, topic_id)
     else
       bot.api.answer_callback_query(
         callback_query_id: msg.id,
@@ -521,7 +554,7 @@ class CallbackHandler
     end
   end
 
-  def self.handle_toggle_view_mode(bot, msg, chat_id, user_id, gruppo_id)
+  def self.handle_toggle_view_mode(bot, msg, chat_id, user_id, gruppo_id, topic_id = 0)
     new_mode = Preferences.toggle_view_mode(user_id)
 
     bot.api.answer_callback_query(
@@ -529,25 +562,35 @@ class CallbackHandler
       text: new_mode == "text_only" ? "📄 Modalità testo" : "📱 Modalità compatta",
     )
 
-    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id)
+    # 🔥 MODIFICA: Passa topic_id
+    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
   end
 
-  def self.handle_aggiungi(bot, msg, chat_id, gruppo_id)
+  def self.handle_aggiungi(bot, msg, chat_id, gruppo_id, topic_id = 0)
     user_id = msg.from.id
     user_name = msg.from.first_name
     action = "add:#{user_name}"  # ✅ definisce correttamente l’azione
 
     DB.execute(
-      "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, initiator_id, creato_il)
-     VALUES (?, ?, ?, ?, datetime('now'))",
-      [chat_id, action, gruppo_id, user_id]
+      "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, initiator_id, topic_id, creato_il)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))",
+      [chat_id, action, gruppo_id, user_id, topic_id] # 🔥 MODIFICA: Aggiungi topic_id
     )
 
     bot.api.answer_callback_query(callback_query_id: msg.id)
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "✍️ #{user_name}, scrivi gli articoli separati da virgola (oppure /annulla per annullare).",
-    )
+    # 🔥 MODIFICA: Invia nel topic se necessario
+    if topic_id && topic_id > 0
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "✍️ #{user_name}, scrivi gli articoli separati da virgola (oppure /annulla per annullare).",
+      )
+    else
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "✍️ #{user_name}, scrivi gli articoli separati da virgola (oppure /annulla per annullare).",
+      )
+    end
   end
 
   def self.handle_cancel_foto(bot, msg, chat_id)
@@ -555,7 +598,7 @@ class CallbackHandler
     bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
   end
 
-  def self.handle_info(bot, msg, item_id, gruppo_id)
+  def self.handle_info(bot, msg, item_id, gruppo_id, topic_id = 0)
     item = Lista.trova(item_id)
     if item
       # Se il campo 'comprato' è vuoto → da comprare, altrimenti contiene la sigla

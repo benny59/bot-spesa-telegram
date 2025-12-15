@@ -7,14 +7,14 @@ class KeyboardGenerator
   ITEMS_PER_PAGE = 10  # Numero di elementi per pagina
   MAX_BUTTONS_PER_PAGE = 90  # sicurezza, sotto il limite di Telegram
 
-  def self.genera_lista(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0)
+  # utils/keyboard_generator.rb - Modifica il metodo genera_lista
+  def self.genera_lista(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0)
     view_mode = Preferences.get_view_mode(user_id)
 
     if view_mode == "text_only"
-      # MODIFICA: Passa anche il parametro page a genera_lista_testo
-      genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id, page)
+      genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id, page, topic_id)
     else
-      genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id, page)
+      genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id, page, topic_id)
     end
   end
 
@@ -44,10 +44,9 @@ class KeyboardGenerator
   end
 
   # ===================== LISTA SOLO TESTO =====================
-  def self.genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0)
-    lista = Lista.tutti(gruppo_id)
+  def self.genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0)
+    lista = Lista.tutti(gruppo_id, topic_id)
 
-    # MODIFICA: Aggiungi paginazione anche per la vista testo
     total_pages = (lista.size.to_f / ITEMS_PER_PAGE).ceil
     page = [page, total_pages - 1].min
     page = [page, 0].max
@@ -56,7 +55,6 @@ class KeyboardGenerator
     end_index = [start_index + ITEMS_PER_PAGE - 1, lista.size - 1].min
     lista_pagina = lista[start_index..end_index] || []
 
-    # MODIFICA: Aggiorna il testo con informazioni sulla paginazione
     text = "<b>🛒 Lista della spesa (solo testo) - Pagina #{page + 1}/#{total_pages} (#{lista.size} elementi):</b>\n\n"
 
     if lista_pagina.empty?
@@ -108,7 +106,7 @@ class KeyboardGenerator
       [
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "➕ Aggiungi",
-          callback_data: "aggiungi:#{gruppo_id}",
+          callback_data: "aggiungi:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "📱 Modalità compatta",
@@ -138,12 +136,23 @@ class KeyboardGenerator
         parse_mode: "HTML",
       )
     else
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: text,
-        reply_markup: markup,
-        parse_mode: "HTML",
-      )
+      # MODIFICA: Usa message_thread_id se topic_id > 0
+      if topic_id && topic_id > 0
+        bot.api.send_message(
+          chat_id: chat_id,
+          message_thread_id: topic_id,
+          text: text,
+          reply_markup: markup,
+          parse_mode: "HTML",
+        )
+      else
+        bot.api.send_message(
+          chat_id: chat_id,
+          text: text,
+          reply_markup: markup,
+          parse_mode: "HTML",
+        )
+      end
     end
   end
 
@@ -172,10 +181,11 @@ class KeyboardGenerator
   end
 
   # ===================== LISTA COMPATTA =====================
-  def self.genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0)
-    lista = Lista.tutti(gruppo_id)
+  def self.genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0)
+    # MODIFICA: Passa topic_id a Lista.tutti
+    lista = Lista.tutti(gruppo_id, topic_id)
 
-    # Calcola paginazione - CORREZIONE: usa .min invece di .max
+    # Calcola paginazione
     total_pages = (lista.size.to_f / ITEMS_PER_PAGE).ceil
     page = [page, total_pages - 1].min
     page = [page, 0].max
@@ -207,27 +217,28 @@ class KeyboardGenerator
           "ℹ️✅#{escaped_comprato}"
         end
 
+      # 🔥 MODIFICA IMPORTANTE: Aggiungi topic_id a tutti i callback_data
       [
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: testo_item,
-          callback_data: "comprato:#{item["id"]}:#{gruppo_id}",
+          callback_data: "comprato:#{item["id"]}:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: info_btn,
-          callback_data: "info:#{item["id"]}:#{gruppo_id}",
+          callback_data: "info:#{item["id"]}:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: photo_icon,
-          callback_data: "foto_menu:#{item["id"]}:#{gruppo_id}",
+          callback_data: "foto_menu:#{item["id"]}:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "#{initials}-❌",
-          callback_data: "cancella:#{item["id"]}:#{gruppo_id}",
+          callback_data: "cancella:#{item["id"]}:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
       ]
     end
 
-    # Bottoni di navigazione se necessario - CORREZIONE: struttura semplificata
+    # Bottoni di navigazione se necessario
     nav_buttons = []
     if total_pages > 1
       row = []
@@ -236,7 +247,7 @@ class KeyboardGenerator
       if page > 0
         row << Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "◀️ Pagina #{page}",
-          callback_data: "lista_page:#{gruppo_id}:#{page - 1}",
+          callback_data: "lista_page:#{gruppo_id}:#{page - 1}:#{topic_id}",  # Aggiunto topic_id
         )
       end
 
@@ -250,7 +261,7 @@ class KeyboardGenerator
       if page < total_pages - 1
         row << Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "Pagina #{page + 2} ▶️",
-          callback_data: "lista_page:#{gruppo_id}:#{page + 1}",
+          callback_data: "lista_page:#{gruppo_id}:#{page + 1}:#{topic_id}",  # Aggiunto topic_id
         )
       end
 
@@ -262,25 +273,25 @@ class KeyboardGenerator
       [
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "➕ Aggiungi",
-          callback_data: "aggiungi:#{gruppo_id}",
+          callback_data: "aggiungi:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "📄 Modalità",
-          callback_data: "toggle_view_mode:#{gruppo_id}",
+          callback_data: "toggle_view_mode:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "🧹 Cancella tutti",
-          callback_data: "cancella_tutti:#{gruppo_id}",
+          callback_data: "cancella_tutti:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "💳 Carte",
-          callback_data: "mostra_carte:#{gruppo_id}",
+          callback_data: "mostra_carte:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
         ),
       ],
       [
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "❌ Chiudi",
-          callback_data: "checklist_close:#{chat_id}",
+          callback_data: "checklist_close:#{chat_id}:#{topic_id}",  # Aggiunto topic_id (opzionale)
         ),
       ],
     ]
@@ -292,9 +303,14 @@ class KeyboardGenerator
 
     # Testo del messaggio
     text_message = "🛒 Lista della spesa - Pagina #{page + 1}/#{total_pages} (#{lista.size} elementi)"
+    # MODIFICA: Aggiungi indicazione del topic se presente
+    if topic_id && topic_id > 0
+      text_message = "📌 Topic - " + text_message
+    end
 
     if message_id
       begin
+        # MODIFICA: Usa edit_message_reply_markup se edit_message_text fallisce
         bot.api.edit_message_text(
           chat_id: chat_id,
           message_id: message_id,
@@ -323,12 +339,25 @@ class KeyboardGenerator
         end
       end
     else
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: text_message,
-        reply_markup: markup,
-        parse_mode: "HTML",
-      )
+      # 🔥 MODIFICA PRINCIPALE: Usa message_thread_id se topic_id > 0
+      if topic_id && topic_id > 0
+        # Invia nel topic specifico
+        bot.api.send_message(
+          chat_id: chat_id,
+          message_thread_id: topic_id,  # <-- QUI STA LA DIFFERENZA!
+          text: text_message,
+          reply_markup: markup,
+          parse_mode: "HTML",
+        )
+      else
+        # Comportamento normale (senza topic)
+        bot.api.send_message(
+          chat_id: chat_id,
+          text: text_message,
+          reply_markup: markup,
+          parse_mode: "HTML",
+        )
+      end
       return true
     end
   end

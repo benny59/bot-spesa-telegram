@@ -105,7 +105,7 @@ class CarteFedeltaGruppo < CarteFedelta
   end
 
   # Mostra carte del gruppo
-  def self.show_group_cards(bot, gruppo_id, chat_id, user_id)
+  def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     carte = DB.execute("
     SELECT c.id, c.nome, c.user_id, u.full_name 
     FROM #{CARDS_TABLE} c 
@@ -148,12 +148,23 @@ class CarteFedeltaGruppo < CarteFedelta
 
     info_carte = carte.map { |c| "• #{c["nome"]} (da #{c["full_name"] || "Utente"})" }.join("\n")
 
-    bot.api.send_message(
-      chat_id: chat_id,
-      #      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
-      text: "🏢 Carte condivise del gruppo:\n",
-      reply_markup: keyboard,
-    )
+    if topic_id && topic_id > 0
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+
+        #      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
+        text: "🏢 Carte condivise del gruppo:\n",
+        reply_markup: keyboard,
+      )
+    else
+      bot.api.send_message(
+        chat_id: chat_id,
+        #      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
+        text: "🏢 Carte condivise del gruppo:\n",
+        reply_markup: keyboard,
+      )
+    end
   end
 
   def self.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
@@ -524,7 +535,11 @@ class CarteFedeltaGruppo < CarteFedelta
     case data
     when /^carte_gruppo:(\d+):(\d+)$/
       gruppo_id, carta_id = $1.to_i, $2.to_i
-      mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id)
+
+      topic_id = callback_query.message.message_thread_id || 0
+      puts "🧵 CARTE_GRUPPO topic_id=#{topic_id}"
+
+      mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id, topic_id)
     when /^carte_gruppo_delete:(\d+):(\d+)$/
       gruppo_id, uid = $1.to_i, $2.to_i
       return if uid != user_id
@@ -564,12 +579,12 @@ class CarteFedeltaGruppo < CarteFedelta
     end
   end
 
-  def self.mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id)
+  def self.mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id, topic_id = nil)
     row = DB.execute("
-      SELECT c.* 
-      FROM #{CARDS_TABLE} c 
-      JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id 
-      WHERE c.id = ? AND gcl.gruppo_id = ?",
+    SELECT c.* 
+    FROM #{CARDS_TABLE} c 
+    JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id 
+    WHERE c.id = ? AND gcl.gruppo_id = ?",
                      [carta_id, gruppo_id]).first
 
     if row
@@ -591,7 +606,6 @@ class CarteFedeltaGruppo < CarteFedelta
 
       if File.exist?(img_path)
         caption = "🏢 Carta Condivisa\n💳 #{row["nome"]}\n🔢 Codice: #{row["codice"]}"
-        # 🔴 AGGIUNTA: Tastiera con pulsante Chiudi
         inline_keyboard = [
           [
             Telegram::Bot::Types::InlineKeyboardButton.new(
@@ -602,13 +616,23 @@ class CarteFedeltaGruppo < CarteFedelta
         ]
         keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
 
-        bot.api.send_photo(
-          chat_id: chat_id,
-          photo: Faraday::UploadIO.new(img_path, "image/png"),
-          caption: caption,
-          reply_markup: keyboard, # 🔴 AGGIUNTA
-
-        )
+        # 🔥 MODIFICA PRINCIPALE: Usa message_thread_id se topic_id > 0
+        if topic_id
+          bot.api.send_photo(
+            chat_id: chat_id,
+            message_thread_id: topic_id,
+            photo: Faraday::UploadIO.new(img_path, "image/png"),
+            caption: caption,
+            reply_markup: keyboard,
+          )
+        else
+          bot.api.send_photo(
+            chat_id: chat_id,
+            photo: Faraday::UploadIO.new(img_path, "image/png"),
+            caption: caption,
+            reply_markup: keyboard,
+          )
+        end
       else
         bot.api.send_message(chat_id: chat_id, text: "❌ Immagine non disponibile per #{row["nome"]}")
       end
