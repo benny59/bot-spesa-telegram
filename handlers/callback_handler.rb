@@ -112,34 +112,28 @@ class CallbackHandler
          /^carte_gruppo_back:(\d+)$/,
          /^carte_gruppo_add:(\d+):(\d+)$/,
          /^carte_gruppo_remove:(\d+):(\d+)$/,
-         /^carte_gruppo_add_finish:(\d+)$/
+         /^carte_gruppo_add_finish:(\d+)$/,
+         /^carte_chiudi:(-?\d+):(\d+)$/
       CarteFedeltaGruppo.handle_callback(bot, msg)
     when /^carte_gruppo:(\d+):(\d+)(?::(\d+))?$/
       gruppo_id, carta_id = $1.to_i, $2.to_i
       topic_id = $3&.to_i || 0  # 🔥 Estrai topic_id
       CarteFedeltaGruppo.handle_callback(bot, msg)  # Questo passa alla classe corretta
     when /^checklist_toggle:[^:]+:\d+:\d+$/
+    when /^checklist_toggle:[^:]+:\d+:\d+:\d+$/
       handled = StoricoManager.gestisci_toggle_checklist(bot, msg, data)
-      unless handled
-        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nel toggle checklist")
-      end
-    when /^checklist_confirm:\d+:\d+$/
+      bot.api.answer_callback_query(callback_query_id: msg.id) unless handled
+    when /^checklist_confirm:\d+:\d+:\d+$/
       handled = StoricoManager.gestisci_conferma_checklist(bot, msg, data)
-      unless handled
-        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nella conferma checklist")
-      end
+      bot.api.answer_callback_query(callback_query_id: msg.id) unless handled
     when /^checklist_add:[^:]+:\d+:\d+$/ # Delegato a StoricoManager
       handled = StoricoManager.gestisci_click_checklist(bot, msg, data)
       unless handled
         bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nell'aggiunta")
       end
       # 🔥 MODIFICA: Aggiungi topic_id opzionale
-    when /^checklist_close:(-?\d+)(?::(\d+))?$/
-      chat_id_param = $1.to_i
-      topic_id = $2&.to_i || 0
-      # Chiama il metodo corretto (potresti dover modificare StoricoManager)
-      bot.api.delete_message(chat_id: msg.message.chat.id, message_id: msg.message.message_id)
-      bot.api.answer_callback_query(callback_query_id: msg.id, text: "✅ Chiuso")
+    when /^checklist_close:(-?\d+):(\d+)$/
+      StoricoManager.gestisci_chiusura_checklist(bot, msg, data)
     when /^approve_user:(\d+):([^:]*):(.+)$/
       handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
     when /^reject_user:(\d+)$/

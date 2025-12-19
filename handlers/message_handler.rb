@@ -895,7 +895,10 @@ class MessageHandler
       handle_screenshot_command(bot, msg, gruppo)
       return
     when "/checklist", "/checklist@#{bot_username}"
-      StoricoManager.genera_checklist(bot, msg, gruppo["id"])
+      topic_id = msg.message_thread_id || 0
+      puts "[CHECKLIST] Richiesta per gruppo #{gruppo} topic #{topic_id}"
+      StoricoManager.genera_checklist(bot, msg, gruppo["id"], topic_id)
+
       return
     when "/carte", "/carte@#{bot_username}"
       CarteFedelta.show_user_cards(bot, user_id)
@@ -955,6 +958,7 @@ class MessageHandler
         bot.api.send_message(chat_id: chat_id, text: "❌ Nessun gruppo attivo. Usa /newgroup in chat privata.")
       end
     elsif msg.text&.start_with?("+")
+    puts "chiamo handle_plus_command"
       handle_plus_command(bot, msg, chat_id, user_id, gruppo)
     elsif msg.text&.start_with?("/delcartagruppo")
       CarteFedeltaGruppo.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
@@ -1034,7 +1038,7 @@ class MessageHandler
           added_items = items_text.split(",").map(&:strip)
           added_count = added_items.count
           added_items.each do |articolo|
-            StoricoManager.aggiorna_da_aggiunta(articolo.strip, gruppo["id"])
+            StoricoManager.aggiorna_da_aggiunta(articolo.strip, gruppo["id"],topic_id)
           end
           bot.api.send_message(
             chat_id: chat_id,

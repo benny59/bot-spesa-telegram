@@ -105,67 +105,60 @@ class CarteFedeltaGruppo < CarteFedelta
   end
 
   # Mostra carte del gruppo
-  def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
-    carte = DB.execute("
-    SELECT c.id, c.nome, c.user_id, u.full_name 
-    FROM #{CARDS_TABLE} c 
-    JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id 
-    LEFT JOIN whitelist u ON c.user_id = u.user_id 
-    WHERE gcl.gruppo_id = ? 
-    ORDER BY LOWER(c.nome) ASC",
-                       [gruppo_id])
+def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
+  carte = DB.execute(
+    "
+    SELECT c.id, c.nome, c.user_id, u.full_name
+    FROM #{CARDS_TABLE} c
+    JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id
+    LEFT JOIN whitelist u ON c.user_id = u.user_id
+    WHERE gcl.gruppo_id = ?
+    ORDER BY LOWER(c.nome) ASC
+    ",
+    [gruppo_id]
+  )
 
-    if carte.empty?
-      bot.api.send_message(chat_id: chat_id, text: "⚠️ Nessuna carta condivisa nel gruppo.\nUsa /addcartagruppo NOME CODICE per aggiungerne una.")
-      return
-    end
+  if carte.empty?
+    bot.api.send_message(
+      chat_id: chat_id,
+      message_thread_id: topic_id > 0 ? topic_id : nil,
+      text: "⚠️ Nessuna carta condivisa nel gruppo.\nUsa /addcartagruppo NOME CODICE per aggiungerne una.",
+    )
+    return
+  end
 
-    # Crea bottoni organizzati in colonne (4 colonne)
-    inline_keyboard = []
-    current_row = []
+  inline_keyboard = []
+  current_row = []
 
-    carte.each_with_index do |row, index|
-      current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: row["nome"],
-        callback_data: "carte_gruppo:#{gruppo_id}:#{row["id"]}",
-      )
+  carte.each_with_index do |row, index|
+    current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: row["nome"],
+      callback_data: "carte_gruppo:#{gruppo_id}:#{row["id"]}",
+    )
 
-      if current_row.size == 4 || index == carte.size - 1
-        inline_keyboard << current_row
-        current_row = []
-      end
-    end
-
-    # 🔴 AGGIUNTO: Riga con tasto "Chiudi"
-    inline_keyboard << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "❌ Chiudi",
-        callback_data: "checklist_close:#{chat_id}",
-      ),
-    ]
-
-    keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
-
-    info_carte = carte.map { |c| "• #{c["nome"]} (da #{c["full_name"] || "Utente"})" }.join("\n")
-
-    if topic_id && topic_id > 0
-      bot.api.send_message(
-        chat_id: chat_id,
-        message_thread_id: topic_id,
-
-        #      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
-        text: "🏢 Carte condivise del gruppo:\n",
-        reply_markup: keyboard,
-      )
-    else
-      bot.api.send_message(
-        chat_id: chat_id,
-        #      text: "🏢 Carte condivise del gruppo:\n#{info_carte}",
-        text: "🏢 Carte condivise del gruppo:\n",
-        reply_markup: keyboard,
-      )
+    if current_row.size == 4 || index == carte.size - 1
+      inline_keyboard << current_row
+      current_row = []
     end
   end
+
+  # ✅ TASTO CHIUDI CORRETTO
+  inline_keyboard << [
+    Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "❌ Chiudi",
+      callback_data: "carte_chiudi:#{chat_id}:#{topic_id}",
+    ),
+  ]
+
+  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
+
+  bot.api.send_message(
+    chat_id: chat_id,
+    message_thread_id: topic_id > 0 ? topic_id : nil,
+    text: "🏢 Carte condivise del gruppo:",
+    reply_markup: keyboard,
+  )
+end
 
   def self.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
     return unless gruppo
@@ -557,6 +550,25 @@ class CarteFedeltaGruppo < CarteFedelta
     when /^carte_gruppo_remove:(\d+):(\d+)$/
       gruppo_id, carta_id = $1.to_i, $2.to_i
       remove_personal_card_from_group(bot, callback_query, gruppo_id, carta_id)
+      
+ when /^carte_chiudi:(-?\d+):(\d+)$/
+  chat_id  = $1.to_i
+  topic_id = $2.to_i
+
+  begin
+    bot.api.delete_message(
+      chat_id: chat_id,
+      message_id: callback_query.message.message_id,
+    )
+  rescue => e
+    puts "❌ Errore chiusura carte: #{e.message}"
+  end
+
+  bot.api.answer_callback_query(
+    callback_query_id: callback_query.id,
+    text: "Chiuse",
+  )     
+      
     when /^carte_gruppo_add_finish:(\d+)$/
       # 🔥 MODIFICA: Rimuovi la tastiera e mostra conferma
       bot.api.answer_callback_query(
