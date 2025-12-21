@@ -22,27 +22,50 @@ class CallbackHandler
     when /^myitems_page:(\d+):(\d+)$/
       target_user_id = $1.to_i
       page = $2.to_i
-      # Verifica che l'utente che interagisce sia lo stesso proprietario degli items
+
+      msg = callback_query = msg  # già passato come msg
+
       if target_user_id == user_id
-        MessageHandler.handle_myitems(bot, chat_id, user_id, msg.message.message_id, page)
+        MessageHandler.handle_myitems(
+          bot,
+          msg.message.chat.id,
+          user_id,
+          msg.message,
+          page
+        )
       else
         bot.api.answer_callback_query(
           callback_query_id: msg.id,
-          text: "❌ Non puoi navigare questa lista",
+          text: "❌ Non puoi cambiare pagina",
         )
       end
     when /^myitems_refresh:(\d+):(\d+)$/
       target_user_id = $1.to_i
       page = $2.to_i
-      # Verifica che l'utente che interagisce sia lo stesso proprietario degli items
+
       if target_user_id == user_id
-        MessageHandler.handle_myitems(bot, chat_id, user_id, msg.message.message_id, page)
+        # ✅ RISPOSTA IMMEDIATA
+        bot.api.answer_callback_query(
+          callback_query_id: msg.id,
+          text: "🔄 Aggiorno…",
+          show_alert: false,
+        )
+
+        MessageHandler.handle_myitems(
+          bot,
+          msg.message.chat.id,
+          user_id,
+          msg.message,
+          page
+        )
       else
         bot.api.answer_callback_query(
           callback_query_id: msg.id,
           text: "❌ Non puoi aggiornare questa lista",
+          show_alert: false,
         )
       end
+
       # 🔥 MODIFICA: Aggiungi topic_id opzionale a tutti i callback pattern
     when /^lista_page:(\d+):(\d+)(?::(\d+))?$/
       handle_lista_page(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
@@ -131,7 +154,10 @@ class CallbackHandler
       unless handled
         bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nell'aggiunta")
       end
-      # 🔥 MODIFICA: Aggiungi topic_id opzionale
+    when /^show_checklist:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
+      handle_show_checklist(bot, msg, chat_id, user_id, gruppo_id, topic_id)
     when /^checklist_close:(-?\d+):(\d+)$/
       StoricoManager.gestisci_chiusura_checklist(bot, msg, data)
     when /^approve_user:(\d+):([^:]*):(.+)$/
@@ -141,6 +167,36 @@ class CallbackHandler
     when /^show_list:(\d+)(?::(\d+))?$/
       handle_show_list(bot, msg, chat_id, user_id, $1.to_i, $2&.to_i || 0)
       # 🔥 MODIFICA: Aggiungi topic_id opzionale
+
+    when /^show_storico:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
+
+      acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id)
+      testo = StoricoManager.formatta_storico(acquisti)
+
+      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+        inline_keyboard: [
+          [
+            Telegram::Bot::Types::InlineKeyboardButton.new(
+              text: "❌ Chiudi",
+              callback_data: "ui_close:#{chat_id}:#{topic_id}",
+            ),
+          ],
+        ],
+      )
+
+      bot.api.send_message(
+        chat_id: msg.message.chat.id,
+        message_thread_id: topic_id,
+        text: testo,
+        parse_mode: "Markdown",
+        reply_markup: keyboard,
+      )
+
+      bot.api.answer_callback_query(callback_query_id: msg.id)
+    when /^ui_close:(-?\d+):(\d+)$/
+      gestisci_chiusura_ui(bot, msg, data)
     when /^(add_foto|replace_foto):(\d+):(\d+)(?::(\d+))?$/
       handle_add_replace_foto(bot, msg, chat_id, $2.to_i, $3.to_i, $4&.to_i || 0)
     when /^remove_foto:(\d+):(\d+)(?::(\d+))?$/
@@ -610,5 +666,48 @@ class CallbackHandler
         text: "❌ Articolo non trovato",
       )
     end
+  end
+
+  def self.handle_show_checklist(bot, msg, chat_id, user_id, gruppo_id, topic_id)
+    require "ostruct"
+
+    # Crea un messaggio fittizio con i dati necessari
+    fake_message = OpenStruct.new(
+      chat: OpenStruct.new(id: chat_id),
+      from: msg.from,
+      message_thread_id: topic_id,
+    )
+
+    StoricoManager.genera_checklist(bot, fake_message, gruppo_id, topic_id)
+
+    bot.api.answer_callback_query(
+      callback_query_id: msg.id,
+      text: "📋 Checklist caricata",
+    )
+  end
+
+  def self.gestisci_chiusura_ui(bot, msg, callback_data)
+    if callback_data =~ /^ui_close:(-?\d+):(\d+)$/
+      chat_id = $1.to_i
+      topic_id = $2.to_i
+
+      puts "🧹 [UI] Chiudi messaggio chat #{chat_id} topic #{topic_id}"
+
+      begin
+        bot.api.delete_message(
+          chat_id: chat_id,
+          message_thread_id: topic_id > 0 ? topic_id : nil,
+          message_id: msg.message.message_id,
+        )
+        bot.api.answer_callback_query(callback_query_id: msg.id)
+      rescue => e
+        puts "❌ Errore chiusura UI: #{e.message}"
+        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌")
+      end
+
+      return true
+    end
+
+    false
   end
 end

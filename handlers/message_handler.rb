@@ -21,6 +21,8 @@ ITEMS_PER_PAGE = 3  # Numero di gruppi per pagina
 GROUPS_PER_PAGE = 2  # Numero di gruppi per pagina
 
 class MessageHandler
+  MYITEMS_GROUPS_PER_PAGE = 3  # Definisci qui a livello di classe
+
   def self.ensure_group_name(bot, msg, gruppo)
     return unless gruppo && gruppo["id"]  # 👉 evita errori se nil
 
@@ -174,7 +176,7 @@ class MessageHandler
     when "/reportcarte"
       CarteFedeltaGruppo.show_user_shared_cards_report(bot, user_id)
     when "/myitems", "/miei"
-      handle_myitems(bot, chat_id, user_id)
+      handle_myitems(bot, chat_id, user_id, msg)
     when "/whitelist_show"
       if Whitelist.is_creator?(user_id)
         handle_whitelist_show(bot, chat_id, user_id)
@@ -493,122 +495,146 @@ class MessageHandler
     end
   end
 
-  def self.handle_myitems(bot, chat_id, user_id, message_id = nil, page = 0)
-    groups = DB.execute("
-    SELECT DISTINCT g.id, g.nome 
+  def self.chat_still_exists?(bot, telegram_chat_id)
+    begin
+      bot.api.get_chat(chat_id: telegram_chat_id)
+      true
+    rescue Telegram::Bot::Exceptions::ResponseError
+      false
+    end
+  end
+
+  def self.handle_myitems(bot, chat_id, user_id, message, page = 0)
+    topic_id = message.message_thread_id || 0
+    message_id = message.message_id
+
+    groups_and_topics = DB.execute("
+    SELECT DISTINCT
+      g.id   AS gruppo_id,
+      g.nome AS gruppo_nome,
+      g.chat_id AS chat_id,
+      COALESCE(i.topic_id, 0) AS topic_id
     FROM gruppi g
     JOIN items i ON g.id = i.gruppo_id
     WHERE i.creato_da = ?
-    ORDER BY g.nome
+    ORDER BY g.nome, topic_id
   ", [user_id])
 
-    if groups.empty?
-      if message_id
-        bot.api.edit_message_text(
-          chat_id: chat_id,
-          message_id: message_id,
-          text: "📭 Non hai articoli in nessun gruppo.",
-        )
-      else
-        bot.api.send_message(chat_id: chat_id, text: "📭 Non hai articoli in nessun gruppo.")
-      end
+    if groups_and_topics.empty?
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "📭 Non hai articoli in nessun gruppo.",
+      )
       return
     end
 
-    # Paginazione per gruppi
-    total_pages = (groups.size.to_f / GROUPS_PER_PAGE).ceil
-    page = [page, total_pages - 1].min
-    page = [page, 0].max
-
-    start_index = page * GROUPS_PER_PAGE
-    end_index = [start_index + GROUPS_PER_PAGE - 1, groups.size - 1].min
-    groups_pagina = groups[start_index..end_index] || []
-
-    # Costruisci il testo usando il metodo helper per ogni gruppo
-    text = "<b>📋 I TUOI ARTICOLI - Pagina #{page + 1}/#{total_pages}</b>\n\n"
-
-    groups_pagina.each do |group|
-      group_id = group["id"]
-      group_name = group["nome"]
-
-      # Prendi solo gli articoli di questo utente in questo gruppo
-      user_items = DB.execute("
-      SELECT i.*, u.initials as user_initials
-      FROM items i
-      LEFT JOIN user_names u ON i.creato_da = u.user_id
-      WHERE i.gruppo_id = ? AND i.creato_da = ?
-      ORDER BY i.comprato, i.nome
-    ", [group_id, user_id])
-
-      # Aggiungi l'header del gruppo
-      text += "🏠 <b>#{group_name}</b> (#{user_items.size} articoli)\n"
-
-      # Usa il metodo helper per formattare gli articoli di questo gruppo con TUTTE le icone
-      articles_text = KeyboardGenerator.formatta_articoli_per_myitems(user_items)
-      text += articles_text
-
-      text += "\n" + "─" * 30 + "\n\n"
+    valid_items = groups_and_topics.select do |item|
+      item["chat_id"] && chat_still_exists?(bot, item["chat_id"])
     end
 
-    # Bottoni di navigazione
+    if valid_items.empty?
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "❌ Tutti i tuoi gruppi non sono più accessibili al bot.",
+      )
+      return
+    end
+
+    total_pages = (valid_items.size.to_f / GROUPS_PER_PAGE).ceil
+    page = [[page, 0].max, total_pages - 1].min
+
+    slice = valid_items.slice(page * GROUPS_PER_PAGE, GROUPS_PER_PAGE) || []
+
+    text = "<b>📋 I TUOI ARTICOLI – Pagina #{page + 1}/#{total_pages}</b>\n\n"
+
+    slice.each do |item|
+      gruppo_id = item["gruppo_id"]
+      gruppo_nome = item["gruppo_nome"]
+      topic_ref = item["topic_id"]
+
+      user_items = DB.execute("
+SELECT i.*, u.initials
+FROM items i
+LEFT JOIN user_names u ON i.creato_da = u.user_id
+WHERE i.gruppo_id = ?
+  AND i.creato_da = ?
+  AND COALESCE(i.topic_id,0) = ?
+ORDER BY i.comprato IS NOT NULL, i.nome
+
+    ", [gruppo_id, user_id, topic_ref])
+
+      next if user_items.empty?
+
+      topic_label = topic_ref > 0 ? " (topic #{topic_ref})" : ""
+      text << "🏠 <b>#{gruppo_nome}#{topic_label}</b>\n"
+      text << KeyboardGenerator.formatta_articoli_per_myitems(user_items)
+      text << "\n" + "─" * 30 + "\n\n"
+    end
+
     nav_buttons = []
     if total_pages > 1
       row = []
-
-      if page > 0
-        row << Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "◀️ Pagina #{page}",
-          callback_data: "myitems_page:#{user_id}:#{page - 1}",
-        )
-      end
+      row << Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "◀️",
+        callback_data: "myitems_page:#{user_id}:#{page - 1}",
+      ) if page > 0
 
       row << Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "#{page + 1}/#{total_pages}",
         callback_data: "noop",
       )
 
-      if page < total_pages - 1
-        row << Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "Pagina #{page + 2} ▶️",
-          callback_data: "myitems_page:#{user_id}:#{page + 1}",
-        )
-      end
+      row << Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "▶️",
+        callback_data: "myitems_page:#{user_id}:#{page + 1}",
+      ) if page < total_pages - 1
 
-      nav_buttons = [row] if row.any?
+      nav_buttons << row
     end
 
-    # Bottoni di controllo
-    control_buttons = [
-      [
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "🔄 Aggiorna",
-          callback_data: "myitems_refresh:#{user_id}:#{page}",
-        ),
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "❌ Chiudi",
-          callback_data: "checklist_close:#{chat_id}",
-        ),
-      ],
-    ]
+    control_buttons = [[
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "🔄 Aggiorna",
+        callback_data: "myitems_refresh:#{user_id}:#{page}",
+      ),
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "❌ Chiudi",
+        callback_data: "ui_close:#{chat_id}:#{message_id}",
+      ),
+    ]]
 
-    inline_keyboard = nav_buttons + control_buttons
-    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+      inline_keyboard: nav_buttons + control_buttons,
+    )
 
-    if message_id
-      bot.api.edit_message_text(
+    if message.from && message.from.id == user_id
+      # Prima chiamata da comando /miei → nuovo messaggio
+      bot.api.send_message(
         chat_id: chat_id,
-        message_id: message_id,
+        message_thread_id: topic_id,
         text: text,
         reply_markup: markup,
         parse_mode: "HTML",
       )
     else
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: text,
-        reply_markup: markup,
-        parse_mode: "HTML",
-      )
+      begin
+        bot.api.edit_message_text(
+          chat_id: chat_id,
+          message_id: message_id,
+          message_thread_id: topic_id,
+          text: text,
+          reply_markup: markup,
+          parse_mode: "HTML",
+        )
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        if e.message.include?("message is not modified")
+          puts("messaggio non modificato")
+        else
+          raise e
+        end
+      end
     end
   end
 
@@ -919,6 +945,15 @@ class MessageHandler
       topic_id = msg.message_thread_id || 0
       handle_question_command(bot, chat_id, user_id, gruppo, topic_id)
       return
+    when "/id"
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "📊 *ID Chat:* `#{chat_id}`\n" \
+              "👤 *Tuoi ID:* `#{user_id}`\n" \
+              "🧵 *Topic ID:* `#{msg.message_thread_id || 0}`",
+        message_thread_id: msg.message_thread_id || 0,
+        parse_mode: "Markdown",
+      )
     when "!"
       KeyboardGenerator.genera_lista_testo(bot, chat_id, gruppo["id"], user_id, message_id = nil)
       return
@@ -958,7 +993,7 @@ class MessageHandler
         bot.api.send_message(chat_id: chat_id, text: "❌ Nessun gruppo attivo. Usa /newgroup in chat privata.")
       end
     elsif msg.text&.start_with?("+")
-    puts "chiamo handle_plus_command"
+      puts "chiamo handle_plus_command"
       handle_plus_command(bot, msg, chat_id, user_id, gruppo)
     elsif msg.text&.start_with?("/delcartagruppo")
       CarteFedeltaGruppo.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
@@ -1038,7 +1073,7 @@ class MessageHandler
           added_items = items_text.split(",").map(&:strip)
           added_count = added_items.count
           added_items.each do |articolo|
-            StoricoManager.aggiorna_da_aggiunta(articolo.strip, gruppo["id"],topic_id)
+            StoricoManager.aggiorna_da_aggiunta(articolo.strip, gruppo["id"], topic_id)
           end
           bot.api.send_message(
             chat_id: chat_id,
@@ -1137,7 +1172,8 @@ class MessageHandler
         )
         StoricoManager.aggiorna_da_aggiunta(
           articolo,
-          gruppo["id"]
+          gruppo["id"],
+          topic_id
         )
       end
 

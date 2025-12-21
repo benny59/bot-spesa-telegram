@@ -290,8 +290,16 @@ class KeyboardGenerator
       ],
       [
         Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "📋 Checklist",
+          callback_data: "show_checklist:#{gruppo_id}:#{topic_id}",
+        ),
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "🕒 Storico",
+          callback_data: "show_storico:#{gruppo_id}:#{topic_id}",
+        ),
+        Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "❌ Chiudi",
-          callback_data: "checklist_close:#{chat_id}:#{topic_id}",  # Aggiunto topic_id (opzionale)
+          callback_data: "checklist_close:#{chat_id}:#{topic_id}",
         ),
       ],
     ]

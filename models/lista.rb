@@ -67,7 +67,7 @@ class Lista
     true
   end
 
-  def self.aggiungi(gruppo_id, user_id, testo, topic_id=0)
+  def self.aggiungi(gruppo_id, user_id, testo, topic_id = 0)
     articoli = testo.split(",").map(&:strip)
     articoli.each do |articolo|
       DB.execute("INSERT INTO items (gruppo_id, creato_da, nome, creato_il,topic_id) VALUES (?, ?, ?, datetime('now'),?)",
