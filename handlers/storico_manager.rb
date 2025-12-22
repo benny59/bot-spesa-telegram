@@ -440,7 +440,7 @@ class StoricoManager
     return "🕒 *Ultimi acquisti*\n\nNessun dato disponibile." if acquisti.empty?
 
     righe = acquisti.map do |row|
-      nome = row["nome"][0, 25].ljust(25)
+      nome = row["nome"][0, 18].ljust(18)
       data = Time.parse(row["updated_at"]).strftime("%d/%m")
       "`#{nome}  #{data}`"
     end

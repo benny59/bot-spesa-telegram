@@ -136,10 +136,10 @@ class MessageHandler
       end
     else
       puts "📸 Foto ricevuta ma nessuna azione pending trovata per l'utente #{user_id}"
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: "📸 Per associare una foto a un articolo, prima clicca sull'icona 📸 accanto all'articolo nella lista.",
-      )
+#      bot.api.send_message(
+#        chat_id: chat_id,
+#        text: "📸 Per associare una foto a un articolo, prima clicca sull'icona 📸 accanto all'articolo nella lista.",
+#      )
     end
   end
 
