@@ -70,8 +70,17 @@ class Lista
   def self.aggiungi(gruppo_id, user_id, testo, topic_id = 0)
     articoli = testo.split(",").map(&:strip)
     articoli.each do |articolo|
-      DB.execute("INSERT INTO items (gruppo_id, creato_da, nome, creato_il,topic_id) VALUES (?, ?, ?, datetime('now'),?)",
-                 [gruppo_id, user_id, articolo, topic_id])
+      sql = "INSERT INTO items (gruppo_id, creato_da, nome, creato_il, topic_id) VALUES (?, ?, ?, datetime('now'), ?)"
+      params = [gruppo_id, user_id, articolo, topic_id]
+
+      puts "DEBUG [Lista:Aggiungi] SQL: #{sql} | PARAMS: #{params.inspect}"
+      begin
+        DB.execute(sql, params)
+        puts "✅ [Lista:Aggiungi] Articolo '#{articolo}' salvato"
+      rescue => e
+        puts "❌ [Lista:Aggiungi] CRASH: #{e.message}"
+        raise e
+      end
     end
   end
 

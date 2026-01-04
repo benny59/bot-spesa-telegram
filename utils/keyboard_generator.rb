@@ -8,13 +8,17 @@ class KeyboardGenerator
   MAX_BUTTONS_PER_PAGE = 90  # sicurezza, sotto il limite di Telegram
 
   # utils/keyboard_generator.rb - Modifica il metodo genera_lista
-  def self.genera_lista(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0)
+  # utils/keyboard_generator.rb
+
+  # Aggiungiamo target_thread_id alla fine
+  def self.genera_lista(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0, target_thread_id = nil)
     view_mode = Preferences.get_view_mode(user_id)
 
     if view_mode == "text_only"
-      genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id, page, topic_id)
+      genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id, page, topic_id, target_thread_id)
     else
-      genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id, page, topic_id)
+      # Passiamo l'8° argomento al metodo compatto
+      genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id, page, topic_id, target_thread_id)
     end
   end
 
@@ -44,7 +48,7 @@ class KeyboardGenerator
   end
 
   # ===================== LISTA SOLO TESTO =====================
-  def self.genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0)
+  def self.genera_lista_testo(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0, target_thread_id = nil)
     lista = Lista.tutti(gruppo_id, topic_id)
 
     total_pages = (lista.size.to_f / ITEMS_PER_PAGE).ceil
@@ -181,7 +185,7 @@ class KeyboardGenerator
   end
 
   # ===================== LISTA COMPATTA =====================
-  def self.genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0)
+  def self.genera_lista_compatta(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0, target_thread_id = nil)
     # MODIFICA: Passa topic_id a Lista.tutti
     lista = Lista.tutti(gruppo_id, topic_id)
 
@@ -309,16 +313,45 @@ class KeyboardGenerator
 
     markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
 
-    # Testo del messaggio
-    text_message = "🛒 Lista della spesa - Pagina #{page + 1}/#{total_pages} (#{lista.size} elementi)"
-    # MODIFICA: Aggiungi indicazione del topic se presente
-    if topic_id && topic_id > 0
-      text_message = "📌 Topic - " + text_message
+# --- RECUPERO NOMI GRUPPO E TOPIC PER INTESTAZIONE ---
+    
+    # 1. Determiniamo il chat_id del GRUPPO (quello reale, negativo)
+    real_group_chat_id = if chat_id.to_i > 0
+                           # Siamo in privato: recuperiamo il chat_id del gruppo dal DB
+                           row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{chat_id}"])
+                           config = JSON.parse(row['value']) rescue nil if row
+                           config ? config["chat_id"] : nil
+                         else
+                           # Siamo già nel gruppo
+                           chat_id
+                         end
+
+    # 2. Recuperiamo il nome del Gruppo e del Topic in un'unica query (se possibile) o separatamente
+    nome_gruppo = "Gruppo Sconosciuto"
+    topic_label = (topic_id.to_i == 0) ? "Generale" : "Topic #{topic_id}"
+
+    if real_group_chat_id
+      # Recupero nome gruppo
+      g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE chat_id = ?", [real_group_chat_id])
+      nome_gruppo = g_nome if g_nome
+
+      # Recupero nome topic
+      t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [real_group_chat_id, topic_id])
+      topic_label = t_nome if t_nome
     end
+
+    # 3. Componiamo il testo dell'intestazione
+    # Esempio: 🛒 <b>Casa (Generale)</b>
+    text_message = "🛒 <b>#{nome_gruppo} (#{topic_label})</b>\n"
+    text_message += "📄 Pagina #{page + 1}/#{total_pages} (#{lista.size} elementi)"
+    
+    # 1. Calcoliamo il thread di destinazione reale
+    # Se siamo in privato (chat_id > 0), il thread deve essere SEMPRE nil
+    # Se siamo in gruppo (chat_id < 0), usiamo target_thread_id o topic_id
+    actual_thread_id = (chat_id.to_i > 0) ? nil : (target_thread_id || topic_id)
 
     if message_id
       begin
-        # MODIFICA: Usa edit_message_reply_markup se edit_message_text fallisce
         bot.api.edit_message_text(
           chat_id: chat_id,
           message_id: message_id,
@@ -329,8 +362,6 @@ class KeyboardGenerator
         return true
       rescue Telegram::Bot::Exceptions::ResponseError => e
         if e.message&.include?("message is not modified")
-          puts "⚠️ Messaggio non modificato (nessun cambiamento)"
-          # Forza l'aggiornamento solo della tastiera
           begin
             bot.api.edit_message_reply_markup(
               chat_id: chat_id,
@@ -338,8 +369,7 @@ class KeyboardGenerator
               reply_markup: markup,
             )
             return true
-          rescue Telegram::Bot::Exceptions::ResponseError => e2
-            puts "⚠️ Anche la tastiera non è modificata"
+          rescue Telegram::Bot::Exceptions::ResponseError
             return false
           end
         else
@@ -347,26 +377,15 @@ class KeyboardGenerator
         end
       end
     else
-      # 🔥 MODIFICA PRINCIPALE: Usa message_thread_id se topic_id > 0
-      if topic_id && topic_id > 0
-        # Invia nel topic specifico
-        bot.api.send_message(
-          chat_id: chat_id,
-          message_thread_id: topic_id,  # <-- QUI STA LA DIFFERENZA!
-          text: text_message,
-          reply_markup: markup,
-          parse_mode: "HTML",
-        )
-      else
-        # Comportamento normale (senza topic)
-        bot.api.send_message(
-          chat_id: chat_id,
-          text: text_message,
-          reply_markup: markup,
-          parse_mode: "HTML",
-        )
-      end
+      # 2. INVIO FISICO
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: (actual_thread_id.to_i > 0 ? actual_thread_id : nil),
+        text: text_message,
+        reply_markup: markup,
+        parse_mode: "HTML",
+      )
       return true
     end
-  end
-end
+  end # fine genera_lista_compatta
+end # fine classe

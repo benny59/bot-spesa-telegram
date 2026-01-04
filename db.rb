@@ -24,6 +24,16 @@ def init_db
     );
   SQL
 
+  # db.rb
+  db.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS topics (
+    chat_id INTEGER,
+    topic_id INTEGER,
+    nome TEXT,
+    PRIMARY KEY (chat_id, topic_id)
+  );
+SQL
+
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS user_names (
       user_id INTEGER PRIMARY KEY,

@@ -3,10 +3,135 @@ require_relative "../models/lista"
 require_relative "../models/group_manager"
 require_relative "../models/whitelist"
 require_relative "../models/preferences"
+require_relative "../models/carte_fedelta"
+require_relative "../models/carte_fedelta_gruppo"
 require_relative "../utils/keyboard_generator"
 require_relative "../db"
 
 class CallbackHandler
+  def self.route(bot, callback, context)
+    puts "->#{callback.data}"
+    data = callback.data
+
+    case data
+
+    when /^show_storico:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
+
+      acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id)
+      testo = StoricoManager.formatta_storico(acquisti)
+
+      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+        inline_keyboard: [
+          [
+            Telegram::Bot::Types::InlineKeyboardButton.new(
+              text: "❌ Chiudi",
+              callback_data: "ui_close:#{context.chat_id}:#{context.topic_id}",
+            ),
+          ],
+        ],
+      )
+
+      bot.api.send_message(
+        chat_id: context.chat_id,
+        message_thread_id: context.topic_id,
+        text: testo,
+        parse_mode: "Markdown",
+        reply_markup: keyboard,
+      )
+
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+    when /^comprato:(\d+):(\d+)(?::(\d+))?$/
+      handle_comprato(bot, callback, context.chat_id, context.user_id, $1.to_i, $2.to_i, ($3 || context.topic_id).to_i || 0)
+    when /^cancella:(\d+):(\d+)(?::(\d+))?$/
+      handle_cancella(bot, callback, context.chat_id, context.user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^info:(\d+):(\d+)(?::(\d+))?$/
+      handle_info(bot, callback, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^foto_menu:(\d+):(\d+)(?::(\d+))?$/
+      handle_foto_menu(bot, callback, context.chat_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^(add_foto|replace_foto):(\d+):(\d+)(?::(\d+))?$/
+      handle_add_replace_foto(bot, callback, context.chat_id, $2.to_i, $3.to_i, $4&.to_i || 0)
+    when /^remove_foto:(\d+):(\d+)(?::(\d+))?$/
+      handle_remove_foto(bot, callback, context.chat_id, context.user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+    when /^toggle_view_mode:(\d+)(?::(\d+))?$/
+      handle_toggle_view_mode(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
+    when /^cancella_tutti:(\d+)(?::(\d+))?$/
+      handle_cancella_tutti(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
+    when /^mostra_carte:(\d+)(?::(\d+))?$/
+      CarteFedeltaGruppo.show_group_cards(bot, $1.to_i, context.chat_id, context.user_id, context.topic_id)
+    when /^aggiungi:(\d+)(?::(\d+))?$/
+      handle_aggiungi(bot, callback, context.chat_id, $1.to_i, $2&.to_i || 0)
+    when /^checklist_close:(-?\d+):(\d+)$/
+      StoricoManager.gestisci_chiusura_checklist(bot, callback, data)
+    when /^ui_close:(-?\d+):(\d+)$/
+      gestisci_chiusura_ui(bot, callback, data)
+when "switch_to_group"
+      begin
+        user_id = context.user_id # o msg.from.id
+        key = "context:#{user_id}"
+        
+        # ✅ RIMOZIONE RECORD DAL DB
+        DB.execute("DELETE FROM config WHERE key = ?", [key])
+        puts "🧹 [Config] Contesto rimosso dal DB per #{key}"
+
+        # ✅ AGGIORNAMENTO ISTANTANEO TASTIERA
+        # Il check ✅ si sposterà ora sul tasto "Modalità Gruppo"
+        Context.show_group_selector(bot, user_id, callback.message.message_id)
+        
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "Modalità Gruppo ripristinata")
+      rescue => e
+        puts "❌ ERRORE SWITCH: #{e.message}"
+      end
+            
+    when /^private_set:(-?\d+):(-?\d+):(\d+)$/
+      # LOG DI ENTRATA
+      puts "DEBUG CALLBACK: Ricevuta richiesta private_set"
+      puts "DEBUG DATA: #{data}"
+
+      db_id = $1.to_i
+      chat_id = $2.to_i
+      topic_id = $3.to_i
+
+      puts "DEBUG PARSED: db_id=#{db_id}, chat_id=#{chat_id}, topic_id=#{topic_id}"
+
+      begin
+        # Recupera nome topic
+        t_row = DB.get_first_row("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [chat_id, topic_id])
+        t_name = t_row ? t_row["nome"] : (topic_id == 0 ? "Generale" : "Topic #{topic_id}")
+        puts "DEBUG TOPIC NAME: #{t_name}"
+
+        config_value = {
+          db_id: db_id,
+          chat_id: chat_id,
+          topic_id: topic_id,
+          topic_name: t_name,
+        }.to_json
+
+# SALVATAGGIO
+        key = "context:#{context.user_id}"
+        DB.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", [key, config_value])
+        
+        # ✅ AGGIORNAMENTO ISTANTANEO TASTIERA
+        # Sposta il check sul gruppo appena cliccato
+        Context.show_group_selector(bot, context.user_id, callback.message.message_id)
+
+        bot.api.answer_callback_query(callback_query_id: callback.id,text: "✅ **Modalità privata attiva**Target: #{t_name}")
+
+#       bot.api.send_message(
+#         chat_id: context.user_id,
+#         text: "✅ **Modalità privata attiva**\nTarget: #{t_name}",
+#         parse_mode: "Markdown",
+#       )
+      rescue => e
+        puts "❌ ERRORE CALLBACK: #{e.message}"
+        puts e.backtrace.first(3)
+      end
+    else
+      # callback ignota → log silenzioso
+    end
+  end
+
   def self.handle(bot, msg)
     chat_id = msg.message.respond_to?(:chat) ? msg.message.chat.id : msg.from.id
     user_id = msg.from.id
@@ -223,47 +348,54 @@ class CallbackHandler
   private
 
   # 🔥 MODIFICA: Aggiungi topic_id ai metodi principali
-  def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
-    nuovo = Lista.toggle_comprato(gruppo_id, item_id, user_id)
-    bot.api.answer_callback_query(callback_query_id: msg.id, text: "Stato aggiornato")
-    # 🔥 MODIFICA: Passa topic_id
+def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+  # Recuperiamo il nome dell'item prima del toggle per la notifica
+  item_nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id])
+  user_name = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || "Qualcuno"
+
+  # Eseguiamo l'azione
+  nuovo_stato = Lista.toggle_comprato(gruppo_id, item_id, user_id)
+  
+  bot.api.answer_callback_query(callback_query_id: msg.id, text: "Stato aggiornato")
+
+  # NOTIFICA
+  emoji = (nuovo_stato.to_s.strip == "" || nuovo_stato.to_s == "0") ? "🔄" : "✅"
+  azione = emoji == "✅" ? "ha preso" : "ha rimesso in lista"
+  Context.notifica_gruppo_se_privato(bot, user_id, "#{emoji} *#{user_name}* #{azione}: #{item_nome}")
+
+  KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
+end
+
+def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+  item_nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id])
+  user_name = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || "Qualcuno"
+
+  Lista.cancella(gruppo_id, item_id, user_id)
+  
+  bot.api.answer_callback_query(callback_query_id: msg.id, text: "Eliminato")
+
+  # NOTIFICA
+  Context.notifica_gruppo_se_privato(bot, user_id, "🗑️ *#{user_name}* ha rimosso: #{item_nome}")
+
+  KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
+end
+
+def self.handle_cancella_tutti(bot, msg, chat_id, user_id, gruppo_id, topic_id = 0)
+  u_row = DB.get_first_row("SELECT first_name FROM user_names WHERE user_id = ?", [user_id])
+  user_display = u_row ? u_row['first_name'] : "Utente #{user_id}"
+
+  if Lista.cancella_tutti(gruppo_id, user_id)
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "✅ Articoli comprati rimossi")
+
+    # NOTIFICA
+    Context.notifica_gruppo_se_privato(bot, user_id, "🧹 *#{user_display}* ha rimosso tutti gli articoli completati.")
+
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
+  else
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Solo admin può cancellare tutti")
   end
+end
 
-  def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
-    if Lista.cancella(gruppo_id, item_id, user_id)
-      bot.api.answer_callback_query(callback_query_id: msg.id, text: "Elemento cancellato")
-      # 🔥 MODIFICA: Passa topic_id
-      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
-    else
-      bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Non puoi cancellare questo elemento")
-    end
-  end
-
-  def self.handle_cancella_tutti(bot, msg, chat_id, user_id, gruppo_id, topic_id = 0)
-    if Lista.cancella_tutti(gruppo_id, user_id)
-      bot.api.answer_callback_query(
-        callback_query_id: msg.id,
-        text: "✅ Articoli comprati rimossi",
-      )
-
-      # 🔥 MODIFICA: Passa topic_id
-      KeyboardGenerator.genera_lista(
-        bot,
-        chat_id,
-        gruppo_id,
-        user_id,
-        msg.message.message_id,
-        0,
-        topic_id
-      )
-    else
-      bot.api.answer_callback_query(
-        callback_query_id: msg.id,
-        text: "❌ Solo admin può cancellare tutti",
-      )
-    end
-  end
 
   def self.handle_azioni_menu(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
     has_image = Lista.ha_immagine?(item_id)
@@ -619,27 +751,29 @@ class CallbackHandler
   def self.handle_aggiungi(bot, msg, chat_id, gruppo_id, topic_id = 0)
     user_id = msg.from.id
     user_name = msg.from.first_name
-    action = "add:#{user_name}"  # ✅ definisce correttamente l’azione
+    action = "add:#{user_name}"
 
-    DB.execute(
-      "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, initiator_id, topic_id, creato_il)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))",
-      [chat_id, action, gruppo_id, user_id, topic_id] # 🔥 MODIFICA: Aggiungi topic_id
-    )
+    # 1. Salviamo l'azione nel DB (Qui il topic_id serve per sapere dove salvare l'articolo dopo)
+    begin
+      query = "INSERT OR REPLACE INTO pending_actions (chat_id, topic_id, action, gruppo_id, initiator_id, creato_il) VALUES (?, ?, ?, ?, ?, datetime('now'))"
+      DB.execute(query, [chat_id, topic_id, action, gruppo_id, user_id])
+      puts "✅ SQL SUCCESS: Azione salvata per il topic #{topic_id}"
+    rescue => e
+      puts "❌ SQL ERROR: #{e.message}"
+    end
 
     bot.api.answer_callback_query(callback_query_id: msg.id)
-    # 🔥 MODIFICA: Invia nel topic se necessario
-    if topic_id && topic_id > 0
-      bot.api.send_message(
-        chat_id: chat_id,
-        message_thread_id: topic_id,
-        text: "✍️ #{user_name}, scrivi gli articoli separati da virgola (oppure /annulla per annullare).",
-      )
-    else
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: "✍️ #{user_name}, scrivi gli articoli separati da virgola (oppure /annulla per annullare).",
-      )
+
+    # 2. Invio istruzioni all'utente
+    text = "✍️ #{user_name}, scrivi gli articoli per il topic **#{topic_id == 0 ? "Generale" : topic_id}**:"
+
+    begin
+      # ✅ CORREZIONE: Inviando a un chat_id privato (positivo),
+      # NON dobbiamo MAI passare message_thread_id, anche se l'azione riguarda un topic.
+      bot.api.send_message(chat_id: chat_id, text: text, parse_mode: "Markdown")
+      puts "DEBUG SEND: Istruzioni inviate in privato (senza thread_id)"
+    rescue => e
+      puts "❌ API ERROR: #{e.message}"
     end
   end
 
