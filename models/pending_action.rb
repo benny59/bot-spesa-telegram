@@ -15,13 +15,14 @@ class PendingAction
   end
 
   def self.fetch(chat_id:, topic_id: 0)
-    sql = "SELECT * FROM pending_actions WHERE chat_id = ? ORDER BY creato_il DESC LIMIT 1"
-    params = [chat_id]
+    # Aggiungiamo il filtro topic_id alla query SQL
+    sql = "SELECT * FROM pending_actions WHERE chat_id = ? AND topic_id = ? ORDER BY creato_il DESC LIMIT 1"
+    params = [chat_id, topic_id]
 
     puts "DEBUG [PA:Fetch] SQL: #{sql} | PARAMS: #{params.inspect}"
     begin
       row = DB.get_first_row(sql, params)
-      puts row ? "✅ [PA:Fetch] Trovato: #{row["action"]}" : "⚠️ [PA:Fetch] Nessuna azione"
+      puts row ? "✅ [PA:Fetch] Trovato: #{row["action"]} per topic #{topic_id}" : "⚠️ [PA:Fetch] Nessuna azione per topic #{topic_id}"
       row
     rescue => e
       puts "❌ [PA:Fetch] CRASH: #{e.message}"

@@ -37,6 +37,17 @@ class MessageHandler
       handle_start(bot, context)
     when "/private"
       Context.show_group_selector(bot, context.user_id)
+    when "/group", "/exit"
+      # 1. Cancelliamo la configurazione dal DB
+      DB.execute("DELETE FROM config WHERE key = ?", ["context:#{context.user_id}"])
+
+      # 2. Feedback all'utente
+      bot.api.send_message(
+        chat_id: context.chat_id,
+        text: "🔄 <b>Modalità Privata Disattivata</b>\nIl bot non scriverà più nei gruppi per conto tuo. Ora rispondo solo ai comandi locali.",
+        parse_mode: "HTML",
+      )
+      puts "🔓 User #{context.user_id} è tornato in modalità locale"
     when "?"
       if config
         # Mostra la lista usando i dati del gruppo selezionato
@@ -162,28 +173,41 @@ class MessageHandler
   # =============================
   def self.route_group(bot, msg, context)
     gruppo = GroupManager.get_gruppo_by_chat_id(context.chat_id)
-# ✅ AGGIORNAMENTO SILENZIOSO NOME TOPIC
-    # Ogni volta che arriva un messaggio, se Telegram ci passa i metadati del topic, lo salviamo
     TopicManager.update_from_msg(msg)
-    case msg.text
 
+    # Forziamo il topic corrente del messaggio di gruppo
+    current_topic_id = msg.message_thread_id || 0
+
+    puts "DEBUG MSG: '#{msg.text}' in chat #{context.chat_id} topic #{current_topic_id}"
+
+    case msg.text
+    # 1. COMANDO /private
+    when %r{^/private(@\w+)?$}
+      puts "🎯 [Match] Comando /private rilevato!"
+      if gruppo.nil?
+        bot.api.send_message(chat_id: context.chat_id, message_thread_id: current_topic_id, text: "⚠️ Errore: non riesco a trovare questo gruppo nel database.")
+      else
+        Context.activate_private_for_group(bot, msg, gruppo)
+      end
+
+      # 2. COMANDO + (Aggiunta rapida)
     when /^\+(.+)?/
       raw = msg.text[1..].to_s.strip
-
       if raw.empty?
+        # Avvia azione pendente ESPLICITAMENTE nel gruppo e nel topic attuale
         PendingAction.start_add(context, gruppo)
-      else
-        process_add_items(
-          bot: bot,
-          text: raw,
-          context: context,
-          gruppo: gruppo,
+        bot.api.send_message(
+          chat_id: context.chat_id,
+          message_thread_id: current_topic_id,
+          text: "✍️ #{msg.from.first_name}, scrivi gli articoli per questo reparto:",
         )
+      else
+        # Passiamo esplicitamente il topic del gruppo per evitare che finisca nel topic "privato"
+        process_add_items(bot: bot, text: raw, context: context, gruppo: gruppo, msg: msg)
       end
-    when "?"
-      topic_id = msg.message_thread_id || 0
 
-      # mostra la lista corrente (help implicito)
+      # 3. COMANDO ? (Lista nel gruppo)
+    when "?"
       KeyboardGenerator.genera_lista(
         bot,
         context.chat_id,
@@ -191,46 +215,24 @@ class MessageHandler
         context.user_id,
         nil,
         0,
-        topic_id
+        current_topic_id # Forza il topic attuale del gruppo
       )
-      return
-    when "/private"
-      if context.scope == "group"
-        ContextManager.activate_private_for_group(context)
-      end
+
+      # 4. GESTIONE MESSAGGI TESTUALI (Pending Actions nel gruppo)
     else
-      pending = PendingAction.fetch(
-        chat_id: context.chat_id,
-        topic_id: context.topic_id,
-      )
+      # Modifica la fetch per passare anche current_topic_id
+      pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: current_topic_id)
 
-      return unless pending
-      return unless pending["action"].start_with?("add:")
+      if pending && pending["action"].to_s.start_with?("add:")
+        items_text = msg.text.strip
+        return if items_text.empty?
 
-      items_text = msg.text.strip
-      return if items_text.empty?
+        # Esegui l'aggiunta (usa process_add_items che già gestisce tutto bene)
+        process_add_items(bot: bot, text: items_text, context: context, gruppo: gruppo, msg: msg)
 
-      Lista.aggiungi(
-        pending["gruppo_id"],
-        context.user_id,
-        items_text,
-        context.topic_id
-      )
-
-      PendingAction.clear(
-        chat_id: context.chat_id,
-        topic_id: context.topic_id,
-      )
-
-      KeyboardGenerator.genera_lista(
-        bot,
-        context.chat_id,
-        pending["gruppo_id"],
-        context.user_id,
-        nil,
-        0,
-        context.topic_id
-      )
+        # Pulisci l'azione specifica di quel topic
+        PendingAction.clear(chat_id: context.chat_id, topic_id: current_topic_id)
+      end
     end
   end
   # =============================
@@ -248,40 +250,39 @@ class MessageHandler
     raise NotImplementedError, "handle_newgroup da implementare"
   end
 
-  def self.process_add_items(bot:, text:, context:, gruppo:)
+  def self.process_add_items(bot:, text:, context:, gruppo:, msg:)
     return if text.nil? || text.strip.empty?
 
     topic_id = context.topic_id || 0
     user_id = context.user_id
 
+    # --- LOG DI DEBUG CORRETTO ---
+    # Usiamo 'msg' (il parametro), NON 'context.msg'
+    puts "🔍 [DEBUG NOME] Analisi oggetto msg: #{msg.class}"
+
+    if msg.respond_to?(:from) && msg.from
+      puts "🔍 [DEBUG NOME] From ID: #{msg.from.id}"
+      puts "🔍 [DEBUG NOME] First Name: '#{msg.from.first_name}'"
+      user_name = msg.from.first_name
+    else
+      puts "⚠️ [DEBUG NOME] L'oggetto msg non ha dati validi in .from"
+      user_name = "Qualcuno"
+    end
+    # -------------------------------
+
     items_text = text.strip
     items = items_text.split(",").map(&:strip).reject(&:empty?)
-
     return if items.empty?
 
+    # 1. Operazioni DB
     Lista.aggiungi(gruppo["id"], user_id, items_text, topic_id)
+    items.each { |art| StoricoManager.aggiorna_da_aggiunta(art, gruppo["id"], topic_id) }
 
-    items.each do |articolo|
-      StoricoManager.aggiorna_da_aggiunta(articolo, gruppo["id"], topic_id)
-    end
+    # 2. Notifica (Usa user_name estratto sopra)
+    self.notifica_gruppo(bot, gruppo["chat_id"], topic_id, user_name, items.join(", "))
 
-    bot.api.send_message(
-      chat_id: context.chat_id,
-      message_thread_id: topic_id,
-      text: "✅ #{items.count} articolo(i) aggiunti: #{items.join(", ")}",
-    )
-
-    KeyboardGenerator.genera_lista(
-      bot,
-      context.chat_id,
-      gruppo["id"],
-      user_id,
-      nil,
-      0,
-      topic_id
-    )
-
-    notifica_gruppo(bot, gruppo_id, topic_id, user_name, items)
+    # 3. Tastiera
+    KeyboardGenerator.genera_lista(bot, context.chat_id, gruppo["id"], user_id, nil, 0, topic_id)
   end
 
   def self.handle_private_mode(bot, context)
@@ -296,20 +297,22 @@ class MessageHandler
     puts "⚠️ UNHANDLED [#{context.scope}] #{msg}"
   end
 
-  def self.notifica_gruppo(bot, gruppo_id, topic_id, user_name, items)
-    puts "📢 Tentativo notifica: Gruppo #{gruppo_id}, Topic #{topic_id}"
+  def self.notifica_gruppo(bot, real_chat_id, topic_id, user_name, items_string)
+    # Log per vedere cosa arriva al metodo di notifica
+    puts "📢 [Notifica] Destinatario: #{real_chat_id}, Nome ricevuto: '#{user_name}'"
+
+    final_name = (user_name.nil? || user_name.empty?) ? "Un Utente" : user_name
 
     begin
       bot.api.send_message(
-        chat_id: gruppo_id,
-        message_thread_id: (topic_id == 0 ? nil : topic_id),
-        text: "🛒 **#{user_name}** ha aggiunto da privato:\n#{items}",
+        chat_id: real_chat_id,
+        message_thread_id: (topic_id.to_i == 0 ? nil : topic_id),
+        text: "🛒 <b>#{final_name}</b> ha aggiunto:\n#{items_string}",
+        parse_mode: "HTML",
       )
-      puts "✅ Notifica inviata correttamente."
+      puts "✅ Notifica inviata con successo"
     rescue => e
       puts "❌ Errore invio notifica: #{e.message}"
-      # Se l'errore è 'thread not found', il topic_id potrebbe essere errato
-      # Se l'errore è 'chat not found', il bot potrebbe essere stato rimosso
     end
   end
 
@@ -384,6 +387,7 @@ class MessageHandler
     end
   end
 end
+
 class TopicManager
   def self.update_from_msg(msg)
     chat_id = msg.chat.id
@@ -395,13 +399,13 @@ class TopicManager
       # Verifichiamo se esiste già, altrimenti mettiamo il default
       exists = DB.get_first_value("SELECT 1 FROM topics WHERE chat_id = ? AND topic_id = 0", [chat_id])
       topic_name = "Generale" unless exists
-    # Caso A: Messaggio di servizio creazione topic (ID > 0)
+      # Caso A: Messaggio di servizio creazione topic (ID > 0)
     elsif msg.forum_topic_created
       topic_name = msg.forum_topic_created.name
-    # Caso B: Messaggio di servizio modifica topic
+      # Caso B: Messaggio di servizio modifica topic
     elsif msg.forum_topic_edited
       topic_name = msg.forum_topic_edited.name
-    # Caso C: Metadati nel reply
+      # Caso C: Metadati nel reply
     elsif msg.respond_to?(:reply_to_message) && msg.reply_to_message&.forum_topic_created
       topic_name = msg.reply_to_message.forum_topic_created.name
     end

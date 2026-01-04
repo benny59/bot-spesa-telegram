@@ -313,18 +313,18 @@ class KeyboardGenerator
 
     markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
 
-# --- RECUPERO NOMI GRUPPO E TOPIC PER INTESTAZIONE ---
-    
+    # --- RECUPERO NOMI GRUPPO E TOPIC PER INTESTAZIONE ---
+
     # 1. Determiniamo il chat_id del GRUPPO (quello reale, negativo)
     real_group_chat_id = if chat_id.to_i > 0
-                           # Siamo in privato: recuperiamo il chat_id del gruppo dal DB
-                           row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{chat_id}"])
-                           config = JSON.parse(row['value']) rescue nil if row
-                           config ? config["chat_id"] : nil
-                         else
-                           # Siamo già nel gruppo
-                           chat_id
-                         end
+        # Siamo in privato: recuperiamo il chat_id del gruppo dal DB
+        row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{chat_id}"])
+        config = JSON.parse(row["value"]) rescue nil if row
+        config ? config["chat_id"] : nil
+      else
+        # Siamo già nel gruppo
+        chat_id
+      end
 
     # 2. Recuperiamo il nome del Gruppo e del Topic in un'unica query (se possibile) o separatamente
     nome_gruppo = "Gruppo Sconosciuto"
@@ -344,7 +344,7 @@ class KeyboardGenerator
     # Esempio: 🛒 <b>Casa (Generale)</b>
     text_message = "🛒 <b>#{nome_gruppo} (#{topic_label})</b>\n"
     text_message += "📄 Pagina #{page + 1}/#{total_pages} (#{lista.size} elementi)"
-    
+
     # 1. Calcoliamo il thread di destinazione reale
     # Se siamo in privato (chat_id > 0), il thread deve essere SEMPRE nil
     # Se siamo in gruppo (chat_id < 0), usiamo target_thread_id o topic_id
