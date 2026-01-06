@@ -6,14 +6,79 @@ require_relative "../models/preferences"
 require_relative "../models/carte_fedelta"
 require_relative "../models/carte_fedelta_gruppo"
 require_relative "../utils/keyboard_generator"
+require_relative "../utils/logger"
 require_relative "../db"
+require_relative "../utils/logger" unless defined?(Logger)
 
 class CallbackHandler
   def self.route(bot, callback, context)
-    puts "->#{callback.data}"
+    Logger.debug("Callback ricevuto", data: callback.data)
     data = callback.data
 
     case data
+    when "close_barcode"
+  # Rispondi subito per togliere lo spinner
+  begin
+    bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Chiuso", show_alert: false)
+  rescue => _
+  end
+
+  # Proviamo a cancellare il messaggio che ha il bottone (callback.message dovrebbe essere il messaggio con la foto)
+  begin
+    bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id)
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    # Se non può cancellare (es. message not found o permessi), proviamo a modificare il testo del messaggio
+    if e.message&.include?("message to delete not found") || e.message&.include?("message to edit not found")
+      # Se il delete fallisce perché non trovato, semplicemente rispondiamo (già fatto sopra)
+      Logger.warn("close_barcode: message not found or cannot be deleted", error: e.message) rescue nil
+    else
+      begin
+        bot.api.edit_message_text(
+          chat_id: callback.message.chat.id,
+          message_id: callback.message.message_id,
+          text: "✅ Schermata chiusa."
+        )
+      rescue => e2
+        Logger.warn("close_barcode: edit_message_text fallito", error: e2.message) rescue nil
+        # fallback: niente altro da fare
+      end
+    end
+  rescue => e
+    Logger.warn("close_barcode: errore generico", error: e.message) rescue nil
+  end
+  
+when /^carte_gruppo_add:(\d+):(\d+)$/,
+     /^carte_gruppo_remove:(\d+):(\d+)$/,
+     /^carte_gruppo_add_finish:(\d+)$/,
+     /^carte_chiudi:(-?\d+):(\d+)$/
+  Logger.debug("Dispatch carte_gruppo -> CarteFedeltaGruppo (route)", data: data, from: callback.from&.id, chat_of_button: callback.message&.chat&.id, msg_id: callback.message&.message_id, thread: callback.message&.message_thread_id)
+  CarteFedeltaGruppo.handle_callback(bot, callback)
+  
+    
+    when /^carte:(\d+):(\d+)$/, "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
+  # dispatch alle carte personali (DM)
+  require_relative "../utils/logger" unless defined?(Logger)
+  Logger.debug("Dispatch carte callbacks (route) -> CarteFedelta", data: data, from: callback.from&.id)
+  begin
+    CarteFedelta.handle_callback(bot, callback)
+  rescue => e
+    Logger.error("Errore durante CarteFedelta.handle_callback (route)", error: e.message)
+    # rispondiamo comunque alla callback per togliere lo spinner
+    begin
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
+    rescue => _
+    end
+  end
+    when /^mostra_carte:(\d+)(?::(\d+))?$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i || 0
+      chat_id = callback.message.chat.id
+      user_id = callback.from.id
+
+      Logger.info("Mostra carte gruppo", gruppo_id: gruppo_id, chat_id: chat_id, user_id: user_id, topic_id: topic_id)
+      # Chiamo con ordine esplicito (gruppo_id, chat_id, user_id, topic_id)
+      CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id)
+
 
     when /^show_storico:(\d+):(\d+)$/
       gruppo_id = $1.to_i
@@ -209,9 +274,30 @@ class CallbackHandler
       gruppo_id = $1.to_i
       CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id)
     when /^carte:(\d+):(\d+)$/
-      CarteFedelta.handle_callback(bot, msg)
+      Logger.debug("DEBUG WRAPPER: chiamo CarteFedelta.handle_callback", data: callback.data, from: callback.from.id)
+begin
+  CarteFedelta.handle_callback(bot, callback)
+  Logger.debug("DEBUG WRAPPER: rientrato da CarteFedelta.handle_callback", data: callback.data)
+rescue => e
+  Logger.error("DEBUG WRAPPER: errore in CarteFedelta.handle_callback", error: e.message, backtrace: e.backtrace.first(10))
+  begin
+    bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
+  rescue => _
+  end
+end
+
     when "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
-      CarteFedelta.handle_callback(bot, msg)
+Logger.debug("DEBUG WRAPPER: chiamo CarteFedelta.handle_callback", data: callback.data, from: callback.from.id)
+begin
+  CarteFedelta.handle_callback(bot, callback)
+  Logger.debug("DEBUG WRAPPER: rientrato da CarteFedelta.handle_callback", data: callback.data)
+rescue => e
+  Logger.error("DEBUG WRAPPER: errore in CarteFedelta.handle_callback", error: e.message, backtrace: e.backtrace.first(10))
+  begin
+    bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
+  rescue => _
+  end
+end
     when "close_barcode"
       begin
         # Prova a cancellare il messaggio

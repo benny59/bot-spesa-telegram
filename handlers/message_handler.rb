@@ -1,9 +1,9 @@
 # handlers/message_handler.rb
-
 require_relative "storico_manager"
 require_relative "../models/pending_action"
 require_relative "../models/context"
-require "json" # Necessario per il parsing della config
+require "json"
+require_relative "../utils/logger"
 
 class MessageHandler
   def self.route(bot, msg, context)
@@ -19,18 +19,11 @@ class MessageHandler
     end
   end
 
-  # =============================
-  # PRIVATE CHAT
-  # =============================
   def self.route_private(bot, msg, context)
-    # Caricamento configurazione (quello che vedi nel log)
     config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{context.user_id}"])
     config = config_row ? JSON.parse(config_row["value"]) : nil
 
-    # DEBUG (già presente nei tuoi log)
-    if config
-      puts "DEBUG CONFIG FOUND: #{config.inspect}"
-    end
+    Logger.debug("route_private", user: context.user_id, config: config)
 
     case msg.text
     when /^\/start$/
@@ -48,6 +41,33 @@ class MessageHandler
         parse_mode: "HTML",
       )
       puts "🔓 User #{context.user_id} è tornato in modalità locale"
+      
+      
+      
+     when "/carte"
+      Logger.info("Comando /carte (privato) ricevuto", user: context.user_id)
+      require_relative "../models/carte_fedelta"
+      CarteFedelta.show_user_cards(bot, context.user_id)     
+      
+        when /^\/addcartagruppo/
+    gruppo_id = config["db_id"]
+    return if gruppo_id.nil?
+    current_topic_id=config["topic_id"]
+
+    # Salvataggio azione con topic corrente (importantissimo)
+    DB.execute(
+      "INSERT INTO pending_actions (chat_id, action, gruppo_id, initiator_id, topic_id) VALUES (?, ?, ?, ?, ?)",
+      [context.chat_id, "ADD_CARTA_GRUPPO", gruppo_id, context.user_id, current_topic_id]
+    )
+    puts "✅ [PA] pending action salvata: gruppo_id=#{gruppo_id} initiator=#{context.user_id} topic=0"
+
+    # Invia l'interfaccia privata all'utente
+    CarteFedeltaGruppo.show_add_to_group_interface(bot, context.user_id, gruppo_id)
+
+    # Rispondi nel topic corretto (se esiste)
+thread_id = (context.respond_to?(:topic_id) && context.topic_id.to_i > 0) ? context.topic_id.to_i : nil
+      
+      
     when "?"
       if config
         # Mostra la lista usando i dati del gruppo selezionato
@@ -65,6 +85,9 @@ class MessageHandler
       else
         bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
       end
+      
+
+      
     when /^\+(.+)?/
       if config
         # Gestione aggiunta articoli (usa il metodo che abbiamo creato prima)
@@ -171,70 +194,96 @@ class MessageHandler
   # =============================
   # GROUP / SUPERGROUP
   # =============================
-  def self.route_group(bot, msg, context)
-    gruppo = GroupManager.get_gruppo_by_chat_id(context.chat_id)
-    TopicManager.update_from_msg(msg)
+def self.route_group(bot, msg, context)
+    config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{context.user_id}"])
+    config = config_row ? JSON.parse(config_row["value"]) : nil
 
-    # Forziamo il topic corrente del messaggio di gruppo
-    current_topic_id = msg.message_thread_id || 0
 
-    puts "DEBUG MSG: '#{msg.text}' in chat #{context.chat_id} topic #{current_topic_id}"
+  gruppo = GroupManager.get_gruppo_by_chat_id(context.chat_id)
+  TopicManager.update_from_msg(msg)
+# estrai sempre user_id e topic_id all'inizio del metodo
+user_id = msg.from&.id
+# usa prima context.topic_id (normalizzato), poi msg.message_thread_id, poi fallback 0
+current_topic_id = (context.respond_to?(:topic_id) && context.topic_id && context.topic_id != 0) ? context.topic_id : (msg.message_thread_id || 0)
 
-    case msg.text
-    # 1. COMANDO /private
-    when %r{^/private(@\w+)?$}
-      puts "🎯 [Match] Comando /private rilevato!"
-      if gruppo.nil?
-        bot.api.send_message(chat_id: context.chat_id, message_thread_id: current_topic_id, text: "⚠️ Errore: non riesco a trovare questo gruppo nel database.")
-      else
-        Context.activate_private_for_group(bot, msg, gruppo)
-      end
+  puts "DEBUG MSG: '#{msg.text}' in chat #{context.chat_id} topic #{current_topic_id}"
 
-      # 2. COMANDO + (Aggiunta rapida)
-    when /^\+(.+)?/
-      raw = msg.text[1..].to_s.strip
-      if raw.empty?
-        # Avvia azione pendente ESPLICITAMENTE nel gruppo e nel topic attuale
-        PendingAction.start_add(context, gruppo)
-        bot.api.send_message(
-          chat_id: context.chat_id,
-          message_thread_id: current_topic_id,
-          text: "✍️ #{msg.from.first_name}, scrivi gli articoli per questo reparto:",
-        )
-      else
-        # Passiamo esplicitamente il topic del gruppo per evitare che finisca nel topic "privato"
-        process_add_items(bot: bot, text: raw, context: context, gruppo: gruppo, msg: msg)
-      end
+  case msg.text
+  when /^\/addcartagruppo/
+    gruppo_id = gruppo ? gruppo["id"] : nil
+    return if gruppo_id.nil?
 
-      # 3. COMANDO ? (Lista nel gruppo)
-    when "?"
-      KeyboardGenerator.genera_lista(
-        bot,
-        context.chat_id,
-        gruppo["id"],
-        context.user_id,
-        nil,
-        0,
-        current_topic_id # Forza il topic attuale del gruppo
-      )
+    # Salvataggio azione con topic corrente (importantissimo)
+    DB.execute(
+      "INSERT INTO pending_actions (chat_id, action, gruppo_id, initiator_id, topic_id) VALUES (?, ?, ?, ?, ?)",
+      [context.chat_id, "ADD_CARTA_GRUPPO", gruppo_id, user_id, current_topic_id]
+    )
+    puts "✅ [PA] pending action salvata: gruppo_id=#{gruppo_id} initiator=#{user_id} topic=#{current_topic_id}"
 
-      # 4. GESTIONE MESSAGGI TESTUALI (Pending Actions nel gruppo)
+    # Invia l'interfaccia privata all'utente
+    CarteFedeltaGruppo.show_add_to_group_interface(bot, user_id, gruppo_id)
+
+    # Rispondi nel topic corretto (se esiste)
+    thread_id=config["topic_id"]
+
+begin
+  bot.api.send_message(
+    chat_id: context.chat_id,
+    message_thread_id: thread_id,
+    text: "🛒 #{msg.from.first_name}, ti ho scritto in privato!"
+  )
+rescue => e
+  puts "⚠️ Errore invio notifica topic (addcartagruppo): #{e.message}"
+  # fallback: invia senza thread
+  begin
+    bot.api.send_message(chat_id: context.chat_id, text: "🛒 #{msg.from.first_name}, ti ho scritto in privato!")
+  rescue => _; end
+end
+
+  when %r{^/private(@\w+)?$}
+    if gruppo.nil?
+      bot.api.send_message(chat_id: context.chat_id, message_thread_id: current_topic_id, text: "⚠️ Errore: non riesco a trovare questo gruppo nel database.")
     else
-      # Modifica la fetch per passare anche current_topic_id
-      pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: current_topic_id)
+      Context.activate_private_for_group(bot, msg, gruppo)
+    end
 
-      if pending && pending["action"].to_s.start_with?("add:")
-        items_text = msg.text.strip
-        return if items_text.empty?
+  when /^\+(.+)?/
+    raw = msg.text[1..].to_s.strip
+    if raw.empty?
+      PendingAction.start_add(context, gruppo)
+      bot.api.send_message(
+        chat_id: context.chat_id,
+        message_thread_id: current_topic_id,
+        text: "✍️ #{msg.from.first_name}, scrivi gli articoli per questo reparto:",
+      )
+    else
+      process_add_items(bot: bot, text: raw, context: context, gruppo: gruppo, msg: msg)
+    end
 
-        # Esegui l'aggiunta (usa process_add_items che già gestisce tutto bene)
-        process_add_items(bot: bot, text: items_text, context: context, gruppo: gruppo, msg: msg)
+  when "?"
+    KeyboardGenerator.genera_lista(
+      bot,
+      context.chat_id,
+      gruppo["id"],
+      context.user_id,
+      nil,
+      0,
+      current_topic_id
+    )
 
-        # Pulisci l'azione specifica di quel topic
-        PendingAction.clear(chat_id: context.chat_id, topic_id: current_topic_id)
-      end
+  else
+    pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: current_topic_id)
+
+    if pending && pending["action"].to_s.start_with?("add:")
+      items_text = msg.text.strip
+      return if items_text.empty?
+
+      process_add_items(bot: bot, text: items_text, context: context, gruppo: gruppo, msg: msg)
+      PendingAction.clear(chat_id: context.chat_id, topic_id: current_topic_id)
     end
   end
+end
+
   # =============================
   # STUB (volutamente vuoti)
   # =============================

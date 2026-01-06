@@ -1,8 +1,8 @@
 # handlers/carte_fedelta_gruppo.rb
 require_relative "./carte_fedelta"
+require_relative "../utils/logger"
 
 class CarteFedeltaGruppo < CarteFedelta
-  # Ora usiamo le tabelle unificate
   CARDS_TABLE = "carte_fedelta"
   GROUP_LINKS_TABLE = "gruppo_carte_collegamenti"
 
@@ -105,93 +105,69 @@ class CarteFedeltaGruppo < CarteFedelta
   end
 
   # Mostra carte del gruppo
-  def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
-    carte = DB.execute(
-      "
-    SELECT c.id, c.nome, c.user_id, u.full_name
-    FROM #{CARDS_TABLE} c
-    JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id
-    LEFT JOIN whitelist u ON c.user_id = u.user_id
-    WHERE gcl.gruppo_id = ?
-    ORDER BY LOWER(c.nome) ASC
-    ",
-      [gruppo_id]
-    )
+ def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
+    Logger.debug("show_group_cards called", gruppo_id: gruppo_id, chat_id: chat_id, user_id: user_id, topic_id: topic_id)
+
+    carte = DB.execute("
+      SELECT c.id, c.nome, c.user_id
+      FROM #{CARDS_TABLE} c
+      JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id
+      WHERE gcl.gruppo_id = ?
+      ORDER BY LOWER(c.nome) ASC", [gruppo_id])
+
+    thread_id = (topic_id.to_i > 0 ? topic_id.to_i : nil)
 
     if carte.empty?
-      bot.api.send_message(
-        chat_id: chat_id,
-        message_thread_id: topic_id > 0 ? topic_id : nil,
-        text: "⚠️ Nessuna carta condivisa nel gruppo.\nUsa /addcartagruppo NOME CODICE per aggiungerne una.",
-      )
+      begin
+        bot.api.send_message(chat_id: chat_id, message_thread_id: thread_id, text: "⚠️ Nessuna carta condivisa nel gruppo.")
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        if e.message&.include?("message thread not found")
+          Logger.warn("Thread non trovato, invio nel canale principale", chat_id: chat_id, thread_id: thread_id)
+          bot.api.send_message(chat_id: chat_id, text: "⚠️ Nessuna carta condivisa nel gruppo.")
+        else
+          Logger.error("Errore API show_group_cards", error: e.message)
+        end
+      end
       return
     end
 
     inline_keyboard = []
     current_row = []
-
     carte.each_with_index do |row, index|
+      # Usa lo stesso callback usato in privato: 'carte:<owner_user_id>:<card_id>'
       current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
         text: row["nome"],
-        callback_data: "carte_gruppo:#{gruppo_id}:#{row["id"]}",
+        callback_data: "carte:#{row["user_id"]}:#{row["id"]}"
       )
-
-      if current_row.size == 4 || index == carte.size - 1
+      if current_row.size == 3 || index == carte.size - 1
         inline_keyboard << current_row
         current_row = []
       end
     end
 
-    # ✅ TASTO CHIUDI CORRETTO
     inline_keyboard << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "❌ Chiudi",
-        callback_data: "carte_chiudi:#{chat_id}:#{topic_id}",
-      ),
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "carte_chiudi:#{chat_id}:#{topic_id || 0}")
     ]
 
     keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
 
-    bot.api.send_message(
-      chat_id: chat_id,
-      message_thread_id: topic_id > 0 ? topic_id : nil,
-      text: "🏢 Carte condivise del gruppo:",
-      reply_markup: keyboard,
-    )
-  end
-
-  def self.handle_delcartagruppo(bot, msg, chat_id, user_id, gruppo)
-    return unless gruppo
-
-    text = msg.text.to_s
-    text = text.gsub(/\/delcartagruppo(@\w+)?/, "").strip
-
-    if text.empty?
-      show_delete_interface(bot, gruppo["id"], user_id, chat_id)
-    else
-      carta_id = text.to_i
-      if carta_id > 0
-        delete_group_card(bot, gruppo["id"], user_id, carta_id)
+    begin
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: thread_id,
+        text: "💳 *Carte fedeltà del gruppo*",
+        parse_mode: "Markdown",
+        reply_markup: keyboard
+      )
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      if e.message&.include?("message thread not found")
+        Logger.warn("Thread non trovato, invio senza thread", chat_id: chat_id, thread_id: thread_id)
+        bot.api.send_message(chat_id: chat_id, text: "💳 *Carte fedeltà del gruppo*", parse_mode: "Markdown", reply_markup: keyboard)
       else
-        # Cerca per nome
-        carte = DB.execute("
-          SELECT c.id, c.nome 
-          FROM #{CARDS_TABLE} c 
-          JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id 
-          WHERE gcl.gruppo_id = ? AND c.user_id = ? AND LOWER(c.nome) = LOWER(?)",
-                           [gruppo["id"], user_id, text.strip])
-        if carte.any?
-          show_delete_interface(bot, gruppo["id"], user_id)
-        else
-          bot.api.send_message(
-            chat_id: chat_id,
-            text: "❌ Nessuna carta trovata con nome '#{text}'. Usa /delcartagruppo senza parametri per vedere le tue carte.",
-          )
-        end
+        Logger.error("Errore API show_group_cards", error: e.message)
       end
     end
   end
-
   # Elimina carta del gruppo (solo chi l'ha aggiunta)
   def self.delete_group_card(bot, gruppo_id, user_id, carta_id, chat_id = nil, is_link_id = false)
     if is_link_id
@@ -306,78 +282,49 @@ class CarteFedeltaGruppo < CarteFedelta
     )
   end
 
-  def self.show_add_to_group_interface(bot, user_id, gruppo_id, chat_id = nil)
-    # Recupera tutte le carte personali dell'utente
-    carte_personali = DB.execute("
-    SELECT id, nome, codice 
-    FROM #{CARDS_TABLE} 
-    WHERE user_id = ? 
-    ORDER BY LOWER(nome) ASC",
-                                 [user_id])
+  def self.show_add_to_group_interface(bot, user_id, gruppo_id, message_id = nil)
+    Logger.debug("show_add_to_group_interface", user_id: user_id, gruppo_id: gruppo_id, message_id: message_id)
+    carte_personali = DB.execute("SELECT id, nome FROM #{CARDS_TABLE} WHERE user_id = ? ORDER BY LOWER(nome) ASC", [user_id])
 
     if carte_personali.empty?
-      bot.api.send_message(
-        chat_id: user_id,
-        text: "❌ Non hai ancora carte personali. Usa prima /addcarta per crearne una.",
-      )
+      bot.api.send_message(chat_id: user_id, text: "❌ Non hai ancora carte personali.")
       return
     end
 
-    # Recupera le carte già aggiunte al gruppo
-    carte_gia_aggiunte = DB.execute("
-    SELECT carta_id 
-    FROM #{GROUP_LINKS_TABLE} 
-    WHERE gruppo_id = ? AND added_by = ?",
-                                    [gruppo_id, user_id]).map { |r| r["carta_id"] }
+    # Cambio: controllo carte già aggiunte a livello di gruppo (non filtrato per added_by)
+    carte_gia_aggiunte = DB.execute("SELECT carta_id FROM gruppo_carte_collegamenti WHERE gruppo_id = ?", [gruppo_id]).map {|r| r["carta_id"] }
+
 
     inline_keyboard = []
     current_row = []
-
     carte_personali.each_with_index do |carta, index|
-      # Determina se la carta è già nel gruppo
       gia_aggiunta = carte_gia_aggiunte.include?(carta["id"])
+ testo_bottone = gia_aggiunta ? "✅ #{carta['nome']}" : "⬜ #{carta['nome']}"
+callback_data = gia_aggiunta ? "carte_gruppo_remove:#{gruppo_id}:#{carta['id']}" : "carte_gruppo_add:#{gruppo_id}:#{carta['id']}"
 
-      icona = gia_aggiunta ? "✅" : "⬜"
-      testo_bottone = "#{icona} #{carta["nome"]}"
-      callback_data = gia_aggiunta ?
-        "carte_gruppo_remove:#{gruppo_id}:#{carta["id"]}" :
-        "carte_gruppo_add:#{gruppo_id}:#{carta["id"]}"
-
-      current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: testo_bottone,
-        callback_data: callback_data,
-      )
-
-      # 3 bottoni per riga
+      current_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: testo_bottone, callback_data: callback_data)
       if current_row.size == 3 || index == carte_personali.size - 1
         inline_keyboard << current_row
         current_row = []
       end
     end
 
-    # Bottone "Fine"
-    inline_keyboard << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "🏁 Fine",
-        callback_data: "carte_gruppo_add_finish:#{gruppo_id}",
-      ),
-    ]
-
+    inline_keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "🏁 Fine", callback_data: "carte_gruppo_add_finish:#{gruppo_id}")]
     keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
+    
+    testo = "🏢 *Gestione carte gruppo*\n\nClicca per aggiungere o rimuovere le tue carte dal gruppo:"
 
-    # Recupera il nome del gruppo
-    gruppo = DB.execute("SELECT nome FROM gruppi WHERE id = ?", [gruppo_id]).first
-    nome_gruppo = gruppo ? gruppo["nome"] : "Gruppo"
-
-    bot.api.send_message(
-      chat_id: user_id,
-      text: "🏢 *Aggiungi/rimuovi carte dal gruppo: #{nome_gruppo}*\n\n" +
-            "✅ = già nel gruppo\n⬜ = non nel gruppo\n\n" +
-            "Clicca su una carta per aggiungerla o rimuoverla dal gruppo:",
-      parse_mode: "Markdown",
-      reply_markup: keyboard,
-    )
+    begin
+      if message_id
+        bot.api.edit_message_text(chat_id: user_id, message_id: message_id, text: testo, parse_mode: "Markdown", reply_markup: keyboard)
+      else
+        bot.api.send_message(chat_id: user_id, text: testo, parse_mode: "Markdown", reply_markup: keyboard)
+      end
+    rescue => e
+      Logger.error("Errore show_add_to_group_interface", error: e.message)
+    end
   end
+
 
   def self.handle_addcartagruppo(bot, msg, chat_id, user_id, gruppo)
     return unless gruppo
@@ -520,74 +467,61 @@ class CarteFedeltaGruppo < CarteFedelta
   end
 
   # Callback handling per carte gruppo
-  def self.handle_callback(bot, callback_query)
+ def self.handle_callback(bot, callback_query)
     user_id = callback_query.from.id
     chat_id = callback_query.message.chat.id
-    data = callback_query.data
+    msg_id = callback_query.message.message_id
+    data = callback_query.data.to_s
+
+    Logger.debug("CarteGruppo callback", data: data, user: user_id, chat: chat_id, msg_id: msg_id)
 
     case data
-    when /^carte_gruppo:(\d+):(\d+)$/
-      gruppo_id, carta_id = $1.to_i, $2.to_i
-
-      topic_id = callback_query.message.message_thread_id || 0
-      puts "🧵 CARTE_GRUPPO topic_id=#{topic_id}"
-
-      mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id, topic_id)
-    when /^carte_gruppo_delete:(\d+):(\d+)$/
-      gruppo_id, uid = $1.to_i, $2.to_i
-      return if uid != user_id
-      show_delete_interface(bot, gruppo_id, user_id, chat_id)
-    when /^carte_gruppo_confirm_delete:(\d+):(\d+)$/
-      gruppo_id, link_id = $1.to_i, $2.to_i
-      delete_group_card(bot, gruppo_id, user_id, link_id, chat_id, true)
-      show_group_cards(bot, gruppo_id, chat_id, user_id)
-    when /^carte_gruppo_back:(\d+)$/
+when /^carte_gruppo_add:(\d+):(\d+)$/
+  gruppo_id = $1.to_i; carta_id = $2.to_i
+  DB.execute("INSERT OR IGNORE INTO gruppo_carte_collegamenti (gruppo_id, carta_id, added_by) VALUES (?, ?, ?)", [gruppo_id, carta_id, callback_query.from.id])
+  bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Aggiunta")
+  show_add_to_group_interface(bot, callback_query.from.id, gruppo_id, callback_query.message.message_id)
+  
+when /^carte_gruppo_remove:(\d+):(\d+)$/
+  gruppo_id = $1.to_i; carta_id = $2.to_i
+  DB.execute("DELETE FROM gruppo_carte_collegamenti WHERE gruppo_id = ? AND carta_id = ?", [gruppo_id, carta_id])
+  bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Rimossa")
+  show_add_to_group_interface(bot, callback_query.from.id, gruppo_id, callback_query.message.message_id)
+  
+  
+      when /^carte_gruppo_add_finish:(\d+)$/
       gruppo_id = $1.to_i
-      show_group_cards(bot, gruppo_id, chat_id, user_id)
-    when /^carte_gruppo_add:(\d+):(\d+)$/
-      gruppo_id, carta_id = $1.to_i, $2.to_i
-      add_personal_card_to_group(bot, callback_query, gruppo_id, carta_id)
-    when /^carte_gruppo_remove:(\d+):(\d+)$/
-      gruppo_id, carta_id = $1.to_i, $2.to_i
-      remove_personal_card_from_group(bot, callback_query, gruppo_id, carta_id)
-    when /^carte_chiudi:(-?\d+):(\d+)$/
-      chat_id = $1.to_i
-      topic_id = $2.to_i
-
+      bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Completato")
       begin
-        bot.api.delete_message(
-          chat_id: chat_id,
-          message_id: callback_query.message.message_id,
-        )
+        bot.api.edit_message_reply_markup(chat_id: user_id, message_id: msg_id, reply_markup: nil)
       rescue => e
-        puts "❌ Errore chiusura carte: #{e.message}"
+        Logger.warn("Impossibile rimuovere markup DM", error: e.message)
+      end
+      bot.api.send_message(chat_id: user_id, text: "✅ Configurazione completata! Torna nel gruppo.")
+
+    when /^carte_chiudi:(-?\d+):(\d+)$/
+      target_chat = $1.to_i
+      target_topic = $2.to_i
+      bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "Chiuso")
+      begin
+        bot.api.delete_message(chat_id: target_chat, message_id: msg_id)
+      rescue => e
+        Logger.warn("delete_message fallito in carte_chiudi", error: e.message)
       end
 
-      bot.api.answer_callback_query(
-        callback_query_id: callback_query.id,
-        text: "Chiuse",
-      )
-    when /^carte_gruppo_add_finish:(\d+)$/
-      # 🔥 MODIFICA: Rimuovi la tastiera e mostra conferma
-      bot.api.answer_callback_query(
-        callback_query_id: callback_query.id,
-        text: "✅ Configurazione completata!",
-      )
+    when /^carte_gruppo:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      carta_id = $2.to_i
+      tid = callback_query.message.message_thread_id || 0
+      mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id, tid)
+      bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "Invio carta")
 
-      # Rimuovi la tastiera impostando reply_markup a nil
-      bot.api.edit_message_reply_markup(
-        chat_id: user_id,
-        message_id: callback_query.message.message_id,
-        reply_markup: nil, # 🔥 Questo fa scomparire la tastiera
-      )
-
-      # Opzionale: invia un messaggio di conferma separato
-      bot.api.send_message(
-        chat_id: user_id,
-        text: "✅ Configurazione carte completata! Usa /cartegruppo nel gruppo per vedere le carte condivise.",
-      )
+    else
+      Logger.warn("Callback non gestita CarteFedeltaGruppo", data: data)
+      bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "Operazione non riconosciuta")
     end
   end
+
 
   def self.mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id, topic_id = nil)
     row = DB.execute("
