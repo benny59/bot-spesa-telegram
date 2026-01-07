@@ -115,25 +115,27 @@ class StoricoManager
   # ========================================
   # 🔍 GET CHECKLIST - Comando /checklist
   # ========================================
-  def self.genera_checklist(bot, chat_id, user_id, gruppo_id, topic_id = 0)
-    # Se user_id arriva nullo, evitiamo che rompa le stringhe dei bottoni
-    user_id = user_id.to_i
-    thread_id = (topic_id.to_i > 0 ? topic_id.to_i : nil)
+def self.genera_checklist(bot, chat_id, user_id, gruppo_id, topic_id = 0)
+  # LOGICA CORRETTA PER IL THREAD:
+  # Il thread_id va passato all'API SOLO SE la chat di destinazione è un gruppo (ID negativo)
+  # Se chat_id > 0, siamo in una conversazione privata e il thread_id deve essere nil.
+  is_group = chat_id.to_i < 0
+  thread_id = (is_group && topic_id.to_i > 0) ? topic_id.to_i : nil
 
-    puts "🔍 [CHECKLIST] Generazione per User:#{user_id} Gruppo:#{gruppo_id} Topic:#{topic_id}"
+  puts "🔍 [CHECKLIST] Destinazione: #{chat_id} (Gruppo: #{is_group}), Topic: #{topic_id}"
 
-    top_articoli = self.top_articoli(gruppo_id, topic_id, 10)
+  top_articoli = self.top_articoli(gruppo_id, topic_id, 10)
 
-    if top_articoli.empty?
-      bot.api.send_message(
-        chat_id: chat_id,
-        message_thread_id: thread_id,
-        text: "📊 *Checklist Articoli Frequenti*\n\nNessun articolo disponibile nello storico di questo gruppo.",
-        parse_mode: "Markdown",
-      )
-      return
-    end
-
+  if top_articoli.empty?
+    bot.api.send_message(
+      chat_id: chat_id,
+      message_thread_id: thread_id,
+      text: "📊 *Checklist Articoli Frequenti*\n\nNessun articolo disponibile.",
+      parse_mode: "Markdown",
+    )
+    return
+  end
+  
     # Inizializza la memoria temporanea per le selezioni se non esiste
     context_key = "#{user_id}:#{topic_id}"
     @@selezioni_checklist ||= {}
@@ -230,52 +232,70 @@ class StoricoManager
 
   # ========================================
   # ✅ CONFERMA SELEZIONI
-  def self.gestisci_conferma_checklist(bot, msg, callback_data)
-    if callback_data =~ /^checklist_confirm:(\d+):(\d*):(\d+)$/
-      gruppo_id = $1.to_i
-      user_id = $2.empty? ? msg.from.id : $2.to_i
-      topic_id = $3.to_i
-      chat_id = msg.message.chat.id
+def self.gestisci_conferma_checklist(bot, msg, callback_data)
+  if callback_data =~ /^checklist_confirm:(\d+):(\d*):(\d+)$/
+    gruppo_id = $1.to_i
+    user_id = $2.empty? ? msg.from.id : $2.to_i
+    topic_id = $3.to_i
+    private_chat_id = msg.message.chat.id 
 
-      context_key = "#{user_id}:#{topic_id}"
-      selezioni = @@selezioni_checklist[context_key] || []
+    context_key = "#{user_id}:#{topic_id}"
+    selezioni = @@selezioni_checklist[context_key] || []
 
-      return false if selezioni.empty?
+    return false if selezioni.empty?
 
-      aggiunti = []
+    # Recupero info del gruppo per la notifica
+    gruppo = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [gruppo_id])
+    return false unless gruppo
 
-      selezioni.each do |nome_articolo|
-        esistente = DB.get_first_row(
-          "SELECT 1 FROM items 
-         WHERE gruppo_id = ? 
-           AND topic_id = ?
-           AND LOWER(nome) = LOWER(?)
-           AND comprato IS NULL",
-          [gruppo_id, topic_id, nome_articolo]
-        )
-        next if esistente
+    target_chat_id = gruppo['chat_id']
+    thread_id = (topic_id > 0 ? topic_id : nil)
+    nome_utente = msg.from.first_name
 
+    # 1. Inserimento nel database (Corretto: creato_da invece di aggiunto_da)
+    selezioni.each do |nome|
+      begin
         DB.execute(
-          "INSERT INTO items (nome, gruppo_id, topic_id, creato_da, creato_il) 
-         VALUES (?, ?, ?, ?, datetime('now'))",
-          [nome_articolo.capitalize, gruppo_id, topic_id, user_id]
+          "INSERT INTO items (gruppo_id, creato_da, nome, topic_id) VALUES (?, ?, ?, ?)",
+          [gruppo_id, user_id, nome.downcase.strip, topic_id]
         )
-        self.aggiorna_da_aggiunta(nome_articolo, gruppo_id, topic_id)
-        aggiunti << nome_articolo.capitalize
+        # Aggiorna lo storico (incrementa il conteggio per le statistiche)
+        self.aggiorna_da_toggle(nome, gruppo_id, 1, topic_id)
+      rescue => e
+        puts "❌ Errore inserimento item #{nome}: #{e.message}"
       end
-
-      # Pulizia e feedback
-      @@selezioni_checklist.delete(context_key)
-      bot.api.edit_message_text(
-        chat_id: chat_id,
-        message_id: msg.message.message_id,
-        text: "✅ Articoli aggiunti alla lista!",
-        parse_mode: "Markdown",
-      )
-      return true
     end
-    false
+
+    # 2. Feedback all'utente in chat PRIVATA
+    bot.api.edit_message_text(
+      chat_id: private_chat_id,
+      message_id: msg.message.message_id,
+      text: "✅ Ho aggiunto #{selezioni.size} articoli alla lista di *#{gruppo['nome']}*!",
+      parse_mode: "Markdown"
+    )
+
+    # 3. Notifica nel GRUPPO
+    elenco_testo = selezioni.map { |s| "• #{s.capitalize}" }.join("\n")
+    testo_gruppo = "📋 *Checklist:* #{nome_utente} ha aggiunto:\n#{elenco_testo}"
+
+    begin
+      bot.api.send_message(
+        chat_id: target_chat_id,
+        message_thread_id: thread_id,
+        text: testo_gruppo,
+        parse_mode: "Markdown"
+      )
+    rescue => e
+      puts "❌ Errore notifica gruppo: #{e.message}"
+    end
+
+    # Pulizia memoria temporanea
+    @@selezioni_checklist.delete(context_key)
+    return true
   end
+  false
+end
+
 
   # Aggiungi in storico_manager.rb
   def self.gestisci_click_checklist(bot, msg, callback_data)
