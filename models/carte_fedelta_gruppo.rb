@@ -105,7 +105,7 @@ class CarteFedeltaGruppo < CarteFedelta
   end
 
   # Mostra carte del gruppo
- def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
+  def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     Logger.debug("show_group_cards called", gruppo_id: gruppo_id, chat_id: chat_id, user_id: user_id, topic_id: topic_id)
 
     carte = DB.execute("
@@ -137,7 +137,7 @@ class CarteFedeltaGruppo < CarteFedelta
       # Usa lo stesso callback usato in privato: 'carte:<owner_user_id>:<card_id>'
       current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
         text: row["nome"],
-        callback_data: "carte:#{row["user_id"]}:#{row["id"]}"
+        callback_data: "carte:#{row["user_id"]}:#{row["id"]}",
       )
       if current_row.size == 3 || index == carte.size - 1
         inline_keyboard << current_row
@@ -146,7 +146,7 @@ class CarteFedeltaGruppo < CarteFedelta
     end
 
     inline_keyboard << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "carte_chiudi:#{chat_id}:#{topic_id || 0}")
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "carte_chiudi:#{chat_id}:#{topic_id || 0}"),
     ]
 
     keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
@@ -157,7 +157,7 @@ class CarteFedeltaGruppo < CarteFedelta
         message_thread_id: thread_id,
         text: "💳 *Carte fedeltà del gruppo*",
         parse_mode: "Markdown",
-        reply_markup: keyboard
+        reply_markup: keyboard,
       )
     rescue Telegram::Bot::Exceptions::ResponseError => e
       if e.message&.include?("message thread not found")
@@ -292,15 +292,14 @@ class CarteFedeltaGruppo < CarteFedelta
     end
 
     # Cambio: controllo carte già aggiunte a livello di gruppo (non filtrato per added_by)
-    carte_gia_aggiunte = DB.execute("SELECT carta_id FROM gruppo_carte_collegamenti WHERE gruppo_id = ?", [gruppo_id]).map {|r| r["carta_id"] }
-
+    carte_gia_aggiunte = DB.execute("SELECT carta_id FROM gruppo_carte_collegamenti WHERE gruppo_id = ?", [gruppo_id]).map { |r| r["carta_id"] }
 
     inline_keyboard = []
     current_row = []
     carte_personali.each_with_index do |carta, index|
       gia_aggiunta = carte_gia_aggiunte.include?(carta["id"])
- testo_bottone = gia_aggiunta ? "✅ #{carta['nome']}" : "⬜ #{carta['nome']}"
-callback_data = gia_aggiunta ? "carte_gruppo_remove:#{gruppo_id}:#{carta['id']}" : "carte_gruppo_add:#{gruppo_id}:#{carta['id']}"
+      testo_bottone = gia_aggiunta ? "✅ #{carta["nome"]}" : "⬜ #{carta["nome"]}"
+      callback_data = gia_aggiunta ? "carte_gruppo_remove:#{gruppo_id}:#{carta["id"]}" : "carte_gruppo_add:#{gruppo_id}:#{carta["id"]}"
 
       current_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: testo_bottone, callback_data: callback_data)
       if current_row.size == 3 || index == carte_personali.size - 1
@@ -311,7 +310,7 @@ callback_data = gia_aggiunta ? "carte_gruppo_remove:#{gruppo_id}:#{carta['id']}"
 
     inline_keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "🏁 Fine", callback_data: "carte_gruppo_add_finish:#{gruppo_id}")]
     keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
-    
+
     testo = "🏢 *Gestione carte gruppo*\n\nClicca per aggiungere o rimuovere le tue carte dal gruppo:"
 
     begin
@@ -324,7 +323,6 @@ callback_data = gia_aggiunta ? "carte_gruppo_remove:#{gruppo_id}:#{carta['id']}"
       Logger.error("Errore show_add_to_group_interface", error: e.message)
     end
   end
-
 
   def self.handle_addcartagruppo(bot, msg, chat_id, user_id, gruppo)
     return unless gruppo
@@ -467,7 +465,7 @@ callback_data = gia_aggiunta ? "carte_gruppo_remove:#{gruppo_id}:#{carta['id']}"
   end
 
   # Callback handling per carte gruppo
- def self.handle_callback(bot, callback_query)
+  def self.handle_callback(bot, callback_query)
     user_id = callback_query.from.id
     chat_id = callback_query.message.chat.id
     msg_id = callback_query.message.message_id
@@ -476,20 +474,17 @@ callback_data = gia_aggiunta ? "carte_gruppo_remove:#{gruppo_id}:#{carta['id']}"
     Logger.debug("CarteGruppo callback", data: data, user: user_id, chat: chat_id, msg_id: msg_id)
 
     case data
-when /^carte_gruppo_add:(\d+):(\d+)$/
-  gruppo_id = $1.to_i; carta_id = $2.to_i
-  DB.execute("INSERT OR IGNORE INTO gruppo_carte_collegamenti (gruppo_id, carta_id, added_by) VALUES (?, ?, ?)", [gruppo_id, carta_id, callback_query.from.id])
-  bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Aggiunta")
-  show_add_to_group_interface(bot, callback_query.from.id, gruppo_id, callback_query.message.message_id)
-  
-when /^carte_gruppo_remove:(\d+):(\d+)$/
-  gruppo_id = $1.to_i; carta_id = $2.to_i
-  DB.execute("DELETE FROM gruppo_carte_collegamenti WHERE gruppo_id = ? AND carta_id = ?", [gruppo_id, carta_id])
-  bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Rimossa")
-  show_add_to_group_interface(bot, callback_query.from.id, gruppo_id, callback_query.message.message_id)
-  
-  
-      when /^carte_gruppo_add_finish:(\d+)$/
+    when /^carte_gruppo_add:(\d+):(\d+)$/
+      gruppo_id = $1.to_i; carta_id = $2.to_i
+      DB.execute("INSERT OR IGNORE INTO gruppo_carte_collegamenti (gruppo_id, carta_id, added_by) VALUES (?, ?, ?)", [gruppo_id, carta_id, callback_query.from.id])
+      bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Aggiunta")
+      show_add_to_group_interface(bot, callback_query.from.id, gruppo_id, callback_query.message.message_id)
+    when /^carte_gruppo_remove:(\d+):(\d+)$/
+      gruppo_id = $1.to_i; carta_id = $2.to_i
+      DB.execute("DELETE FROM gruppo_carte_collegamenti WHERE gruppo_id = ? AND carta_id = ?", [gruppo_id, carta_id])
+      bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Rimossa")
+      show_add_to_group_interface(bot, callback_query.from.id, gruppo_id, callback_query.message.message_id)
+    when /^carte_gruppo_add_finish:(\d+)$/
       gruppo_id = $1.to_i
       bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Completato")
       begin
@@ -498,7 +493,6 @@ when /^carte_gruppo_remove:(\d+):(\d+)$/
         Logger.warn("Impossibile rimuovere markup DM", error: e.message)
       end
       bot.api.send_message(chat_id: user_id, text: "✅ Configurazione completata! Torna nel gruppo.")
-
     when /^carte_chiudi:(-?\d+):(\d+)$/
       target_chat = $1.to_i
       target_topic = $2.to_i
@@ -508,20 +502,17 @@ when /^carte_gruppo_remove:(\d+):(\d+)$/
       rescue => e
         Logger.warn("delete_message fallito in carte_chiudi", error: e.message)
       end
-
     when /^carte_gruppo:(\d+):(\d+)$/
       gruppo_id = $1.to_i
       carta_id = $2.to_i
       tid = callback_query.message.message_thread_id || 0
       mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id, tid)
       bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "Invio carta")
-
     else
       Logger.warn("Callback non gestita CarteFedeltaGruppo", data: data)
       bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "Operazione non riconosciuta")
     end
   end
-
 
   def self.mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id, topic_id = nil)
     row = DB.execute("

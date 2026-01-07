@@ -14,61 +14,61 @@ class CallbackHandler
   def self.route(bot, callback, context)
     Logger.debug("Callback ricevuto", data: callback.data)
     data = callback.data
+    # Nel metodo route(bot, callback)
+    chat_id = callback.message.chat.id
+    user_id = callback.from.id # Assicurati che questa riga ci sia!
 
     case data
     when "close_barcode"
-  # Rispondi subito per togliere lo spinner
-  begin
-    bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Chiuso", show_alert: false)
-  rescue => _
-  end
-
-  # Proviamo a cancellare il messaggio che ha il bottone (callback.message dovrebbe essere il messaggio con la foto)
-  begin
-    bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id)
-  rescue Telegram::Bot::Exceptions::ResponseError => e
-    # Se non può cancellare (es. message not found o permessi), proviamo a modificare il testo del messaggio
-    if e.message&.include?("message to delete not found") || e.message&.include?("message to edit not found")
-      # Se il delete fallisce perché non trovato, semplicemente rispondiamo (già fatto sopra)
-      Logger.warn("close_barcode: message not found or cannot be deleted", error: e.message) rescue nil
-    else
+      # Rispondi subito per togliere lo spinner
       begin
-        bot.api.edit_message_text(
-          chat_id: callback.message.chat.id,
-          message_id: callback.message.message_id,
-          text: "✅ Schermata chiusa."
-        )
-      rescue => e2
-        Logger.warn("close_barcode: edit_message_text fallito", error: e2.message) rescue nil
-        # fallback: niente altro da fare
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Chiuso", show_alert: false)
+      rescue => _
       end
-    end
-  rescue => e
-    Logger.warn("close_barcode: errore generico", error: e.message) rescue nil
-  end
-  
-when /^carte_gruppo_add:(\d+):(\d+)$/,
-     /^carte_gruppo_remove:(\d+):(\d+)$/,
-     /^carte_gruppo_add_finish:(\d+)$/,
-     /^carte_chiudi:(-?\d+):(\d+)$/
-  Logger.debug("Dispatch carte_gruppo -> CarteFedeltaGruppo (route)", data: data, from: callback.from&.id, chat_of_button: callback.message&.chat&.id, msg_id: callback.message&.message_id, thread: callback.message&.message_thread_id)
-  CarteFedeltaGruppo.handle_callback(bot, callback)
-  
-    
+
+      # Proviamo a cancellare il messaggio che ha il bottone (callback.message dovrebbe essere il messaggio con la foto)
+      begin
+        bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id)
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        # Se non può cancellare (es. message not found o permessi), proviamo a modificare il testo del messaggio
+        if e.message&.include?("message to delete not found") || e.message&.include?("message to edit not found")
+          # Se il delete fallisce perché non trovato, semplicemente rispondiamo (già fatto sopra)
+          Logger.warn("close_barcode: message not found or cannot be deleted", error: e.message) rescue nil
+        else
+          begin
+            bot.api.edit_message_text(
+              chat_id: callback.message.chat.id,
+              message_id: callback.message.message_id,
+              text: "✅ Schermata chiusa.",
+            )
+          rescue => e2
+            Logger.warn("close_barcode: edit_message_text fallito", error: e2.message) rescue nil
+            # fallback: niente altro da fare
+          end
+        end
+      rescue => e
+        Logger.warn("close_barcode: errore generico", error: e.message) rescue nil
+      end
+    when /^carte_gruppo_add:(\d+):(\d+)$/,
+         /^carte_gruppo_remove:(\d+):(\d+)$/,
+         /^carte_gruppo_add_finish:(\d+)$/,
+         /^carte_chiudi:(-?\d+):(\d+)$/
+      Logger.debug("Dispatch carte_gruppo -> CarteFedeltaGruppo (route)", data: data, from: callback.from&.id, chat_of_button: callback.message&.chat&.id, msg_id: callback.message&.message_id, thread: callback.message&.message_thread_id)
+      CarteFedeltaGruppo.handle_callback(bot, callback)
     when /^carte:(\d+):(\d+)$/, "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
-  # dispatch alle carte personali (DM)
-  require_relative "../utils/logger" unless defined?(Logger)
-  Logger.debug("Dispatch carte callbacks (route) -> CarteFedelta", data: data, from: callback.from&.id)
-  begin
-    CarteFedelta.handle_callback(bot, callback)
-  rescue => e
-    Logger.error("Errore durante CarteFedelta.handle_callback (route)", error: e.message)
-    # rispondiamo comunque alla callback per togliere lo spinner
-    begin
-      bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
-    rescue => _
-    end
-  end
+      # dispatch alle carte personali (DM)
+      require_relative "../utils/logger" unless defined?(Logger)
+      Logger.debug("Dispatch carte callbacks (route) -> CarteFedelta", data: data, from: callback.from&.id)
+      begin
+        CarteFedelta.handle_callback(bot, callback)
+      rescue => e
+        Logger.error("Errore durante CarteFedelta.handle_callback (route)", error: e.message)
+        # rispondiamo comunque alla callback per togliere lo spinner
+        begin
+          bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
+        rescue => _
+        end
+      end
     when /^mostra_carte:(\d+)(?::(\d+))?$/
       gruppo_id = $1.to_i
       topic_id = $2.to_i || 0
@@ -79,7 +79,24 @@ when /^carte_gruppo_add:(\d+):(\d+)$/,
       # Chiamo con ordine esplicito (gruppo_id, chat_id, user_id, topic_id)
       CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id)
 
-
+      # Correzione Regex per i toggle (rendiamo lo user_id opzionale o obbligatorio nel match)
+    when /^checklist_toggle:[^:]+:\d+:\d*:\d+$/ # Nota \d* per lo user_id che potrebbe essere vuoto
+      handled = StoricoManager.gestisci_toggle_checklist(bot, callback, data)
+      bot.api.answer_callback_query(callback_query_id: callback.id) unless handled
+    when /^checklist_confirm:\d+:\d*:\d+$/
+      handled = StoricoManager.gestisci_conferma_checklist(bot, callback, data)
+      bot.api.answer_callback_query(callback_query_id: callback.id) unless handled
+    when /^checklist_add:[^:]+:\d+:\d+$/ # Delegato a StoricoManager
+      handled = StoricoManager.gestisci_click_checklist(bot, callback, data)
+      unless handled
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore nell'aggiunta")
+      end
+    when /^checklist_close:(-?\d+):(\d+)$/
+      StoricoManager.gestisci_chiusura_checklist(bot, callback, data)
+    when /^show_checklist:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
+      handle_show_checklist(bot, callback, chat_id, user_id, gruppo_id, topic_id)
     when /^show_storico:(\d+):(\d+)$/
       gruppo_id = $1.to_i
       topic_id = $2.to_i
@@ -275,29 +292,28 @@ when /^carte_gruppo_add:(\d+):(\d+)$/,
       CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id)
     when /^carte:(\d+):(\d+)$/
       Logger.debug("DEBUG WRAPPER: chiamo CarteFedelta.handle_callback", data: callback.data, from: callback.from.id)
-begin
-  CarteFedelta.handle_callback(bot, callback)
-  Logger.debug("DEBUG WRAPPER: rientrato da CarteFedelta.handle_callback", data: callback.data)
-rescue => e
-  Logger.error("DEBUG WRAPPER: errore in CarteFedelta.handle_callback", error: e.message, backtrace: e.backtrace.first(10))
-  begin
-    bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
-  rescue => _
-  end
-end
-
+      begin
+        CarteFedelta.handle_callback(bot, callback)
+        Logger.debug("DEBUG WRAPPER: rientrato da CarteFedelta.handle_callback", data: callback.data)
+      rescue => e
+        Logger.error("DEBUG WRAPPER: errore in CarteFedelta.handle_callback", error: e.message, backtrace: e.backtrace.first(10))
+        begin
+          bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
+        rescue => _
+        end
+      end
     when "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
-Logger.debug("DEBUG WRAPPER: chiamo CarteFedelta.handle_callback", data: callback.data, from: callback.from.id)
-begin
-  CarteFedelta.handle_callback(bot, callback)
-  Logger.debug("DEBUG WRAPPER: rientrato da CarteFedelta.handle_callback", data: callback.data)
-rescue => e
-  Logger.error("DEBUG WRAPPER: errore in CarteFedelta.handle_callback", error: e.message, backtrace: e.backtrace.first(10))
-  begin
-    bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
-  rescue => _
-  end
-end
+      Logger.debug("DEBUG WRAPPER: chiamo CarteFedelta.handle_callback", data: callback.data, from: callback.from.id)
+      begin
+        CarteFedelta.handle_callback(bot, callback)
+        Logger.debug("DEBUG WRAPPER: rientrato da CarteFedelta.handle_callback", data: callback.data)
+      rescue => e
+        Logger.error("DEBUG WRAPPER: errore in CarteFedelta.handle_callback", error: e.message, backtrace: e.backtrace.first(10))
+        begin
+          bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
+        rescue => _
+        end
+      end
     when "close_barcode"
       begin
         # Prova a cancellare il messaggio
@@ -352,24 +368,6 @@ end
       gruppo_id, carta_id = $1.to_i, $2.to_i
       topic_id = $3&.to_i || 0  # 🔥 Estrai topic_id
       CarteFedeltaGruppo.handle_callback(bot, msg)  # Questo passa alla classe corretta
-    when /^checklist_toggle:[^:]+:\d+:\d+$/
-    when /^checklist_toggle:[^:]+:\d+:\d+:\d+$/
-      handled = StoricoManager.gestisci_toggle_checklist(bot, msg, data)
-      bot.api.answer_callback_query(callback_query_id: msg.id) unless handled
-    when /^checklist_confirm:\d+:\d+:\d+$/
-      handled = StoricoManager.gestisci_conferma_checklist(bot, msg, data)
-      bot.api.answer_callback_query(callback_query_id: msg.id) unless handled
-    when /^checklist_add:[^:]+:\d+:\d+$/ # Delegato a StoricoManager
-      handled = StoricoManager.gestisci_click_checklist(bot, msg, data)
-      unless handled
-        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore nell'aggiunta")
-      end
-    when /^show_checklist:(\d+):(\d+)$/
-      gruppo_id = $1.to_i
-      topic_id = $2.to_i
-      handle_show_checklist(bot, msg, chat_id, user_id, gruppo_id, topic_id)
-    when /^checklist_close:(-?\d+):(\d+)$/
-      StoricoManager.gestisci_chiusura_checklist(bot, msg, data)
     when /^approve_user:(\d+):([^:]*):(.+)$/
       handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
     when /^reject_user:(\d+)$/
@@ -899,23 +897,23 @@ end
   end
 
   def self.handle_show_checklist(bot, msg, chat_id, user_id, gruppo_id, topic_id)
-    require "ostruct"
+    # Assicuriamoci che chat_id non sia nullo.
+    # Se msg è un callback, il chat_id è in msg.message.chat.id
+    id_effettivo_chat = chat_id || (msg.message ? msg.message.chat.id : nil)
 
-    # Crea un messaggio fittizio con i dati necessari
-    fake_message = OpenStruct.new(
-      chat: OpenStruct.new(id: chat_id),
-      from: msg.from,
-      message_thread_id: topic_id,
-    )
+    if id_effettivo_chat.nil?
+      puts "❌ [ERRORE] Impossibile recuperare chat_id per checklist"
+      return
+    end
 
-    StoricoManager.genera_checklist(bot, fake_message, gruppo_id, topic_id)
+    # Passiamo i dati direttamente a genera_checklist invece di simulare un messaggio
+    StoricoManager.genera_checklist(bot, id_effettivo_chat, user_id, gruppo_id, topic_id)
 
     bot.api.answer_callback_query(
       callback_query_id: msg.id,
       text: "📋 Checklist caricata",
     )
   end
-
   def self.gestisci_chiusura_ui(bot, msg, callback_data)
     if callback_data =~ /^ui_close:(-?\d+):(\d+)$/
       chat_id = $1.to_i

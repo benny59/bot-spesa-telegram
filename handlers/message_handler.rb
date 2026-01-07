@@ -41,33 +41,27 @@ class MessageHandler
         parse_mode: "HTML",
       )
       puts "🔓 User #{context.user_id} è tornato in modalità locale"
-      
-      
-      
-     when "/carte"
+    when "/carte"
       Logger.info("Comando /carte (privato) ricevuto", user: context.user_id)
       require_relative "../models/carte_fedelta"
-      CarteFedelta.show_user_cards(bot, context.user_id)     
-      
-        when /^\/addcartagruppo/
-    gruppo_id = config["db_id"]
-    return if gruppo_id.nil?
-    current_topic_id=config["topic_id"]
+      CarteFedelta.show_user_cards(bot, context.user_id)
+    when /^\/addcartagruppo/
+      gruppo_id = config["db_id"]
+      return if gruppo_id.nil?
+      current_topic_id = config["topic_id"]
 
-    # Salvataggio azione con topic corrente (importantissimo)
-    DB.execute(
-      "INSERT INTO pending_actions (chat_id, action, gruppo_id, initiator_id, topic_id) VALUES (?, ?, ?, ?, ?)",
-      [context.chat_id, "ADD_CARTA_GRUPPO", gruppo_id, context.user_id, current_topic_id]
-    )
-    puts "✅ [PA] pending action salvata: gruppo_id=#{gruppo_id} initiator=#{context.user_id} topic=0"
+      # Salvataggio azione con topic corrente (importantissimo)
+      DB.execute(
+        "INSERT INTO pending_actions (chat_id, action, gruppo_id, initiator_id, topic_id) VALUES (?, ?, ?, ?, ?)",
+        [context.chat_id, "ADD_CARTA_GRUPPO", gruppo_id, context.user_id, current_topic_id]
+      )
+      puts "✅ [PA] pending action salvata: gruppo_id=#{gruppo_id} initiator=#{context.user_id} topic=0"
 
-    # Invia l'interfaccia privata all'utente
-    CarteFedeltaGruppo.show_add_to_group_interface(bot, context.user_id, gruppo_id)
+      # Invia l'interfaccia privata all'utente
+      CarteFedeltaGruppo.show_add_to_group_interface(bot, context.user_id, gruppo_id)
 
-    # Rispondi nel topic corretto (se esiste)
-thread_id = (context.respond_to?(:topic_id) && context.topic_id.to_i > 0) ? context.topic_id.to_i : nil
-      
-      
+      # Rispondi nel topic corretto (se esiste)
+      thread_id = (context.respond_to?(:topic_id) && context.topic_id.to_i > 0) ? context.topic_id.to_i : nil
     when "?"
       if config
         # Mostra la lista usando i dati del gruppo selezionato
@@ -85,9 +79,6 @@ thread_id = (context.respond_to?(:topic_id) && context.topic_id.to_i > 0) ? cont
       else
         bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
       end
-      
-
-      
     when /^\+(.+)?/
       if config
         # Gestione aggiunta articoli (usa il metodo che abbiamo creato prima)
@@ -194,95 +185,90 @@ thread_id = (context.respond_to?(:topic_id) && context.topic_id.to_i > 0) ? cont
   # =============================
   # GROUP / SUPERGROUP
   # =============================
-def self.route_group(bot, msg, context)
+  def self.route_group(bot, msg, context)
     config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{context.user_id}"])
     config = config_row ? JSON.parse(config_row["value"]) : nil
 
+    gruppo = GroupManager.get_gruppo_by_chat_id(context.chat_id)
+    TopicManager.update_from_msg(msg)
+    # estrai sempre user_id e topic_id all'inizio del metodo
+    user_id = msg.from&.id
+    # usa prima context.topic_id (normalizzato), poi msg.message_thread_id, poi fallback 0
+    current_topic_id = (context.respond_to?(:topic_id) && context.topic_id && context.topic_id != 0) ? context.topic_id : (msg.message_thread_id || 0)
 
-  gruppo = GroupManager.get_gruppo_by_chat_id(context.chat_id)
-  TopicManager.update_from_msg(msg)
-# estrai sempre user_id e topic_id all'inizio del metodo
-user_id = msg.from&.id
-# usa prima context.topic_id (normalizzato), poi msg.message_thread_id, poi fallback 0
-current_topic_id = (context.respond_to?(:topic_id) && context.topic_id && context.topic_id != 0) ? context.topic_id : (msg.message_thread_id || 0)
+    puts "DEBUG MSG: '#{msg.text}' in chat #{context.chat_id} topic #{current_topic_id}"
 
-  puts "DEBUG MSG: '#{msg.text}' in chat #{context.chat_id} topic #{current_topic_id}"
+    case msg.text
+    when /^\/addcartagruppo/
+      gruppo_id = gruppo ? gruppo["id"] : nil
+      return if gruppo_id.nil?
 
-  case msg.text
-  when /^\/addcartagruppo/
-    gruppo_id = gruppo ? gruppo["id"] : nil
-    return if gruppo_id.nil?
+      # Salvataggio azione con topic corrente (importantissimo)
+      DB.execute(
+        "INSERT INTO pending_actions (chat_id, action, gruppo_id, initiator_id, topic_id) VALUES (?, ?, ?, ?, ?)",
+        [context.chat_id, "ADD_CARTA_GRUPPO", gruppo_id, user_id, current_topic_id]
+      )
+      puts "✅ [PA] pending action salvata: gruppo_id=#{gruppo_id} initiator=#{user_id} topic=#{current_topic_id}"
 
-    # Salvataggio azione con topic corrente (importantissimo)
-    DB.execute(
-      "INSERT INTO pending_actions (chat_id, action, gruppo_id, initiator_id, topic_id) VALUES (?, ?, ?, ?, ?)",
-      [context.chat_id, "ADD_CARTA_GRUPPO", gruppo_id, user_id, current_topic_id]
-    )
-    puts "✅ [PA] pending action salvata: gruppo_id=#{gruppo_id} initiator=#{user_id} topic=#{current_topic_id}"
+      # Invia l'interfaccia privata all'utente
+      CarteFedeltaGruppo.show_add_to_group_interface(bot, user_id, gruppo_id)
 
-    # Invia l'interfaccia privata all'utente
-    CarteFedeltaGruppo.show_add_to_group_interface(bot, user_id, gruppo_id)
+      # Rispondi nel topic corretto (se esiste)
+      thread_id = config["topic_id"]
 
-    # Rispondi nel topic corretto (se esiste)
-    thread_id=config["topic_id"]
-
-begin
-  bot.api.send_message(
-    chat_id: context.chat_id,
-    message_thread_id: thread_id,
-    text: "🛒 #{msg.from.first_name}, ti ho scritto in privato!"
-  )
-rescue => e
-  puts "⚠️ Errore invio notifica topic (addcartagruppo): #{e.message}"
-  # fallback: invia senza thread
-  begin
-    bot.api.send_message(chat_id: context.chat_id, text: "🛒 #{msg.from.first_name}, ti ho scritto in privato!")
-  rescue => _; end
-end
-
-  when %r{^/private(@\w+)?$}
-    if gruppo.nil?
-      bot.api.send_message(chat_id: context.chat_id, message_thread_id: current_topic_id, text: "⚠️ Errore: non riesco a trovare questo gruppo nel database.")
-    else
-      Context.activate_private_for_group(bot, msg, gruppo)
-    end
-
-  when /^\+(.+)?/
-    raw = msg.text[1..].to_s.strip
-    if raw.empty?
-      PendingAction.start_add(context, gruppo)
-      bot.api.send_message(
-        chat_id: context.chat_id,
-        message_thread_id: current_topic_id,
-        text: "✍️ #{msg.from.first_name}, scrivi gli articoli per questo reparto:",
+      begin
+        bot.api.send_message(
+          chat_id: context.chat_id,
+          message_thread_id: thread_id,
+          text: "🛒 #{msg.from.first_name}, ti ho scritto in privato!",
+        )
+      rescue => e
+        puts "⚠️ Errore invio notifica topic (addcartagruppo): #{e.message}"
+        # fallback: invia senza thread
+        begin
+          bot.api.send_message(chat_id: context.chat_id, text: "🛒 #{msg.from.first_name}, ti ho scritto in privato!")
+        rescue => _;         end
+      end
+    when %r{^/private(@\w+)?$}
+      if gruppo.nil?
+        bot.api.send_message(chat_id: context.chat_id, message_thread_id: current_topic_id, text: "⚠️ Errore: non riesco a trovare questo gruppo nel database.")
+      else
+        Context.activate_private_for_group(bot, msg, gruppo)
+      end
+    when /^\+(.+)?/
+      raw = msg.text[1..].to_s.strip
+      if raw.empty?
+        PendingAction.start_add(context, gruppo)
+        bot.api.send_message(
+          chat_id: context.chat_id,
+          message_thread_id: current_topic_id,
+          text: "✍️ #{msg.from.first_name}, scrivi gli articoli per questo reparto:",
+        )
+      else
+        process_add_items(bot: bot, text: raw, context: context, gruppo: gruppo, msg: msg)
+      end
+    when "?"
+      KeyboardGenerator.genera_lista(
+        bot,
+        context.chat_id,
+        gruppo["id"],
+        context.user_id,
+        nil,
+        0,
+        current_topic_id
       )
     else
-      process_add_items(bot: bot, text: raw, context: context, gruppo: gruppo, msg: msg)
-    end
+      pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: current_topic_id)
 
-  when "?"
-    KeyboardGenerator.genera_lista(
-      bot,
-      context.chat_id,
-      gruppo["id"],
-      context.user_id,
-      nil,
-      0,
-      current_topic_id
-    )
+      if pending && pending["action"].to_s.start_with?("add:")
+        items_text = msg.text.strip
+        return if items_text.empty?
 
-  else
-    pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: current_topic_id)
-
-    if pending && pending["action"].to_s.start_with?("add:")
-      items_text = msg.text.strip
-      return if items_text.empty?
-
-      process_add_items(bot: bot, text: items_text, context: context, gruppo: gruppo, msg: msg)
-      PendingAction.clear(chat_id: context.chat_id, topic_id: current_topic_id)
+        process_add_items(bot: bot, text: items_text, context: context, gruppo: gruppo, msg: msg)
+        PendingAction.clear(chat_id: context.chat_id, topic_id: current_topic_id)
+      end
     end
   end
-end
 
   # =============================
   # STUB (volutamente vuoti)

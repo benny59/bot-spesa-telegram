@@ -69,15 +69,15 @@ class Context
       puts "✅ Config salvata per context:#{user_id}"
 
       # 3. Risposta nel GRUPPO (nel topic corretto)
- # usa t_id calcolato sopra e passa nil se = 0
-thread_id = (t_id.to_i > 0) ? t_id.to_i : nil
+      # usa t_id calcolato sopra e passa nil se = 0
+      thread_id = (t_id.to_i > 0) ? t_id.to_i : nil
 
-bot.api.send_message(
-  chat_id: chat_id,
-  message_thread_id: thread_id,
-  text: "📲 <b>#{msg.from.first_name}</b>, ora puoi gestire la lista <i>#{gruppo["nome"]} (#{topic_name})</i> in privato!",
-  parse_mode: "HTML",
-)
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: thread_id,
+        text: "📲 <b>#{msg.from.first_name}</b>, ora puoi gestire la lista <i>#{gruppo["nome"]} (#{topic_name})</i> in privato!",
+        parse_mode: "HTML",
+      )
       # 4. Messaggio in PRIVATO all'utente
       bot.api.send_message(
         chat_id: user_id,

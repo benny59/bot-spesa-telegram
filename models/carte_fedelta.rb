@@ -110,163 +110,160 @@ class CarteFedelta
   end
 
   # Callback gestione visualizzazione barcode
-# inserisci questo metodo in models/carte_fedelta.rb al posto dell'esistente `handle_callback`
-def self.handle_callback(bot, callback_query)
-  require_relative "../utils/logger" unless defined?(Logger)
-  Logger.debug("CarteFedelta.handle_callback entry", data: callback_query.data, from: callback_query.from.id)
+  # inserisci questo metodo in models/carte_fedelta.rb al posto dell'esistente `handle_callback`
+  def self.handle_callback(bot, callback_query)
+    require_relative "../utils/logger" unless defined?(Logger)
+    Logger.debug("CarteFedelta.handle_callback entry", data: callback_query.data, from: callback_query.from.id)
 
-  begin
-    aggiorna_schema_db
+    begin
+      aggiorna_schema_db
 
-    user_requesting = callback_query.from.id
-    message_obj = callback_query.respond_to?(:message) ? callback_query.message : nil
-    origin_chat = message_obj&.chat&.id
-    origin_thread = message_obj&.message_thread_id || 0
-    data = callback_query.data.to_s
+      user_requesting = callback_query.from.id
+      message_obj = callback_query.respond_to?(:message) ? callback_query.message : nil
+      origin_chat = message_obj&.chat&.id
+      origin_thread = message_obj&.message_thread_id || 0
+      data = callback_query.data.to_s
 
-    Logger.debug("handle_callback parsed", user_requesting: user_requesting, origin_chat: origin_chat, origin_thread: origin_thread, data: data)
+      Logger.debug("handle_callback parsed", user_requesting: user_requesting, origin_chat: origin_chat, origin_thread: origin_thread, data: data)
 
-    case data
-    when /^carte:(\d+):(\d+)$/
-      owner_id = $1.to_i
-      carta_id = $2.to_i
+      case data
+      when /^carte:(\d+):(\d+)$/
+        owner_id = $1.to_i
+        carta_id = $2.to_i
 
-      # Permessi: permetti la visualizzazione se:
-      # - chi clicca è il proprietario, oppure
-      # - la carta è collegata al gruppo della chat di origine (se l'origine è una chat di gruppo)
-      allowed = false
+        # Permessi: permetti la visualizzazione se:
+        # - chi clicca è il proprietario, oppure
+        # - la carta è collegata al gruppo della chat di origine (se l'origine è una chat di gruppo)
+        allowed = false
 
-      if owner_id == user_requesting
-        allowed = true
-      elsif origin_chat && origin_chat < 0
-        # è una chat di gruppo: verifichiamo che esista il collegamento
-        gruppo_id = DB.get_first_value("SELECT id FROM gruppi WHERE chat_id = ?", [origin_chat])
-        if gruppo_id
-          link_exists = DB.get_first_value("SELECT 1 FROM gruppo_carte_collegamenti WHERE gruppo_id = ? AND carta_id = ? LIMIT 1", [gruppo_id, carta_id])
-          allowed = !!link_exists
-          Logger.debug("controllo link gruppo-carta", gruppo_id: gruppo_id, carta_id: carta_id, link_exists: !!link_exists)
-        end
-      end
-
-      unless allowed
-        Logger.warn("Accesso non autorizzato a carta", requested_owner: owner_id, by: user_requesting, origin_chat: origin_chat)
-        begin
-          bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Non autorizzato")
-        rescue => _
-        end
-        return
-      end
-
-      row = DB.get_first_row("SELECT * FROM carte_fedelta WHERE id = ? AND user_id = ?", [carta_id, owner_id])
-      unless row
-        Logger.warn("Carta non trovata", carta_id: carta_id, owner: owner_id)
-        bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Carta non trovata")
-        return
-      end
-
-      Logger.info("Mostro carta", card: row["nome"], carta_id: carta_id, owner: owner_id, dest_chat: origin_chat, dest_thread: origin_thread)
-
-      img_path = row["immagine_path"]
-      if img_path.nil? || !File.exist?(img_path) || File.size(img_path) < 100
-        Logger.debug("Immagine mancante o corrotta; rigenero", carta_id: carta_id, codice: row["codice"])
-        begin
-          result = genera_barcode_con_nome(row["codice"], row["nome"], owner_id, row["formato"])
-          if result && result[:img_path]
-            img_path = result[:img_path]
-            DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [img_path, carta_id])
-            Logger.debug("Rigenerata immagine", path: img_path)
+        if owner_id == user_requesting
+          allowed = true
+        elsif origin_chat && origin_chat < 0
+          # è una chat di gruppo: verifichiamo che esista il collegamento
+          gruppo_id = DB.get_first_value("SELECT id FROM gruppi WHERE chat_id = ?", [origin_chat])
+          if gruppo_id
+            link_exists = DB.get_first_value("SELECT 1 FROM gruppo_carte_collegamenti WHERE gruppo_id = ? AND carta_id = ? LIMIT 1", [gruppo_id, carta_id])
+            allowed = !!link_exists
+            Logger.debug("controllo link gruppo-carta", gruppo_id: gruppo_id, carta_id: carta_id, link_exists: !!link_exists)
           end
-        rescue => e
-          Logger.error("Errore rigenerazione barcode", error: e.message)
         end
-      end
 
-      # Costruisci tastiera di chiusura
-      inline_keyboard = [
-        [
-          Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "close_barcode"),
-        ],
-      ]
-      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
-
-      if img_path && File.exist?(img_path)
-        begin
-          # Invia nel contesto di origine: se origin_chat è nil => manda in DM al richiedente
-          if origin_chat && origin_chat < 0
-            # invio nel gruppo/thread di origine
-            bot.api.send_photo(
-              chat_id: origin_chat,
-              message_thread_id: (origin_thread.to_i == 0 ? nil : origin_thread.to_i),
-              photo: Faraday::UploadIO.new(img_path, "image/png"),
-              caption: "💳 #{row['nome']}\n🔢 #{row['codice']}",
-              parse_mode: "Markdown",
-              reply_markup: keyboard
-            )
-          else
-            # invia in DM al richiedente (o al proprietario se richiesto)
-            bot.api.send_photo(
-              chat_id: user_requesting,
-              photo: Faraday::UploadIO.new(img_path, "image/png"),
-              caption: "💳 #{row['nome']}\n🔢 #{row['codice']}",
-              parse_mode: "Markdown",
-              reply_markup: keyboard
-            )
-          end
-
-          bot.api.answer_callback_query(callback_query_id: callback_query.id)
-          Logger.info("Foto inviata", dest: (origin_chat || user_requesting), path: img_path)
-        rescue => e
-          Logger.error("Errore invio foto", error: e.message)
+        unless allowed
+          Logger.warn("Accesso non autorizzato a carta", requested_owner: owner_id, by: user_requesting, origin_chat: origin_chat)
           begin
-            bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Errore invio immagine")
+            bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Non autorizzato")
+          rescue => _
+          end
+          return
+        end
+
+        row = DB.get_first_row("SELECT * FROM carte_fedelta WHERE id = ? AND user_id = ?", [carta_id, owner_id])
+        unless row
+          Logger.warn("Carta non trovata", carta_id: carta_id, owner: owner_id)
+          bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Carta non trovata")
+          return
+        end
+
+        Logger.info("Mostro carta", card: row["nome"], carta_id: carta_id, owner: owner_id, dest_chat: origin_chat, dest_thread: origin_thread)
+
+        img_path = row["immagine_path"]
+        if img_path.nil? || !File.exist?(img_path) || File.size(img_path) < 100
+          Logger.debug("Immagine mancante o corrotta; rigenero", carta_id: carta_id, codice: row["codice"])
+          begin
+            result = genera_barcode_con_nome(row["codice"], row["nome"], owner_id, row["formato"])
+            if result && result[:img_path]
+              img_path = result[:img_path]
+              DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [img_path, carta_id])
+              Logger.debug("Rigenerata immagine", path: img_path)
+            end
+          rescue => e
+            Logger.error("Errore rigenerazione barcode", error: e.message)
+          end
+        end
+
+        # Costruisci tastiera di chiusura
+        inline_keyboard = [
+          [
+            Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "close_barcode"),
+          ],
+        ]
+        keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
+
+        if img_path && File.exist?(img_path)
+          begin
+            # Invia nel contesto di origine: se origin_chat è nil => manda in DM al richiedente
+            if origin_chat && origin_chat < 0
+              # invio nel gruppo/thread di origine
+              bot.api.send_photo(
+                chat_id: origin_chat,
+                message_thread_id: (origin_thread.to_i == 0 ? nil : origin_thread.to_i),
+                photo: Faraday::UploadIO.new(img_path, "image/png"),
+                caption: "💳 #{row["nome"]}\n🔢 #{row["codice"]}",
+                parse_mode: "Markdown",
+                reply_markup: keyboard,
+              )
+            else
+              # invia in DM al richiedente (o al proprietario se richiesto)
+              bot.api.send_photo(
+                chat_id: user_requesting,
+                photo: Faraday::UploadIO.new(img_path, "image/png"),
+                caption: "💳 #{row["nome"]}\n🔢 #{row["codice"]}",
+                parse_mode: "Markdown",
+                reply_markup: keyboard,
+              )
+            end
+
+            bot.api.answer_callback_query(callback_query_id: callback_query.id)
+            Logger.info("Foto inviata", dest: (origin_chat || user_requesting), path: img_path)
+          rescue => e
+            Logger.error("Errore invio foto", error: e.message)
+            begin
+              bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Errore invio immagine")
+            rescue => _
+            end
+          end
+        else
+          Logger.warn("Immagine non disponibile per carta", carta_id: carta_id)
+          bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Immagine non disponibile")
+        end
+      when "close_barcode"
+        Logger.debug("close_barcode ricevuto", from: callback_query.from.id)
+        begin
+          if message_obj
+            bot.api.delete_message(chat_id: message_obj.chat.id, message_id: message_obj.message_id)
+          else
+            bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Chiuso")
+          end
+        rescue Telegram::Bot::Exceptions::ResponseError => e
+          Logger.warn("delete_message fallito in close_barcode", error: e.message)
+          begin
+            bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Chiuso")
+          rescue => _
+          end
+        rescue => e
+          Logger.error("Errore generico close_barcode", error: e.message)
+          begin
+            bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Chiuso")
           rescue => _
           end
         end
       else
-        Logger.warn("Immagine non disponibile per carta", carta_id: carta_id)
-        bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Immagine non disponibile")
-      end
-
-    when "close_barcode"
-      Logger.debug("close_barcode ricevuto", from: callback_query.from.id)
-      begin
-        if message_obj
-          bot.api.delete_message(chat_id: message_obj.chat.id, message_id: message_obj.message_id)
-        else
-          bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Chiuso")
-        end
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        Logger.warn("delete_message fallito in close_barcode", error: e.message)
+        Logger.warn("Callback CarteFedelta non gestita", data: data)
         begin
-          bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Chiuso")
-        rescue => _
-        end
-      rescue => e
-        Logger.error("Errore generico close_barcode", error: e.message)
-        begin
-          bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "✅ Chiuso")
+          bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "Operazione non riconosciuta")
         rescue => _
         end
       end
-
-    else
-      Logger.warn("Callback CarteFedelta non gestita", data: data)
+    rescue => e
+      Logger.error("ERRORE in CarteFedelta.handle_callback", error: e.message)
+      Logger.error(e.backtrace.first(5))
       begin
-        bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "Operazione non riconosciuta")
+        bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Errore interno")
       rescue => _
       end
     end
-
-  rescue => e
-    Logger.error("ERRORE in CarteFedelta.handle_callback", error: e.message)
-    Logger.error(e.backtrace.first(5))
-    begin
-      bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Errore interno")
-    rescue => _
-    end
   end
-end
- # METODI PRIVATI
+  # METODI PRIVATI
   private
 
   def self.scan_and_save_card(bot, user_id, image_path, card_name = nil)

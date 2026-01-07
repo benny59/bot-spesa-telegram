@@ -115,31 +115,34 @@ class StoricoManager
   # ========================================
   # 🔍 GET CHECKLIST - Comando /checklist
   # ========================================
-  def self.genera_checklist(bot, message, gruppo_id, topic_id = nil)
-    chat_id = message.chat.id
-    user_id = message.from.id
-    topic_id = message.message_thread_id || 0
+  def self.genera_checklist(bot, chat_id, user_id, gruppo_id, topic_id = 0)
+    # Se user_id arriva nullo, evitiamo che rompa le stringhe dei bottoni
+    user_id = user_id.to_i
+    thread_id = (topic_id.to_i > 0 ? topic_id.to_i : nil)
 
-    puts "🔍 [CHECKLIST] Richiesta per gruppo #{gruppo_id} topic #{topic_id}"
+    puts "🔍 [CHECKLIST] Generazione per User:#{user_id} Gruppo:#{gruppo_id} Topic:#{topic_id}"
 
     top_articoli = self.top_articoli(gruppo_id, topic_id, 10)
 
     if top_articoli.empty?
       bot.api.send_message(
         chat_id: chat_id,
-        message_thread_id: topic_id,
-        text: "📊 *Checklist Articoli Frequenti*\n\nNessun articolo disponibile.",
+        message_thread_id: thread_id,
+        text: "📊 *Checklist Articoli Frequenti*\n\nNessun articolo disponibile nello storico di questo gruppo.",
         parse_mode: "Markdown",
       )
       return
     end
 
+    # Inizializza la memoria temporanea per le selezioni se non esiste
     context_key = "#{user_id}:#{topic_id}"
+    @@selezioni_checklist ||= {}
     @@selezioni_checklist[context_key] ||= []
 
     righe = top_articoli.map do |articolo|
       nome = articolo["nome"]
       conteggio = articolo["conteggio"]
+      # Verifica se l'articolo è già stato selezionato dall'utente
       selezionato = @@selezioni_checklist[context_key].include?(nome) ? "✅" : "➕"
 
       [
@@ -150,9 +153,10 @@ class StoricoManager
       ]
     end
 
+    # Aggiunge i tasti di controllo in fondo
     righe << [
       Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "✅ Conferma aggiunta",
+        text: "✅ Conferma e Aggiungi",
         callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}:#{topic_id}",
       ),
       Telegram::Bot::Types::InlineKeyboardButton.new(
@@ -163,87 +167,73 @@ class StoricoManager
 
     markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe)
 
-    bot.api.send_message(
-      chat_id: chat_id,
-      message_thread_id: topic_id,
-      text: "📋 *Checklist Articoli Frequenti*\n\nSeleziona gli articoli da aggiungere:",
-      parse_mode: "Markdown",
-      reply_markup: markup,
-    )
-
-    puts "✅ [CHECKLIST] Checklist inviata nel topic #{topic_id}"
+    begin
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: thread_id,
+        text: "📋 *Checklist Articoli Frequenti*\n\nSeleziona gli articoli che vuoi rimettere in lista:",
+        parse_mode: "Markdown",
+        reply_markup: markup,
+      )
+      puts "✅ [CHECKLIST] Inviata correttamente"
+    rescue => e
+      puts "❌ [ERRORE API] genera_checklist: #{e.message}"
+    end
   end
-
   # ========================================
   # 🔁 GESTIONE TOGGLE ARTICOLI
   # ========================================
   def self.gestisci_toggle_checklist(bot, msg, callback_data)
-    if callback_data =~ /^checklist_toggle:(.+):(\d+):(\d+):(\d+)$/
+    # Regex corretta per catturare i 4 parametri (nome, gruppo, user, topic)
+    if callback_data =~ /^checklist_toggle:(.+):(\d+):(\d*):(\d+)$/
       nome_articolo = $1
       gruppo_id = $2.to_i
-      user_id = $3.to_i
+      user_id = $3.empty? ? msg.from.id : $3.to_i # Fallback se vuoto
       topic_id = $4.to_i
+      chat_id = msg.message.chat.id
 
       context_key = "#{user_id}:#{topic_id}"
       @@selezioni_checklist[context_key] ||= []
-      selezioni = @@selezioni_checklist[context_key]
 
-      if selezioni.include?(nome_articolo)
-        selezioni.delete(nome_articolo)
+      if @@selezioni_checklist[context_key].include?(nome_articolo)
+        @@selezioni_checklist[context_key].delete(nome_articolo)
       else
-        selezioni << nome_articolo
+        @@selezioni_checklist[context_key] << nome_articolo
       end
 
+      # Rigenera i tasti con lo user_id corretto stavolta!
       top_articoli = self.top_articoli(gruppo_id, topic_id, 10)
-
-      righe = top_articoli.map do |articolo|
-        nome = articolo["nome"].capitalize
-        conteggio = articolo["conteggio"]
-        selezionato = selezioni.include?(articolo["nome"]) ? "✅" : "➕"
-
+      righe = top_articoli.map do |art|
+        selezionato = @@selezioni_checklist[context_key].include?(art["nome"]) ? "✅" : "➕"
         [
           Telegram::Bot::Types::InlineKeyboardButton.new(
-            text: "#{selezionato} #{nome} (#{conteggio}x)",
-            callback_data: "checklist_toggle:#{articolo["nome"]}:#{gruppo_id}:#{user_id}:#{topic_id}",
+            text: "#{selezionato} #{art["nome"].capitalize} (#{art["conteggio"]}x)",
+            callback_data: "checklist_toggle:#{art["nome"]}:#{gruppo_id}:#{user_id}:#{topic_id}",
           ),
         ]
       end
 
       righe << [
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "✅ Conferma aggiunta",
-          callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}:#{topic_id}",
-        ),
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "❌ Chiudi",
-          callback_data: "checklist_close:#{msg.message.chat.id}:#{topic_id}",
-        ),
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "✅ Conferma", callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}:#{topic_id}"),
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "checklist_close:#{chat_id}:#{topic_id}"),
       ]
 
-      markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe)
-
       bot.api.edit_message_reply_markup(
-        chat_id: msg.message.chat.id,
-        message_thread_id: topic_id,
+        chat_id: chat_id,
         message_id: msg.message.message_id,
-        reply_markup: markup,
+        reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe),
       )
-
-      bot.api.answer_callback_query(callback_query_id: msg.id)
       return true
     end
-
     false
   end
 
   # ========================================
   # ✅ CONFERMA SELEZIONI
-  # ========================================
   def self.gestisci_conferma_checklist(bot, msg, callback_data)
-    # Modifica la regex per catturare anche topic_id
-    if callback_data =~ /^checklist_confirm:(\d+):(\d+):(\d+)$/
+    if callback_data =~ /^checklist_confirm:(\d+):(\d*):(\d+)$/
       gruppo_id = $1.to_i
-      user_id = $2.to_i
+      user_id = $2.empty? ? msg.from.id : $2.to_i
       topic_id = $3.to_i
       chat_id = msg.message.chat.id
 
@@ -274,24 +264,19 @@ class StoricoManager
         aggiunti << nome_articolo.capitalize
       end
 
-      # Pulisci le selezioni per questo contesto
+      # Pulizia e feedback
       @@selezioni_checklist.delete(context_key)
-
       bot.api.edit_message_text(
         chat_id: chat_id,
         message_id: msg.message.message_id,
-        message_thread_id: topic_id,
-        text: "✅ Aggiunti: #{aggiunti.join(", ")}",
+        text: "✅ Articoli aggiunti alla lista!",
         parse_mode: "Markdown",
       )
-
-      # Aggiorna la lista nel topic corretto
-      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, nil, 0, topic_id)
-      bot.api.answer_callback_query(callback_query_id: msg.id)
       return true
     end
     false
   end
+
   # Aggiungi in storico_manager.rb
   def self.gestisci_click_checklist(bot, msg, callback_data)
     chat_id = msg.message.chat.id
