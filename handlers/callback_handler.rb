@@ -18,6 +18,46 @@ class CallbackHandler
     user_id = callback.from.id
 
     case data
+        when /^cancella_tutti:(\d+)(?::(\d+))?$/
+      handle_cancella_tutti(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
+    when /^toggle_view_mode:(\d+)(?::(\d+))?$/
+      handle_toggle_view_mode(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
+
+    when /^aggiungi:(\d+)(?::(\d+))?$/
+      handle_aggiungi(bot, callback, context.chat_id, $1.to_i, $2&.to_i || 0)
+
+when /^refresh_lista:(\d+):(\d+)$/
+  gruppo_id = $1.to_i
+  t_id = $2.to_i
+
+  # 1. Usiamo la factory di Context per mappare l'ambiente del click
+  ctx = Context.from_callback(callback)
+  
+  # 2. Togliamo l'orologio (spinner) dal tasto
+  bot.api.answer_callback_query(callback_query_id: callback.id)
+
+  # 3. Logica di instradamento:
+  # Se ctx.scope è :private, dobbiamo inviare alla chat dell'utente (ctx.chat_id è l'ID utente)
+  # Se ctx.scope è :group, dobbiamo inviare al gruppo nel topic corretto.
+  
+  target_chat_id = ctx.chat_id
+  target_thread_id = (ctx.scope == :group) ? t_id : nil
+
+  puts "🔄 [REFRESH] Click in #{ctx.scope}. Invio lista a Chat: #{target_chat_id}, Topic: #{target_thread_id.inspect}"
+
+  # 4. Generiamo la lista
+  # Importante: passiamo target_chat_id (che sarà l'ID privato se cliccato in privato)
+  # ma manteniamo gruppo_id e t_id per filtrare i dati dal DB
+  KeyboardGenerator.genera_lista_compatta(
+    bot,
+    target_chat_id,   # Dove inviare il messaggio
+    gruppo_id,        # Quali dati leggere (Gruppo)
+    ctx.user_id,      # Chi ha richiesto
+    nil,              # Nuovo messaggio (non modifica il pin)
+    0,                # Pagina
+    t_id              # Filtro dati per topic (sempre 2 nel tuo caso)
+  )
+    
     when /^lista_page:(\d+):(\d+):(\d+)$/
   gruppo_id = $1.to_i
   nuova_pagina = $2.to_i

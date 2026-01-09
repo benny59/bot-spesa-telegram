@@ -53,7 +53,28 @@ class MessageHandler
     Logger.debug("route_private", user: context.user_id, config: config)
 
     case msg.text
+    
+when '/setup_pin'
+  # Recuperiamo la config dal context (già presente nel tuo log)
+  config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
+  config = config_row ? JSON.parse(config_row["value"]) : nil
 
+  if config && config["chat_id"]
+    target_chat_id = config["chat_id"]
+    target_gruppo_id = config["db_id"]
+    target_topic_id = config["topic_id"] || 0
+
+    puts "📍 [SETUP_PIN-PRIVATO] Reindirizzo a Gruppo:#{target_gruppo_id} Chat:#{target_chat_id} Topic:#{target_topic_id}"
+
+    # Eseguiamo il setup sulla chat del gruppo, non sulla privata
+    self.setup_pinned_access(bot, target_chat_id, target_gruppo_id, target_topic_id)
+
+    bot.api.send_message(chat_id: user_id, text: "✅ Messaggio fissato nel gruppo/topic configurato!")
+  else
+    bot.api.send_message(chat_id: user_id, text: "⚠️ Errore: Nessun gruppo attivo nel contesto. Vai nel gruppo e scrivi '?'")
+  end
+
+ 
     when "/newgroup"
       handle_newgroup(bot, msg, chat_id, user_id)
     when "/whitelist_show"
@@ -192,6 +213,7 @@ class MessageHandler
       text: "📨 La tua richiesta di accesso è stata inviata all'amministratore.\nRiceverai una notifica quando verrà approvata.",
     )
   end
+  
 
   def self.handle_newgroup_approved(bot, msg, chat_id, user_id)
     begin
@@ -238,16 +260,18 @@ class MessageHandler
   end
 
   # Cerca la pending action specifica per questo utente
-  def self.handle_photo_message(bot, msg, chat_id, user_id)
+def self.handle_photo_message(bot, msg, chat_id, user_id)
+    # 1. Recuperiamo il contesto dal messaggio usando la factory di Context
+    ctx = Context.from_message(msg) 
     puts "🔍 [PHOTO_DEBUG] Inizio scansione per user_id: #{user_id} in chat: #{chat_id}"
 
-    # 1. Cerchiamo l'azione pendente (flessibile sul topic per evitare il salto allo 0)
+    # 2. Cerchiamo l'azione pendente (flessibile sul topic per evitare il salto allo 0)
     pending = DB.get_first_row(
       "SELECT * FROM pending_actions 
-     WHERE chat_id = ? 
-     AND initiator_id = ? 
-     AND action LIKE 'upload_foto%' 
-     ORDER BY creato_il DESC LIMIT 1",
+       WHERE chat_id = ? 
+       AND initiator_id = ? 
+       AND action LIKE 'upload_foto%' 
+       ORDER BY creato_il DESC LIMIT 1",
       [chat_id, user_id]
     )
 
@@ -261,54 +285,104 @@ class MessageHandler
     # Estrazione dati in sicurezza
     item_id = pending["item_id"]
     gruppo_id = pending["gruppo_id"]
-    # Recuperiamo il topic originale dal DB, non dal messaggio (che potrebbe essere 0)
-    target_topic_id = pending["topic_id"] || 0
+    
+    # Recuperiamo il topic originale dal DB (dove abbiamo salvato l'azione)
+    # Se nel DB non c'è, usiamo ctx.topic_id come fallback
+    target_topic_id = pending["topic_id"] || ctx.topic_id || 0
 
-    # Estraiamo l'oggetto foto correttamente
+    # Estraiamo l'oggetto foto correttamente (l'ultima è la risoluzione più alta)
     photo_obj = msg.photo.last
     puts "🖼️ [PHOTO_DEBUG] FileID Telegram: #{photo_obj.file_id[0..15]}..."
 
     begin
-      # 2. Aggiornamento Immagine (usiamo il metodo di Lista o SQL diretto)
+      # 3. Aggiornamento Immagine
       puts "💾 [PHOTO_DEBUG] Esecuzione SQL su item_images..."
       DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])
       DB.execute("INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
                  [item_id, photo_obj.file_id, photo_obj.file_unique_id])
 
-      # 3. Pulizia Pending Action SENZA usare la colonna 'id'
+      # 4. Pulizia Pending Action
       puts "🧹 [PHOTO_DEBUG] Pulizia pending_actions (match su chat/user/item)..."
       DB.execute(
         "DELETE FROM pending_actions 
-       WHERE chat_id = ? AND initiator_id = ? AND item_id = ?",
+         WHERE chat_id = ? AND initiator_id = ? AND item_id = ?",
         [chat_id, user_id, item_id]
       )
 
-      # 4. Feedback nel topic corretto (target_topic_id recuperato dal DB)
+      # 5. Feedback nel topic corretto (usiamo target_topic_id e logica thread_id)
       puts "📤 [PHOTO_DEBUG] Invio conferma al topic: #{target_topic_id}"
+      
+      thread_id = (chat_id.to_i < 0 && target_topic_id.to_i != 0) ? target_topic_id.to_i : nil
+
       bot.api.send_message(
         chat_id: chat_id,
         text: "✅ Foto salvata con successo!",
-        message_thread_id: (chat_id < 0 && topic_id != 0) ? topic_id : nil,
+        message_thread_id: thread_id,
+        parse_mode: "Markdown"
       )
 
-      # 5. Refresh della lista
+      # 6. Refresh della lista (usa genera_lista_compatta se preferisci non inviare la tastiera full)
       puts "🔄 [PHOTO_DEBUG] Generazione lista aggiornata..."
       KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, nil, 0, target_topic_id)
 
       puts "✨ [PHOTO_DEBUG] Flusso completato con successo."
       return true
+
     rescue => e
       puts "❌ [PHOTO_DEBUG] CRASH: #{e.message}"
       puts e.backtrace.first(3).join("\n")
 
       bot.api.send_message(
         chat_id: chat_id,
-        text: "❌ Errore durante il salvataggio: #{e.message}",
-        message_thread_id: (target_topic_id != 0 ? target_topic_id : nil),
+        text: "❌ Errore durante il salvataggio della foto: #{e.message}",
+        message_thread_id: (target_topic_id.to_i != 0 ? target_topic_id.to_i : nil)
       )
-      return true # Restituiamo true perché il messaggio è stato gestito (anche se con errore)
+      return true
     end
   end
+   
+ def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
+  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+    inline_keyboard: [[
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "🛒 MOSTRA LISTA AGGIORNATA", 
+        callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}"
+      )
+    ]]
+  )
+
+  thread_id = (topic_id.to_i > 0) ? topic_id.to_i : nil
+
+  begin
+    res = bot.api.send_message(
+      chat_id: chat_id,
+      message_thread_id: thread_id,
+      text: "📌 **Punto di Accesso Rapido**\nUsa il tasto qui sotto per richiamare la lista spesa aggiornata.",
+      reply_markup: keyboard,
+      parse_mode: "Markdown"
+    )
+
+    msg_id = res["result"]["message_id"] rescue res.message_id
+    
+    begin
+      bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
+      puts "✅ [SETUP_PIN] Messaggio fissato nel topic #{topic_id}"
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      if e.message.include?("not enough rights")
+        # Avvisa l'utente nel topic se il bot non è admin
+        bot.api.send_message(
+          chat_id: chat_id,
+          message_thread_id: thread_id,
+          text: "⚠️ **Attenzione**: Il messaggio è stato inviato ma non ho i permessi per fissarlo in alto. Aggiungimi come Amministratore con permesso di 'Fissare messaggi'."
+        )
+      end
+      puts "❌ Errore Pin: #{e.message}"
+    end
+  rescue => e
+    puts "❌ Errore Invio: #{e.message}"
+  end
+end
+  
 
   def self.handle_photo_with_caption(bot, msg, chat_id, user_id)
     caption = msg.caption.strip
@@ -550,16 +624,8 @@ class MessageHandler
       Lista.aggiungi(config["db_id"], context.user_id, items_text, config["topic_id"])
 
       # NOTIFICA AL GRUPPO (Usando il CHAT_ID negativo)
-      begin
-        bot.api.send_message(
-          chat_id: config["chat_id"],
-          message_thread_id: (config["topic_id"] == 0 ? nil : config["topic_id"]),
-          text: "🛒 #{user_name} ha aggiunto da privato:\n#{items_text}",
-        )
-      rescue => e
-        puts "❌ Errore notifica gruppo: #{e.message}"
-      end
-
+            Context.notifica_gruppo_se_privato(bot, context.user_id, "🛒 #{user_name} ha aggiunto da privato:\n#{items_text}")
+ 
       bot.api.send_message(chat_id: context.chat_id, text: "✅ Aggiunto a #{config["topic_name"]}!")
       KeyboardGenerator.genera_lista(bot, context.chat_id, config["db_id"], context.user_id, nil, 0, config["topic_id"])
     end
@@ -635,6 +701,28 @@ class MessageHandler
     puts "DEBUG MSG: '#{msg.text}' in chat #{context.chat_id} topic #{current_topic_id}"
 
     case msg.text
+    
+    when '/setup_pin'
+      # Recuperiamo l'ID interno del gruppo dal DB (già caricato all'inizio del metodo)
+      gruppo_id = gruppo ? gruppo["id"] : nil
+
+      if gruppo_id
+        puts "📍 [SETUP_PIN] Eseguo per Gruppo DB:#{gruppo_id} nel Chat:#{context.chat_id} Topic:#{current_topic_id}"
+        
+        # Invocazione del metodo di supporto (definiscilo sotto o nella stessa classe)
+        self.setup_pinned_access(bot, context.chat_id, gruppo_id, current_topic_id)
+        
+        # Pulizia: eliminiamo il comando dell'utente per tenere pulito il topic
+        bot.api.delete_message(chat_id: context.chat_id, message_id: msg.message_id) rescue nil
+      else
+        bot.api.send_message(
+          chat_id: context.chat_id, 
+          text: "⚠️ Errore: Gruppo non registrato.", 
+          message_thread_id: (current_topic_id != 0 ? current_topic_id : nil)
+        )
+      end
+      
+    
     when /^\/addcartagruppo/
       gruppo_id = gruppo ? gruppo["id"] : nil
       return if gruppo_id.nil?
@@ -683,6 +771,8 @@ class MessageHandler
       else
         process_add_items(bot: bot, text: raw, context: context, gruppo: gruppo, msg: msg)
       end
+      
+      
     when "?"
       KeyboardGenerator.genera_lista(
         bot,

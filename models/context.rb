@@ -118,6 +118,16 @@ class Context
   # models/context.rb
 
   def self.notifica_gruppo_se_privato(bot, user_id, messaggio)
+  puts "sono in notifica gruppo"
+  
+  # 1. Controllo manuale nel DB (chiave globale)
+  config_val = DB.get_first_value("SELECT value FROM config WHERE key = 'verbose'")
+  is_verbose = ["on", "true", "1"].include?(config_val.to_s.downcase)
+
+  # 2. Se verbose è false, usciamo subito e non inviamo nulla
+  return unless is_verbose
+  
+  
     # Cerchiamo se l'utente è in modalità privata
     row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
     return unless row # Se non c'è config, siamo in modalità gruppo: NON notificare

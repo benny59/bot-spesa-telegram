@@ -21,6 +21,7 @@ class CommandSetter
       Telegram::Bot::Types::BotCommand.new(command: "whitelist_remove", description: "Rimuovi utente: ID"),
       Telegram::Bot::Types::BotCommand.new(command: "cleanup", description: "Pulisci gruppi/utenti orfani"),
       Telegram::Bot::Types::BotCommand.new(command: "reportcarte", description: "Report carte condivise nei gruppi"),
+      Telegram::Bot::Types::BotCommand.new(command: "setup_pin", description: "Fissa il tasto di accesso rapido alla lista"),
     ]
 
     bot.api.set_my_commands(commands: tutti_cmds)
