@@ -110,15 +110,15 @@ class KeyboardGenerator
       [
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "➕ Aggiungi",
-          callback_data: "aggiungi:#{gruppo_id}:#{topic_id}",  # Aggiunto topic_id
+          callback_data: "aggiungi:#{gruppo_id}:#{topic_id}",
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "📱 Modalità compatta",
-          callback_data: "toggle_view_mode:#{gruppo_id}",
+          callback_data: "toggle_view_mode:#{gruppo_id}:#{topic_id}", # Aggiunto topic_id
         ),
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "💳 Carte",
-          callback_data: "mostra_carte:#{gruppo_id}",
+          callback_data: "mostra_carte:#{gruppo_id}:#{topic_id}",     # Aggiunto topic_id
         ),
       ],
       [
@@ -168,7 +168,7 @@ class KeyboardGenerator
       text += "📭 Nessun articolo\n"
     else
       items.each do |item|
-        initials = item["user_initials"] || item["initials"] || "U"
+        initials = item["user_initials"] || item["initials"] || "U" # <- Questo "U" è il colpevole
         autore = "#{initials} -> "
 
         # ✅ Se comprato contiene sigla, mostro ✅(sigla)

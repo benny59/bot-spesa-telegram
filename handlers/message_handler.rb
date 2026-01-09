@@ -4,10 +4,33 @@ require_relative "../models/pending_action"
 require_relative "../models/context"
 require "json"
 require_relative "../utils/logger"
+require "rmagick"
+require "prawn"
+require "prawn/table"
+require "tempfile"
+require "open-uri"
+require "time"
 
 class MessageHandler
   def self.route(bot, msg, context)
+    Whitelist.ensure_user_name(msg.from.id, msg.from.first_name, msg.from.last_name)
     text = msg.text.to_s.strip
+
+    if msg.photo && msg.photo.any?
+      # 1️⃣ prova SEMPRE il flusso legacy con pending_action (gruppo o privato)
+      handled = handle_photo_message(bot, msg, context.chat_id, context.user_id)
+
+      return if handled
+
+      # 2️⃣ solo se NON c'è pending_action e siamo in privato → barcode / carte
+      if context.scope == :private
+        handle_private_photo(bot, msg, context)
+      else
+        puts "📸 Foto ignorata (nessuna pending_action, scope #{context.scope})"
+      end
+
+      return
+    end
 
     case
     when context.private_chat?
@@ -20,12 +43,27 @@ class MessageHandler
   end
 
   def self.route_private(bot, msg, context)
+    # --- FISSA QUI ---
+    chat_id = msg.chat.id
+    user_id = msg.from.id
+    text = msg.text
     config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{context.user_id}"])
     config = config_row ? JSON.parse(config_row["value"]) : nil
 
     Logger.debug("route_private", user: context.user_id, config: config)
 
     case msg.text
+
+    when "/newgroup"
+      handle_newgroup(bot, msg, chat_id, user_id)
+    when "/whitelist_show"
+      Whitelist.is_creator?(user_id) ? handle_whitelist_show(bot, chat_id) : invia_errore_admin(bot, chat_id)
+    when /^\/whitelist_add\s+(\d+)/
+      Whitelist.is_creator?(user_id) ? handle_whitelist_add(bot, chat_id, $1.to_i) : invia_errore_admin(bot, chat_id)
+    when /^\/whitelist_remove\s+(\d+)/
+      Whitelist.is_creator?(user_id) ? handle_whitelist_remove(bot, chat_id, $1.to_i) : invia_errore_admin(bot, chat_id)
+    when "/pending_requests"
+      Whitelist.is_creator?(user_id) ? handle_pending_requests(bot, chat_id) : invia_errore_admin(bot, chat_id)
     when /^\/start$/
       handle_start(bot, context)
     when "/private"
@@ -95,6 +133,390 @@ class MessageHandler
   # =============================
   # METODI DI SUPPORTO PRIVATI
   # =============================
+  def self.handle_newgroup(bot, msg, chat_id, user_id)
+    puts "🔍 /newgroup richiesto da: #{msg.from.first_name} (ID: #{user_id})"
+
+    # Se non c'è ancora un creatore nel DB, il primo che preme /newgroup lo diventa
+    if Whitelist.get_creator_id.nil?
+      puts "🎉 Primo utente - Imposto come creatore"
+      Whitelist.add_creator(user_id, msg.from.username, "#{msg.from.first_name} #{msg.from.last_name}")
+    end
+
+    creator_id = Whitelist.get_creator_id
+    is_allowed = Whitelist.is_allowed?(user_id)
+    puts "🔍 Whitelist check - Creatore: #{creator_id}, Utente: #{user_id}, Autorizzato: #{is_allowed}"
+
+    unless is_allowed
+      handle_newgroup_pending(bot, msg, chat_id, user_id, creator_id)
+      return
+    end
+
+    handle_newgroup_approved(bot, msg, chat_id, user_id)
+  end
+
+  def self.handle_newgroup_pending(bot, msg, chat_id, user_id, creator_id)
+    # Salva la richiesta pendente nel DB
+    Whitelist.add_pending_request(user_id, msg.from.username, "#{msg.from.first_name} #{msg.from.last_name}")
+
+    # Notifica al creatore con bottoni Inline per approvazione rapida
+    if creator_id
+      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+        inline_keyboard: [
+          [
+            Telegram::Bot::Types::InlineKeyboardButton.new(
+              text: "✅ Approva",
+              callback_data: "approve_user:#{user_id}:#{msg.from.username}:#{msg.from.first_name}_#{msg.from.last_name}",
+            ),
+            Telegram::Bot::Types::InlineKeyboardButton.new(
+              text: "❌ Rifiuta",
+              callback_data: "reject_user:#{user_id}",
+            ),
+          ],
+        ],
+      )
+
+      bot.api.send_message(
+        chat_id: creator_id,
+        text: "🔔 *Richiesta di accesso*\n\n" \
+              "👤 #{msg.from.first_name} #{msg.from.last_name}\n" \
+              "📧 @#{msg.from.username}\n" \
+              "🆔 #{user_id}\n\n" \
+              "Aggiungere alla whitelist?",
+        parse_mode: "Markdown",
+        reply_markup: keyboard,
+      )
+    end
+
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "📨 La tua richiesta di accesso è stata inviata all'amministratore.\nRiceverai una notifica quando verrà approvata.",
+    )
+  end
+
+  def self.handle_newgroup_approved(bot, msg, chat_id, user_id)
+    begin
+      nome_gruppo = "Lista di #{msg.from.first_name}"
+
+      # Esegui l'inserimento nel DB (Tabella gruppi: id, nome, creato_da, chat_id)
+      DB.execute(
+        "INSERT INTO gruppi (nome, creato_da, chat_id) VALUES (?, ?, ?)",
+        [nome_gruppo, user_id, chat_id]
+      )
+
+      # Recupera l'ultimo ID inserito usando il wrapper esistente
+      gruppo_id = DB.get_first_value("SELECT last_insert_rowid()")
+
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "🎉 *Gruppo virtuale creato!*\n\n" \
+              "🆔 ID Interno: `#{gruppo_id}`\n" \
+              "👤 Creatore: #{msg.from.first_name}\n\n" \
+              "Ora puoi usare i comandi della lista in questa chat.",
+        parse_mode: "Markdown",
+      )
+    rescue => e
+      puts "❌ Errore creazione gruppo: #{e.message}"
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore durante la creazione: #{e.message}")
+    end
+  end
+
+  # 🔥 NUOVO METODO: Crea la carta dalla foto (gestisce entrambi i casi)
+  def self.create_card_from_photo(bot, chat_id, user_id, image_path, nome_carta, codice_carta, formato_originale = nil)
+    begin
+      # Usa il metodo di CarteFedelta per creare la carta
+      CarteFedelta.add_card_from_photo(bot, user_id, nome_carta, codice_carta, image_path, formato_originale)
+
+      # Pulisci l'azione pending se esiste
+      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+    rescue => e
+      puts "❌ Errore creazione carta da foto: #{e.message}"
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nella creazione della carta dalla foto.")
+
+      # Pulisci comunque l'azione pending
+      DB.execute("DELETE FROM pending_actions WHERE chat_id = ?", [chat_id])
+    end
+  end
+
+  # Cerca la pending action specifica per questo utente
+  def self.handle_photo_message(bot, msg, chat_id, user_id)
+    puts "🔍 [PHOTO_DEBUG] Inizio scansione per user_id: #{user_id} in chat: #{chat_id}"
+
+    # 1. Cerchiamo l'azione pendente (flessibile sul topic per evitare il salto allo 0)
+    pending = DB.get_first_row(
+      "SELECT * FROM pending_actions 
+     WHERE chat_id = ? 
+     AND initiator_id = ? 
+     AND action LIKE 'upload_foto%' 
+     ORDER BY creato_il DESC LIMIT 1",
+      [chat_id, user_id]
+    )
+
+    unless pending
+      puts "ℹ️ [PHOTO_DEBUG] Nessuna pending action trovata per questo utente."
+      return false
+    end
+
+    puts "📸 [PHOTO_DEBUG] Trovata azione: #{pending["action"]} | Salva su Item: #{pending["item_id"]}"
+
+    # Estrazione dati in sicurezza
+    item_id = pending["item_id"]
+    gruppo_id = pending["gruppo_id"]
+    # Recuperiamo il topic originale dal DB, non dal messaggio (che potrebbe essere 0)
+    target_topic_id = pending["topic_id"] || 0
+
+    # Estraiamo l'oggetto foto correttamente
+    photo_obj = msg.photo.last
+    puts "🖼️ [PHOTO_DEBUG] FileID Telegram: #{photo_obj.file_id[0..15]}..."
+
+    begin
+      # 2. Aggiornamento Immagine (usiamo il metodo di Lista o SQL diretto)
+      puts "💾 [PHOTO_DEBUG] Esecuzione SQL su item_images..."
+      DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])
+      DB.execute("INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
+                 [item_id, photo_obj.file_id, photo_obj.file_unique_id])
+
+      # 3. Pulizia Pending Action SENZA usare la colonna 'id'
+      puts "🧹 [PHOTO_DEBUG] Pulizia pending_actions (match su chat/user/item)..."
+      DB.execute(
+        "DELETE FROM pending_actions 
+       WHERE chat_id = ? AND initiator_id = ? AND item_id = ?",
+        [chat_id, user_id, item_id]
+      )
+
+      # 4. Feedback nel topic corretto (target_topic_id recuperato dal DB)
+      puts "📤 [PHOTO_DEBUG] Invio conferma al topic: #{target_topic_id}"
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "✅ Foto salvata con successo!",
+        message_thread_id: (chat_id < 0 && topic_id != 0) ? topic_id : nil,
+      )
+
+      # 5. Refresh della lista
+      puts "🔄 [PHOTO_DEBUG] Generazione lista aggiornata..."
+      KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, nil, 0, target_topic_id)
+
+      puts "✨ [PHOTO_DEBUG] Flusso completato con successo."
+      return true
+    rescue => e
+      puts "❌ [PHOTO_DEBUG] CRASH: #{e.message}"
+      puts e.backtrace.first(3).join("\n")
+
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "❌ Errore durante il salvataggio: #{e.message}",
+        message_thread_id: (target_topic_id != 0 ? target_topic_id : nil),
+      )
+      return true # Restituiamo true perché il messaggio è stato gestito (anche se con errore)
+    end
+  end
+
+  def self.handle_photo_with_caption(bot, msg, chat_id, user_id)
+    caption = msg.caption.strip
+    photo = msg.photo.last
+
+    begin
+      # 🔥 MODIFICA: Prima scansiona il barcode, poi chiedi il codice solo se necessario
+      file_info = bot.api.get_file(file_id: photo.file_id)
+      file_path = file_info.file_path
+
+      if file_path
+        # Scarica la foto
+        temp_file = Tempfile.new(["barcode_scan", ".jpg"])
+        token = DB.get_first_value("SELECT value FROM config WHERE key = 'token'")
+        file_url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
+
+        puts "📥 Download immagine da: #{file_url}"
+
+        URI.open(file_url) do |remote_file|
+          temp_file.write(remote_file.read)
+        end
+        temp_file.rewind
+
+        # Scansiona barcode
+        puts "🔍 Scansionando barcode con zbar..."
+        scan_result = BarcodeScanner.scan_image(temp_file.path)
+
+        if scan_result && scan_result[:data]
+          barcode_data = scan_result[:data]
+          barcode_format = scan_result[:format]
+
+          puts "✅ Barcode rilevato: #{barcode_data} (formato: #{barcode_format})"
+
+          # 🔥 CREA DIRETTAMENTE LA CARTA - nome dal caption, codice dal barcode
+          create_card_from_photo(bot, chat_id, user_id, temp_file.path, caption, barcode_data, barcode_format)
+        else
+          puts "❌ Nessun barcode rilevato"
+          # Se non trova barcode, chiede il codice manualmente
+          DB.execute(
+            "INSERT INTO pending_actions (chat_id, action, item_id, creato_il) VALUES (?, ?, ?, datetime('now'))",
+            [chat_id, "naming_card_with_caption:#{caption}", photo.file_id]
+          )
+
+          bot.api.send_message(
+            chat_id: chat_id,
+            text: "❌ Nessun codice a barre rilevato.\n\nNome: *#{caption}*\nInvia il *codice* manualmente...",
+            parse_mode: "Markdown",
+          )
+        end
+
+        # Pulisci file temporaneo
+        temp_file.close
+        temp_file.unlink
+      else
+        bot.api.send_message(chat_id: chat_id, text: "❌ Errore nel download dell'immagine.")
+      end
+    rescue => e
+      puts "❌ Errore gestione foto con caption: #{e.message}"
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore nell'elaborazione della foto.")
+    end
+  end
+
+  def self.handle_private_photo(bot, msg, context)
+    chat_id = context.chat_id
+    user_id = context.user_id
+
+    # 🔥 DEBUG: Vediamo cosa c'è nel messaggio
+    puts "🔍 DEBUG - Contenuto messaggio foto:"
+    puts "  - Ha caption?: #{!msg.caption.nil?}"
+    puts "  - Caption: #{msg.caption.inspect}"
+    puts "  - Text: #{msg.text.inspect}"
+    puts "  - Chat type: #{msg.chat.type}"
+    # 🔥 RIMOSSO: puts "  - Content type: #{msg.content_type}" # Questa riga causa l'errore
+
+    # 🔥 MODIFICA: Supporta entrambi i flussi
+    if msg.caption && !msg.caption.empty?
+      # NUOVO FLUSSO: Foto con caption - usa caption come nome
+      puts "📸 Foto ricevuta con caption: #{msg.caption}"
+      handle_photo_with_caption(bot, msg, chat_id, user_id)
+      return  # 🔥 IMPORTANTE: esci dal metodo qui
+    else
+      # VECCHIO FLUSSO: Foto senza caption - scansione barcode automatica
+      puts "📸 Foto ricevuta in chat privata - Scansione barcode in corso..."
+    end
+
+    begin
+      # Scarica la foto
+      photo = msg.photo.last
+      file_info = bot.api.get_file(file_id: photo.file_id)
+
+      # 🔥 CORREZIONE: file_info è un oggetto, non un Hash
+      file_path = file_info.file_path
+
+      if file_path
+        # Scarica il file temporaneamente
+        temp_file = Tempfile.new(["barcode_scan", ".jpg"])
+        token = DB.get_first_value("SELECT value FROM config WHERE key = 'token'")
+        file_url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
+
+        puts "📥 Download immagine da: #{file_url}"
+
+        URI.open(file_url) do |remote_file|
+          temp_file.write(remote_file.read)
+        end
+        temp_file.rewind
+
+        puts "🔍 Scansionando barcode con zbar..."
+        scan_result = BarcodeScanner.scan_image(temp_file.path)
+
+        if scan_result && scan_result[:data]
+          barcode_data = scan_result[:data]
+          barcode_format = scan_result[:format]
+
+          puts "✅ Barcode rilevato: #{barcode_data} (formato: #{barcode_format})"
+
+          # Salva barcode e formato nel pending action
+          action_with_barcode = "naming_card:#{barcode_data}:#{barcode_format}"
+
+          DB.execute("INSERT OR REPLACE INTO pending_actions (chat_id, action) VALUES (?, ?)",
+                     [chat_id, action_with_barcode])
+
+          bot.api.send_message(
+            chat_id: chat_id,
+            text: "📷 Barcode rilevato!\n\nCodice: `#{barcode_data}`\nTipo: #{barcode_format.upcase}\n\nCome vuoi chiamare questa carta? (es. coop, esselunga, pam...)",
+            parse_mode: "Markdown",
+          )
+        else
+          puts "❌ Nessun barcode rilevato"
+          bot.api.send_message(
+            chat_id: chat_id,
+            text: "❌ Nessun codice a barre rilevato nell'immagine. Assicurati che:\n• La foto sia nitida\n• Il codice sia ben illuminato\n• Non ci siano riflessi",
+          )
+        end
+
+        # Pulisci file temporaneo
+        temp_file.close
+        temp_file.unlink
+      else
+        puts "❌ file_path non disponibile"
+        bot.api.send_message(chat_id: chat_id, text: "❌ Errore nel download dell'immagine.")
+      end
+    rescue => e
+      puts "❌ Errore nella scansione barcode: #{e.message}"
+      puts e.backtrace.join("\n")
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore durante la scansione del codice a barre: #{e.message}")
+    end
+  end
+
+  def self.handle_listagruppi(bot, chat_id, user_id)
+    # Controllo sicurezza: solo il creatore vede tutto
+    unless Whitelist.get_creator_id.to_i == user_id.to_i
+      bot.api.send_message(chat_id: chat_id, text: "⚠️ Solo il creatore può usare questo comando.")
+      return
+    end
+
+    rows = DB.execute("SELECT id, nome, creato_da, chat_id FROM gruppi ORDER BY id ASC")
+    if rows.empty?
+      bot.api.send_message(chat_id: chat_id, text: "ℹ️ Nessun gruppo registrato.")
+      return
+    end
+
+    elenco = rows.map do |row|
+      "🆔 `#{row["id"]}` | *#{row["nome"]}*\n👤 Creatore: `#{row["creato_da"]}`\n💬 Chat ID: `#{row["chat_id"]}`"
+    end.join("\n\n---\n\n")
+
+    bot.api.send_message(chat_id: chat_id, text: "📋 *Gruppi registrati:*\n\n#{elenco}", parse_mode: "Markdown")
+  end
+  def self.handle_whitelist_show(bot, chat_id)
+    utenti = Whitelist.all_users
+    if utenti.empty?
+      bot.api.send_message(chat_id: chat_id, text: "⚪ La whitelist è vuota.")
+    else
+      testo = "📋 *Utenti in Whitelist:*\n\n"
+      utenti.each do |u|
+        testo += "• #{u["full_name"]} (@#{u["username"]}) - ID: `#{u["user_id"]}`\n"
+      end
+      bot.api.send_message(chat_id: chat_id, text: testo, parse_mode: "Markdown")
+    end
+  end
+
+  def self.handle_whitelist_add(bot, chat_id, target_user_id)
+    # Aggiunge un utente manualmente. Nota: username e full_name sono generici
+    # finché l'utente non interagisce col bot.
+    Whitelist.add_user(target_user_id, "Utente", "Aggiunto manualmente")
+    bot.api.send_message(chat_id: chat_id, text: "✅ Utente `#{target_user_id}` aggiunto alla whitelist.")
+  end
+
+  def self.handle_whitelist_remove(bot, chat_id, target_user_id)
+    # Rimuove l'utente dalla tabella whitelist
+    DB.execute("DELETE FROM whitelist WHERE user_id = ?", [target_user_id])
+    bot.api.send_message(chat_id: chat_id, text: "🗑️ Utente `#{target_user_id}` rimosso dalla whitelist.")
+  end
+
+  def self.handle_pending_requests(bot, chat_id)
+    requests = Whitelist.get_pending_requests
+    if requests.empty?
+      bot.api.send_message(chat_id: chat_id, text: "Nessuna richiesta in attesa.")
+    else
+      # Qui potresti generare una tastiera inline per approvare/rifiutare
+      testo = "⏳ *Richieste in attesa:*\n\n"
+      requests.each { |r| testo += "• #{r["full_name"]} (@#{r["username"]}) ID: `#{r["user_id"]}`\n" }
+      bot.api.send_message(chat_id: chat_id, text: testo, parse_mode: "Markdown")
+    end
+  end
+
+  def self.invia_errore_admin(bot, chat_id)
+    bot.api.send_message(chat_id: chat_id, text: "❌ Questo comando è riservato al creatore del bot.")
+  end
 
   def self.handle_plus_in_private(bot, msg, context, gruppo_id, target_topic_id, nome_gruppo)
     raw = msg.text[1..].to_s.strip
@@ -190,6 +612,20 @@ class MessageHandler
     config = config_row ? JSON.parse(config_row["value"]) : nil
 
     gruppo = GroupManager.get_gruppo_by_chat_id(context.chat_id)
+
+    # --- AUTO-AGGANCIAMENTO ---
+    if gruppo.nil?
+      puts "📡 Gruppo non trovato nel nuovo DB. Registro chat_id: #{context.chat_id}"
+      # Registra il gruppo usando i dati del messaggio corrente
+      DB.execute(
+        "INSERT OR IGNORE INTO gruppi (nome, chat_id, creato_da) VALUES (?, ?, ?)",
+        [msg.chat.title, context.chat_id, msg.from.id]
+      )
+      # Riprova il recupero dopo l'inserimento
+      gruppo = GroupManager.get_gruppo_by_chat_id(context.chat_id)
+    end
+    # --------------------------
+
     TopicManager.update_from_msg(msg)
     # estrai sempre user_id e topic_id all'inizio del metodo
     user_id = msg.from&.id
@@ -278,11 +714,6 @@ class MessageHandler
       chat_id: context.chat_id,
       text: "👋 Bot avviato",
     )
-  end
-
-  def self.handle_newgroup(bot, context)
-    # TODO: spostare in GroupManager
-    raise NotImplementedError, "handle_newgroup da implementare"
   end
 
   def self.process_add_items(bot:, text:, context:, gruppo:, msg:)

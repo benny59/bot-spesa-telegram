@@ -115,7 +115,8 @@ SQL
       nome TEXT NOT NULL,
       codice TEXT NOT NULL,
       immagine_path TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      formato TEXT DEFAULT 'code128'
     );
   SQL
 

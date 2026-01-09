@@ -14,415 +14,183 @@ class CallbackHandler
   def self.route(bot, callback, context)
     Logger.debug("Callback ricevuto", data: callback.data)
     data = callback.data
-    # Nel metodo route(bot, callback)
     chat_id = callback.message.chat.id
-    user_id = callback.from.id # Assicurati che questa riga ci sia!
+    user_id = callback.from.id
 
     case data
+    when /^lista_page:(\d+):(\d+):(\d+)$/
+  gruppo_id = $1.to_i
+  nuova_pagina = $2.to_i
+  t_id = $3.to_i
+  
+  # Chiamiamo la generazione della lista passando la nuova pagina e il topic
+  KeyboardGenerator.genera_lista(
+    bot, 
+    chat_id, 
+    gruppo_id, 
+    user_id, 
+    callback.message.message_id, 
+    nuova_pagina, 
+    t_id
+  )
+  # Rispondiamo al callback per togliere lo spinner
+  bot.api.answer_callback_query(callback_query_id: callback.id)
+    # --- INIZIO BLOCCO FOTO CORRETTO ---
+    when /^view_foto:(\d+):(\d+)(?::(\d+))?$/
+      t_id = $3&.to_i || 0
+      puts "📸 [DEBUG] Eseguo handle_view_foto per item #{$1} nel topic #{t_id}"
+      handle_view_foto(bot, callback, chat_id, $1.to_i, $2.to_i, t_id)
+    when /^cancel_foto:(\d+):(\d+)(?::(\d+))?$/
+      puts "🧹 [DEBUG] Eseguo handle_cancel_foto"
+      handle_cancel_foto(bot, callback, chat_id)
+    when /^(add_foto|replace_foto):(\d+):(\d+)(?::(\d+))?$/
+      t_id = $4&.to_i || 0
+      puts "📝 [DEBUG] Eseguo handle_add_replace_foto per item #{$2}"
+      handle_add_replace_foto(bot, callback, chat_id, $2.to_i, $3.to_i, t_id)
+    when /^foto_menu:(\d+):(\d+)(?::(\d+))?$/
+      t_id = $3&.to_i || 0
+      handle_foto_menu(bot, callback, chat_id, $1.to_i, $2.to_i, t_id)
+    when /^remove_foto:(\d+):(\d+)(?::(\d+))?$/
+      handle_remove_foto(bot, callback, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+      # --- FINE BLOCCO FOTO ---
+
     when "close_barcode"
-      # Rispondi subito per togliere lo spinner
       begin
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Chiuso", show_alert: false)
-      rescue => _
-      end
-
-      # Proviamo a cancellare il messaggio che ha il bottone (callback.message dovrebbe essere il messaggio con la foto)
-      begin
         bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id)
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        # Se non può cancellare (es. message not found o permessi), proviamo a modificare il testo del messaggio
-        if e.message&.include?("message to delete not found") || e.message&.include?("message to edit not found")
-          # Se il delete fallisce perché non trovato, semplicemente rispondiamo (già fatto sopra)
-          Logger.warn("close_barcode: message not found or cannot be deleted", error: e.message) rescue nil
-        else
-          begin
-            bot.api.edit_message_text(
-              chat_id: callback.message.chat.id,
-              message_id: callback.message.message_id,
-              text: "✅ Schermata chiusa.",
-            )
-          rescue => e2
-            Logger.warn("close_barcode: edit_message_text fallito", error: e2.message) rescue nil
-            # fallback: niente altro da fare
-          end
-        end
       rescue => e
-        Logger.warn("close_barcode: errore generico", error: e.message) rescue nil
+        Logger.warn("close_barcode error", error: e.message) rescue nil
       end
-    when /^carte_gruppo_add:(\d+):(\d+)$/,
-         /^carte_gruppo_remove:(\d+):(\d+)$/,
-         /^carte_gruppo_add_finish:(\d+)$/,
-         /^carte_chiudi:(-?\d+):(\d+)$/
-      Logger.debug("Dispatch carte_gruppo -> CarteFedeltaGruppo (route)", data: data, from: callback.from&.id, chat_of_button: callback.message&.chat&.id, msg_id: callback.message&.message_id, thread: callback.message&.message_thread_id)
+    when /^carte_gruppo_add:(\d+):(\d+)$/, /^carte_gruppo_remove:(\d+):(\d+)$/, /^carte_gruppo_add_finish:(\d+)$/, /^carte_chiudi:(-?\d+):(\d+)$/
       CarteFedeltaGruppo.handle_callback(bot, callback)
     when /^carte:(\d+):(\d+)$/, "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
-      # dispatch alle carte personali (DM)
-      require_relative "../utils/logger" unless defined?(Logger)
-      Logger.debug("Dispatch carte callbacks (route) -> CarteFedelta", data: data, from: callback.from&.id)
-      begin
-        CarteFedelta.handle_callback(bot, callback)
-      rescue => e
-        Logger.error("Errore durante CarteFedelta.handle_callback (route)", error: e.message)
-        # rispondiamo comunque alla callback per togliere lo spinner
-        begin
-          bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
-        rescue => _
-        end
-      end
+      CarteFedelta.handle_callback(bot, callback)
     when /^mostra_carte:(\d+)(?::(\d+))?$/
-      gruppo_id = $1.to_i
-      topic_id = $2.to_i || 0
-      chat_id = callback.message.chat.id
-      user_id = callback.from.id
-
-      Logger.info("Mostra carte gruppo", gruppo_id: gruppo_id, chat_id: chat_id, user_id: user_id, topic_id: topic_id)
-      # Chiamo con ordine esplicito (gruppo_id, chat_id, user_id, topic_id)
-      CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id)
-
-      # Correzione Regex per i toggle (rendiamo lo user_id opzionale o obbligatorio nel match)
-    when /^checklist_toggle:[^:]+:\d+:\d*:\d+$/ # Nota \d* per lo user_id che potrebbe essere vuoto
+      CarteFedeltaGruppo.show_group_cards(bot, $1.to_i, chat_id, user_id, ($2 || 0).to_i)
+    when /^checklist_toggle:[^:]+:\d+:\d*:\d+$/
       handled = StoricoManager.gestisci_toggle_checklist(bot, callback, data)
       bot.api.answer_callback_query(callback_query_id: callback.id) unless handled
     when /^checklist_confirm:\d+:\d*:\d+$/
       handled = StoricoManager.gestisci_conferma_checklist(bot, callback, data)
       bot.api.answer_callback_query(callback_query_id: callback.id) unless handled
-    when /^checklist_add:[^:]+:\d+:\d+$/ # Delegato a StoricoManager
-      handled = StoricoManager.gestisci_click_checklist(bot, callback, data)
-      unless handled
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore nell'aggiunta")
-      end
     when /^checklist_close:(-?\d+):(\d+)$/
       StoricoManager.gestisci_chiusura_checklist(bot, callback, data)
     when /^show_checklist:(\d+):(\d+)$/
-      gruppo_id = $1.to_i
-      topic_id = $2.to_i
-      handle_show_checklist(bot, callback, chat_id, user_id, gruppo_id, topic_id)
+      handle_show_checklist(bot, callback, chat_id, user_id, $1.to_i, $2.to_i)
     when /^show_storico:(\d+):(\d+)$/
-      gruppo_id = $1.to_i
-      topic_id = $2.to_i
-
-      acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id)
+      gruppo_id, t_id = $1.to_i, $2.to_i
+      acquisti = StoricoManager.ultimi_acquisti(gruppo_id, t_id)
       testo = StoricoManager.formatta_storico(acquisti)
-
-      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
-        inline_keyboard: [
-          [
-            Telegram::Bot::Types::InlineKeyboardButton.new(
-              text: "❌ Chiudi",
-              callback_data: "ui_close:#{context.chat_id}:#{context.topic_id}",
-            ),
-          ],
-        ],
-      )
-
-      bot.api.send_message(
-        chat_id: context.chat_id,
-        message_thread_id: context.topic_id,
-        text: testo,
-        parse_mode: "Markdown",
-        reply_markup: keyboard,
-      )
-
+      keyboard = KeyboardGenerator.ui_close_keyboard(chat_id, t_id) # Usa il generatore se esiste, o InlineKeyboardMarkup
+      bot.api.send_message(chat_id: chat_id, text: testo, parse_mode: "Markdown", message_thread_id: t_id, reply_markup: keyboard)
       bot.api.answer_callback_query(callback_query_id: callback.id)
     when /^comprato:(\d+):(\d+)(?::(\d+))?$/
-      handle_comprato(bot, callback, context.chat_id, context.user_id, $1.to_i, $2.to_i, ($3 || context.topic_id).to_i || 0)
+      handle_comprato(bot, callback, chat_id, user_id, $1.to_i, $2.to_i, ($3 || context.topic_id).to_i)
     when /^cancella:(\d+):(\d+)(?::(\d+))?$/
-      handle_cancella(bot, callback, context.chat_id, context.user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+      handle_cancella(bot, callback, chat_id, user_id, $1.to_i, $2.to_i, ($3 || 0).to_i)
     when /^info:(\d+):(\d+)(?::(\d+))?$/
-      handle_info(bot, callback, $1.to_i, $2.to_i, $3&.to_i || 0)
-    when /^foto_menu:(\d+):(\d+)(?::(\d+))?$/
-      handle_foto_menu(bot, callback, context.chat_id, $1.to_i, $2.to_i, $3&.to_i || 0)
-    when /^(add_foto|replace_foto):(\d+):(\d+)(?::(\d+))?$/
-      handle_add_replace_foto(bot, callback, context.chat_id, $2.to_i, $3.to_i, $4&.to_i || 0)
-    when /^remove_foto:(\d+):(\d+)(?::(\d+))?$/
-      handle_remove_foto(bot, callback, context.chat_id, context.user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
-    when /^toggle_view_mode:(\d+)(?::(\d+))?$/
-      handle_toggle_view_mode(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
-    when /^cancella_tutti:(\d+)(?::(\d+))?$/
-      handle_cancella_tutti(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
-    when /^mostra_carte:(\d+)(?::(\d+))?$/
-      CarteFedeltaGruppo.show_group_cards(bot, $1.to_i, context.chat_id, context.user_id, context.topic_id)
-    when /^aggiungi:(\d+)(?::(\d+))?$/
-      handle_aggiungi(bot, callback, context.chat_id, $1.to_i, $2&.to_i || 0)
-    when /^checklist_close:(-?\d+):(\d+)$/
-      StoricoManager.gestisci_chiusura_checklist(bot, callback, data)
+      handle_info(bot, callback, $1.to_i, $2.to_i, ($3 || 0).to_i)
     when /^ui_close:(-?\d+):(\d+)$/
       gestisci_chiusura_ui(bot, callback, data)
     when "switch_to_group"
-      begin
-        user_id = context.user_id # o msg.from.id
-        key = "context:#{user_id}"
-
-        # ✅ RIMOZIONE RECORD DAL DB
-        DB.execute("DELETE FROM config WHERE key = ?", [key])
-        puts "🧹 [Config] Contesto rimosso dal DB per #{key}"
-
-        # ✅ AGGIORNAMENTO ISTANTANEO TASTIERA
-        # Il check ✅ si sposterà ora sul tasto "Modalità Gruppo"
-        Context.show_group_selector(bot, user_id, callback.message.message_id)
-
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "Modalità Gruppo ripristinata")
-      rescue => e
-        puts "❌ ERRORE SWITCH: #{e.message}"
-      end
+      DB.execute("DELETE FROM config WHERE key = ?", ["context:#{user_id}"])
+      Context.show_group_selector(bot, user_id, callback.message.message_id)
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "Modalità Gruppo ripristinata")
     when /^private_set:(-?\d+):(-?\d+):(\d+)$/
-      # LOG DI ENTRATA
-      puts "DEBUG CALLBACK: Ricevuta richiesta private_set"
-      puts "DEBUG DATA: #{data}"
-
-      db_id = $1.to_i
-      chat_id = $2.to_i
-      topic_id = $3.to_i
-
-      puts "DEBUG PARSED: db_id=#{db_id}, chat_id=#{chat_id}, topic_id=#{topic_id}"
-
-      begin
-        # Recupera nome topic
-        t_row = DB.get_first_row("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [chat_id, topic_id])
-        t_name = t_row ? t_row["nome"] : (topic_id == 0 ? "Generale" : "Topic #{topic_id}")
-        puts "DEBUG TOPIC NAME: #{t_name}"
-
-        config_value = {
-          db_id: db_id,
-          chat_id: chat_id,
-          topic_id: topic_id,
-          topic_name: t_name,
-        }.to_json
-
-        # SALVATAGGIO
-        key = "context:#{context.user_id}"
-        DB.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", [key, config_value])
-
-        # ✅ AGGIORNAMENTO ISTANTANEO TASTIERA
-        # Sposta il check sul gruppo appena cliccato
-        Context.show_group_selector(bot, context.user_id, callback.message.message_id)
-
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ **Modalità privata attiva**Target: #{t_name}")
-
-        #       bot.api.send_message(
-        #         chat_id: context.user_id,
-        #         text: "✅ **Modalità privata attiva**\nTarget: #{t_name}",
-        #         parse_mode: "Markdown",
-        #       )
-      rescue => e
-        puts "❌ ERRORE CALLBACK: #{e.message}"
-        puts e.backtrace.first(3)
-      end
+      db_id, c_id, t_id = $1.to_i, $2.to_i, $3.to_i
+      t_row = DB.get_first_row("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [c_id, t_id])
+      t_name = t_row ? t_row["nome"] : (t_id == 0 ? "Generale" : "Topic #{t_id}")
+      config_value = { db_id: db_id, chat_id: c_id, topic_id: t_id, topic_name: t_name }.to_json
+      DB.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", ["context:#{user_id}", config_value])
+      Context.show_group_selector(bot, user_id, callback.message.message_id)
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Modalità privata attiva")
     else
-      # callback ignota → log silenzioso
+      puts "❓ Callback non gestita: #{data}"
+      bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
     end
   end
 
   def self.handle(bot, msg)
+    # msg è l'oggetto CallbackQuery di Telegram
     chat_id = msg.message.respond_to?(:chat) ? msg.message.chat.id : msg.from.id
     user_id = msg.from.id
     topic_id = msg.message.message_thread_id || 0
-    puts "🧵 CALLBACK topic_id=#{topic_id}"
-
     data = msg.data.to_s
-    puts "🖱 Callback: #{data} - User: #{user_id} - Chat: #{chat_id}"
+
+    puts "🧵 CALLBACK topic_id=#{topic_id} | Data: #{data}"
 
     case data
     when "noop"
       handle_noop(bot, msg)
-    when /^myitems_page:(\d+):(\d+)$/
-      target_user_id = $1.to_i
-      page = $2.to_i
 
-      msg = callback_query = msg  # già passato come msg
+      # --- GESTIONE FOTO: Rotte mancanti ---
+      # --- INIZIO BLOCCO FOTO ---
+    when /^view_foto:(\d+):(\d+)(?::(\d+))?$/
+      # $1: item_id, $2: gruppo_id, $3: topic_id
+      t_id = $3&.to_i || 0
+      puts "📸 [DEBUG] Eseguo handle_view_foto per item #{$1} nel topic #{t_id}"
+      handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i, t_id)
+    when /^cancel_foto:(\d+):(\d+)(?::(\d+))?$/
+      puts "🧹 [DEBUG] Eseguo handle_cancel_foto (chiusura sottomenu)"
+      handle_cancel_foto(bot, msg, chat_id)
+    when /^(add_foto|replace_foto):(\d+):(\d+)(?::(\d+))?$/
+      t_id = $4&.to_i || 0
+      puts "📝 [DEBUG] Eseguo handle_add_replace_foto per item #{$2}"
+      handle_add_replace_foto(bot, msg, chat_id, $2.to_i, $3.to_i, t_id)
+    when /^foto_menu:(\d+):(\d+)(?::(\d+))?$/
+      t_id = $3&.to_i || 0
+      handle_foto_menu(bot, msg, chat_id, $1.to_i, $2.to_i, t_id)
+    when /^remove_foto:(\d+):(\d+)(?::(\d+))?$/
+      handle_remove_foto(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+      # --- FINE BLOCCO FOTO ---
 
-      if target_user_id == user_id
-        MessageHandler.handle_myitems(
-          bot,
-          msg.message.chat.id,
-          user_id,
-          msg.message,
-          page
-        )
-      else
-        bot.api.answer_callback_query(
-          callback_query_id: msg.id,
-          text: "❌ Non puoi cambiare pagina",
-        )
-      end
-    when /^myitems_refresh:(\d+):(\d+)$/
-      target_user_id = $1.to_i
-      page = $2.to_i
+    when /^foto_menu:(\d+):(\d+)(?::(\d+))?$/
+      handle_foto_menu(bot, msg, chat_id, $1.to_i, $2.to_i, $3&.to_i || 0)
 
-      if target_user_id == user_id
-        # ✅ RISPOSTA IMMEDIATA
-        bot.api.answer_callback_query(
-          callback_query_id: msg.id,
-          text: "🔄 Aggiorno…",
-          show_alert: false,
-        )
-
-        MessageHandler.handle_myitems(
-          bot,
-          msg.message.chat.id,
-          user_id,
-          msg.message,
-          page
-        )
-      else
-        bot.api.answer_callback_query(
-          callback_query_id: msg.id,
-          text: "❌ Non puoi aggiornare questa lista",
-          show_alert: false,
-        )
-      end
-
-      # 🔥 MODIFICA: Aggiungi topic_id opzionale a tutti i callback pattern
-    when /^lista_page:(\d+):(\d+)(?::(\d+))?$/
-      handle_lista_page(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
+      # --- LISTA E ARTICOLI ---
     when /^comprato:(\d+):(\d+)(?::(\d+))?$/
       handle_comprato(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
     when /^cancella:(\d+):(\d+)(?::(\d+))?$/
       handle_cancella(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
-    when /^cancella_tutti:(\d+)(?::(\d+))?$/
-      handle_cancella_tutti(bot, msg, chat_id, user_id, $1.to_i, $2&.to_i || 0)
-    when /^azioni_menu:(\d+):(\d+)(?::(\d+))?$/
-      handle_azioni_menu(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
-    when /^cancel_azioni:(\d+):(\d+)(?::(\d+))?$/
-      handle_cancel_azioni(bot, msg, chat_id)
-    when /^view_foto:(\d+):(\d+)(?::(\d+))?$/
-      handle_view_foto(bot, msg, chat_id, $1.to_i, $2.to_i, $3&.to_i || 0)
-    when /^mostra_carte:(\d+)(?::(\d+))?$/
-      gruppo_id = $1.to_i
-      CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id)
-    when /^carte:(\d+):(\d+)$/
-      Logger.debug("DEBUG WRAPPER: chiamo CarteFedelta.handle_callback", data: callback.data, from: callback.from.id)
-      begin
-        CarteFedelta.handle_callback(bot, callback)
-        Logger.debug("DEBUG WRAPPER: rientrato da CarteFedelta.handle_callback", data: callback.data)
-      rescue => e
-        Logger.error("DEBUG WRAPPER: errore in CarteFedelta.handle_callback", error: e.message, backtrace: e.backtrace.first(10))
-        begin
-          bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
-        rescue => _
-        end
-      end
-    when "carte_delete", /^carte_confirm_delete:(\d+)$/, "carte_back"
-      Logger.debug("DEBUG WRAPPER: chiamo CarteFedelta.handle_callback", data: callback.data, from: callback.from.id)
-      begin
-        CarteFedelta.handle_callback(bot, callback)
-        Logger.debug("DEBUG WRAPPER: rientrato da CarteFedelta.handle_callback", data: callback.data)
-      rescue => e
-        Logger.error("DEBUG WRAPPER: errore in CarteFedelta.handle_callback", error: e.message, backtrace: e.backtrace.first(10))
-        begin
-          bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Errore interno")
-        rescue => _
-        end
-      end
-    when "close_barcode"
-      begin
-        # Prova a cancellare il messaggio
-        bot.api.delete_message(chat_id: msg.message.chat.id, message_id: msg.message.message_id)
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        if e.message.include?("message to delete not found") || e.message.include?("message to edit not found")
-          # Se non può cancellare (es. in gruppi), rispondi con un messaggio temporaneo
-          bot.api.answer_callback_query(
-            callback_query_id: msg.id,
-            text: "✅ Chiuso",
-            show_alert: false,
-          )
-        else
-          # Per altri errori, prova a modificare il messaggio
-          begin
-            bot.api.edit_message_text(
-              chat_id: msg.message.chat.id,
-              message_id: msg.message.message_id,
-              text: "✅ Schermata chiusa.",
-            )
-          rescue Telegram::Bot::Exceptions::ResponseError
-            # Se anche la modifica fallisce, rispondi semplicemente alla callback
-            bot.api.answer_callback_query(
-              callback_query_id: msg.id,
-              text: "✅ Chiuso",
-            )
-          end
-        end
-      end
-    when "carte_cancel_delete"
-      # Cancella il messaggio con la tastiera
-      begin
-        bot.api.delete_message(chat_id: msg.from.id, message_id: msg.message.message_id)
-      rescue Telegram::Bot::Exceptions::ResponseError
-        # Se non può cancellare, modifica il messaggio
-        bot.api.edit_message_text(
-          chat_id: msg.from.id,
-          message_id: msg.message.message_id,
-          text: "❌ Operazione annullata.",
-        )
-      end
-      # 🔥 AGGIUNTA COMPLETA: Tutte le callback per le carte gruppo
-    when /^carte_gruppo_delete:(\d+):(\d+)$/,
-         /^carte_gruppo_confirm_delete:(\d+):(\d+)$/,
-         /^carte_gruppo_back:(\d+)$/,
-         /^carte_gruppo_add:(\d+):(\d+)$/,
-         /^carte_gruppo_remove:(\d+):(\d+)$/,
-         /^carte_gruppo_add_finish:(\d+)$/,
-         /^carte_chiudi:(-?\d+):(\d+)$/
-      CarteFedeltaGruppo.handle_callback(bot, msg)
-    when /^carte_gruppo:(\d+):(\d+)(?::(\d+))?$/
-      gruppo_id, carta_id = $1.to_i, $2.to_i
-      topic_id = $3&.to_i || 0  # 🔥 Estrai topic_id
-      CarteFedeltaGruppo.handle_callback(bot, msg)  # Questo passa alla classe corretta
-    when /^approve_user:(\d+):([^:]*):(.+)$/
-      handle_approve_user(bot, msg, chat_id, $1.to_i, $2, $3)
-    when /^reject_user:(\d+)$/
-      handle_reject_user(bot, msg, chat_id, $1.to_i)
-    when /^show_list:(\d+)(?::(\d+))?$/
-      handle_show_list(bot, msg, chat_id, user_id, $1.to_i, $2&.to_i || 0)
-      # 🔥 MODIFICA: Aggiungi topic_id opzionale
-
-    when /^show_storico:(\d+):(\d+)$/
-      gruppo_id = $1.to_i
-      topic_id = $2.to_i
-
-      acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id)
-      testo = StoricoManager.formatta_storico(acquisti)
-
-      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
-        inline_keyboard: [
-          [
-            Telegram::Bot::Types::InlineKeyboardButton.new(
-              text: "❌ Chiudi",
-              callback_data: "ui_close:#{chat_id}:#{topic_id}",
-            ),
-          ],
-        ],
-      )
-
-      bot.api.send_message(
-        chat_id: msg.message.chat.id,
-        message_thread_id: topic_id,
-        text: testo,
-        parse_mode: "Markdown",
-        reply_markup: keyboard,
-      )
-
-      bot.api.answer_callback_query(callback_query_id: msg.id)
-    when /^ui_close:(-?\d+):(\d+)$/
-      gestisci_chiusura_ui(bot, msg, data)
-    when /^(add_foto|replace_foto):(\d+):(\d+)(?::(\d+))?$/
-      handle_add_replace_foto(bot, msg, chat_id, $2.to_i, $3.to_i, $4&.to_i || 0)
-    when /^remove_foto:(\d+):(\d+)(?::(\d+))?$/
-      handle_remove_foto(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
-    when /^foto_menu:(\d+):(\d+)(?::(\d+))?$/
-      handle_foto_menu(bot, msg, chat_id, $1.to_i, $2.to_i, $3&.to_i || 0)
-    when /^toggle:(\d+):(\d+)(?::(\d+))?$/
-      handle_toggle(bot, msg, $1.to_i, $2.to_i, $3&.to_i || 0)
-      # 🔥 MODIFICA: Aggiungi topic_id opzionale
-    when /^toggle_view_mode:(\d+)(?::(\d+))?$/
-      handle_toggle_view_mode(bot, msg, chat_id, user_id, $1.to_i, $2&.to_i || 0)
-      # 🔥 MODIFICA: Aggiungi topic_id opzionale
+    when /^lista_page:(\d+):(\d+)(?::(\d+))?$/
+      handle_lista_page(bot, msg, chat_id, user_id, $1.to_i, $2.to_i, $3&.to_i || 0)
     when /^aggiungi:(\d+)(?::(\d+))?$/
       handle_aggiungi(bot, msg, chat_id, $1.to_i, $2&.to_i || 0)
-    when /^cancel_foto:(\d+):(\d+)(?::(\d+))?$/
-      handle_cancel_foto(bot, msg, chat_id)
+    when /^toggle:(\d+):(\d+)(?::(\d+))?$/
+      handle_toggle(bot, msg, $1.to_i, $2.to_i, $3&.to_i || 0)
     when /^info:(\d+):(\d+)(?::(\d+))?$/
       handle_info(bot, msg, $1.to_i, $2.to_i, $3&.to_i || 0)
+
+      # --- UI E CHIUSURA ---
+    when /^ui_close:(-?\d+):(\d+)$/
+      gestisci_chiusura_ui(bot, msg, data)
+    when /^checklist_close:(-?\d+):(\d+)$/
+      StoricoManager.gestisci_chiusura_checklist(bot, msg, data)
+
+      # --- CARTE FEDELTÀ ---
+    when /^mostra_carte:(\d+)(?::(\d+))?$/
+      CarteFedeltaGruppo.show_group_cards(bot, $1.to_i, chat_id, user_id, topic_id)
+    when "close_barcode", "carte_cancel_delete", /^carte:/, /^carte_gruppo/
+      # Deleghiamo tutto ai gestori specifici passando l'oggetto msg (callback)
+      if data.start_with?("carte_gruppo") || data.start_with?("carte_chiudi")
+        CarteFedeltaGruppo.handle_callback(bot, msg)
+      else
+        CarteFedelta.handle_callback(bot, msg)
+      end
+
+      # --- STORICO E ALTRO ---
+    when /^show_storico:(\d+):(\d+)$/
+      handle_show_storico(bot, msg, chat_id, $1.to_i, $2.to_i)
+    when /^myitems_(page|refresh):(\d+):(\d+)$/
+      # Unificata la gestione myitems
+      target_user_id = $2.to_i
+      page = $3.to_i
+      if target_user_id == user_id
+        bot.api.answer_callback_query(callback_query_id: msg.id, text: "Aggiorno...") if data.include?("refresh")
+        MessageHandler.handle_myitems(bot, chat_id, user_id, msg.message, page)
+      else
+        bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Azione non permessa")
+      end
     else
       puts "❌ Callback non riconosciuto: #{data}"
     end
@@ -581,21 +349,51 @@ class CallbackHandler
     bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
   end
 
-  def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
-    immagine = Lista.get_immagine(item_id)
-    item = Lista.trova(item_id)
+def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
+    puts "🔍 [VIEW_FOTO] Richiesta per Item: #{item_id} | Chat: #{chat_id} | Topic: #{topic_id}"
 
-    if immagine && item && immagine["file_id"]
-      caption = "📸 Foto associata all'articolo: \"#{item["nome"]}\""
-      bot.api.send_photo(chat_id: chat_id, photo: immagine["file_id"], caption: caption)
+    # Cerchiamo l'immagine e il nome dell'item
+    immagine = DB.get_first_row("SELECT file_id FROM item_images WHERE item_id = ?", [item_id])
+    item = DB.get_first_row("SELECT nome FROM items WHERE id = ?", [item_id])
 
-      # RISPOSTA ALLA CALLBACK PER CHIUDERE L'INDICATORE DI CARICAMENTO
-      bot.api.answer_callback_query(callback_query_id: msg.id, text: "Foto visualizzata")
+    if immagine && immagine["file_id"]
+      puts "✅ [VIEW_FOTO] Trovata immagine: #{immagine["file_id"][0..15]}..."
+
+      # Chiude lo spinner del bottone
+      bot.api.answer_callback_query(callback_query_id: msg.id, text: "Caricamento foto...")
+
+      # Invia la foto al topic giusto
+      bot.api.send_photo(
+        chat_id: chat_id,
+        photo: immagine["file_id"],
+        caption: "📸 Foto per: *#{item ? item["nome"] : "Articolo"}*",
+        parse_mode: "Markdown",
+        message_thread_id: (chat_id < 0 && topic_id != 0) ? topic_id : nil
+      )
+
+      # ✅ Eliminazione automatica del sottomenu (msg.message_id) dopo aver inviato la foto
+      begin
+        bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
+        puts "🧹 [VIEW_FOTO] Sottomenu eliminato correttamente"
+      rescue => e
+        puts "⚠️ [VIEW_FOTO] Errore pulizia menu: #{e.message}"
+      end
+
     else
-      bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Nessuna foto trovata")
+      puts "❌ [VIEW_FOTO] Nessuna immagine nel DB per item #{item_id}"
+      bot.api.answer_callback_query(
+        callback_query_id: msg.id,
+        text: "⚠️ Nessuna foto trovata",
+        show_alert: true,
+      )
     end
+  rescue => e
+    puts "🔥 [VIEW_FOTO] ERRORE: #{e.message}"
+    puts e.backtrace.first(3)
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore visualizzazione")
   end
-
+  
+  
   def self.handle_approve_user(bot, msg, chat_id, user_id, username, full_name)
     # ✅ Aggiungi l'utente alla whitelist
     Whitelist.add_user(user_id, username, full_name.gsub("_", " "))
@@ -645,10 +443,13 @@ class CallbackHandler
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, nil, 0, topic_id)
   end
 
-  def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
-    user_id = msg.from.id  # AGGIUNTA: Ottieni l'user_id dal messaggio
+def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
+    user_id = msg.from.id
     user_name = msg.from.first_name
 
+    puts "📝 [CALLBACK] Imposto pending_action per item #{item_id} nel topic #{topic_id}"
+
+    # Salva l'azione nel database
     DB.execute(
       "INSERT OR REPLACE INTO pending_actions (chat_id, action, gruppo_id, item_id, initiator_id, topic_id, creato_il) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
       [
@@ -657,88 +458,103 @@ class CallbackHandler
         gruppo_id,
         item_id,
         user_id,
-        topic_id,  # 🔥 MODIFICA: Aggiungi topic_id
+        topic_id,
       ]
     )
 
+    # Risponde al callback per togliere lo spinner dal bottone
     bot.api.answer_callback_query(callback_query_id: msg.id)
+
+    # ✅ ELIMINAZIONE SOTTOMENU: Pulizia della chat prima di inviare l'istruzione
+    begin
+      bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
+      puts "🧹 [REPLACE_FOTO] Sottomenu ID #{msg.message.message_id} eliminato"
+    rescue => e
+      puts "⚠️ [REPLACE_FOTO] Errore pulizia menu: #{e.message}"
+    end
+
+    # Invia l'istruzione nel topic corretto
     bot.api.send_message(
       chat_id: chat_id,
       text: "📸 Inviami la foto che vuoi associare a questo articolo...",
-    )
+message_thread_id: (chat_id < 0 && topic_id != 0) ? topic_id : nil    )
   end
-
-  def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+  
+  
+def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+    # 1. Rimuoviamo l'immagine dal DB
     Lista.rimuovi_immagine(item_id)
+    puts "🗑️ [DB] Record rimosso per item #{item_id}"
 
-    bot.api.answer_callback_query(
-      callback_query_id: msg.id,
-      text: "✅ Foto rimossa",
-    )
-    # 🔥 MODIFICA: Passa topic_id
-    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
+    # 2. Verifica di sicurezza: contiamo quante foto restano per quell'item
+    # (Dovrebbe essere 0, questo serve a forzare il refresh della lettura DB)
+    check = DB.get_first_value("SELECT COUNT(*) FROM item_images WHERE item_id = ?", [item_id])
+    puts "📊 [CHECK] Foto residue per item #{item_id}: #{check}"
+
+    # 3. Rispondiamo al callback
+    bot.api.answer_callback_query(callback_query_id: msg.id, text: "✅ Foto rimossa")
+
+    # 4. Eliminiamo il sottomenu (fondamentale per pulizia)
+    begin
+      bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
+    rescue => e
+      puts "⚠️ [REMOVE] Errore delete menu: #{e.message}"
+    end
+
+    # 5. AGGIORNAMENTO LISTA: 
+    # Usiamo un ID messaggio specifico per la lista principale se lo abbiamo, 
+    # altrimenti KeyboardGenerator userà quello del messaggio corrente.
+    # IMPORTANTE: KeyboardGenerator deve ricalcolare le icone 📸 basandosi sul DB aggiornato.
+    KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, nil, 0, topic_id)
   end
-
-  def self.handle_foto_menu(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
+  
+   
+  def self.handle_foto_menu(bot, callback, chat_id, item_id, gruppo_id, topic_id = 0)
     has_image = Lista.ha_immagine?(item_id)
 
-    if has_image
-      buttons = [
+# Calcoliamo il thread corretto: 
+  # Se la chat_id è > 0 (privata), il thread DEVE essere nil
+  thread_corretto = chat_id < 0 ? (topic_id != 0 ? topic_id : nil) : nil
+  
+
+    buttons = if has_image
         [
-          Telegram::Bot::Types::InlineKeyboardButton.new(
+          [Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "👁️ Visualizza foto",
-            # 🔥 MODIFICA: Aggiungi topic_id
             callback_data: "view_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
-          ),
-        ],
-        [
-          Telegram::Bot::Types::InlineKeyboardButton.new(
+          )],
+          [Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "🔄 Sostituisci foto",
-            # 🔥 MODIFICA: Aggiungi topic_id
             callback_data: "replace_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
-          ),
-        ],
-        [
-          Telegram::Bot::Types::InlineKeyboardButton.new(
+          )],
+          [Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "🗑️ Rimuovi foto",
-            # 🔥 MODIFICA: Aggiungi topic_id
             callback_data: "remove_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
-          ),
-        ],
-        [
-          Telegram::Bot::Types::InlineKeyboardButton.new(
+          )],
+          [Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "❌ Annulla",
-            # 🔥 MODIFICA: Aggiungi topic_id
             callback_data: "cancel_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
-          ),
-        ],
-      ]
-    else
-      buttons = [
+          )],
+        ]
+      else
         [
-          Telegram::Bot::Types::InlineKeyboardButton.new(
+          [Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "📷 Aggiungi foto",
-            # 🔥 MODIFICA: Aggiungi topic_id
             callback_data: "add_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
-          ),
-        ],
-        [
-          Telegram::Bot::Types::InlineKeyboardButton.new(
+          )],
+          [Telegram::Bot::Types::InlineKeyboardButton.new(
             text: "❌ Annulla",
-            # 🔥 MODIFICA: Aggiungi topic_id
             callback_data: "cancel_foto:#{item_id}:#{gruppo_id}:#{topic_id}",
-          ),
-        ],
-      ]
-    end
+          )],
+        ]
+      end
 
     markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: buttons)
 
-    bot.api.answer_callback_query(callback_query_id: msg.id)
     bot.api.send_message(
       chat_id: chat_id,
-      text: "📸 *Gestione foto per l'articolo*",
-      parse_mode: "Markdown",
+message_thread_id: thread_corretto, # <-- Qui la correzione
+      text: "📸 Gestione foto per l'articolo",
       reply_markup: markup,
     )
   end
@@ -871,9 +687,28 @@ class CallbackHandler
     end
   end
 
-  def self.handle_cancel_foto(bot, msg, chat_id)
-    bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Operazione annullata")
-    bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
+  def self.handle_cancel_foto(bot, callback, chat_id)
+    # 1. Recuperiamo i dati del messaggio che contiene il bottone "Annulla"
+    msg_id_da_eliminare = callback.message.message_id
+
+    puts "🧹 [DEBUG CANCEL] Il bottone cliccato appartiene al messaggio ID: #{msg_id_da_eliminare}"
+
+    # 2. Chiudiamo l'orologio (spinner) su Telegram
+    bot.api.answer_callback_query(callback_query_id: callback.id)
+
+    begin
+      # 3. Eliminiamo ESATTAMENTE quel messaggio
+      bot.api.delete_message(chat_id: chat_id, message_id: msg_id_da_eliminare)
+      puts "🗑️ [DEBUG CANCEL] Eliminazione completata per ID: #{msg_id_da_eliminare}"
+    rescue => e
+      puts "⚠️ [DEBUG CANCEL] Errore delete: #{e.message}. Provo a editare..."
+      # Se non può eliminare, lo "svuota" (fallback)
+      bot.api.edit_message_text(
+        chat_id: chat_id,
+        message_id: msg_id_da_eliminare,
+        text: "❌ Menu chiuso.",
+      )
+    end
   end
 
   def self.handle_info(bot, msg, item_id, gruppo_id, topic_id = 0)

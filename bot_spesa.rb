@@ -12,7 +12,21 @@ env = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") |
 token_key = env == "development" ? "token_dev" : "token"
 token = DB.get_first_value("SELECT value FROM config WHERE key = ?", token_key)
 
-abort("❌ Token Telegram non trovato in config (#{token_key})") unless token
+# Se il token non è nel DB, lo chiediamo all'utente
+if token.nil? || token.strip.empty?
+  puts "⚠️  [CONFIG] Token Telegram non trovato nel database (#{token_key})"
+  print "👉 Inserisci il token per l'ambiente #{env}: "
+  token = gets.chomp.strip
+
+  if token.empty?
+    puts "❌ Nessun token inserito. Arresto del bot."
+    exit
+  end
+
+  # Salviamo il token nel DB per i prossimi riavvii
+  DB.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", [token_key, token])
+  puts "✅ Token salvato correttamente nel database."
+end
 
 puts "🤖 Avvio bot in ambiente: #{env}"
 
