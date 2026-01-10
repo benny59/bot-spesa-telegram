@@ -341,48 +341,48 @@ def self.handle_photo_message(bot, msg, chat_id, user_id)
     end
   end
    
- def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
-  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
-    inline_keyboard: [[
-      Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "🛒 MOSTRA LISTA AGGIORNATA", 
-        callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}"
-      )
-    ]]
-  )
-
+def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
   thread_id = (topic_id.to_i > 0) ? topic_id.to_i : nil
 
+  # Tastiera con icone distanziate per facilitare il click
+  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+    inline_keyboard: [
+      [
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "   🛒   ", 
+          callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}"
+        ),
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "   ➕   ", 
+          callback_data: "aggiungi:#{gruppo_id}:#{topic_id}"
+        )
+      ]
+    ]
+  )
+
   begin
+    # Testo minimale per il messaggio fissato
     res = bot.api.send_message(
       chat_id: chat_id,
       message_thread_id: thread_id,
-      text: "📌 **Punto di Accesso Rapido**\nUsa il tasto qui sotto per richiamare la lista spesa aggiornata.",
+      text: "🛒: Mostra Lista | ➕: Aggiungi Prodotto",
       reply_markup: keyboard,
       parse_mode: "Markdown"
     )
 
     msg_id = res["result"]["message_id"] rescue res.message_id
     
-    begin
-      bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
-      puts "✅ [SETUP_PIN] Messaggio fissato nel topic #{topic_id}"
-    rescue Telegram::Bot::Exceptions::ResponseError => e
-      if e.message.include?("not enough rights")
-        # Avvisa l'utente nel topic se il bot non è admin
-        bot.api.send_message(
-          chat_id: chat_id,
-          message_thread_id: thread_id,
-          text: "⚠️ **Attenzione**: Il messaggio è stato inviato ma non ho i permessi per fissarlo in alto. Aggiungimi come Amministratore con permesso di 'Fissare messaggi'."
-        )
-      end
-      puts "❌ Errore Pin: #{e.message}"
-    end
+    # Rimuoviamo eventuali pin precedenti per non fare confusione
+    # bot.api.unpin_all_chat_messages(chat_id: chat_id) # Opzionale
+
+    bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
+    puts "✅ [SETUP_PIN] Hub Icone fissato nel topic #{topic_id}"
+    
   rescue => e
-    puts "❌ Errore Invio: #{e.message}"
+    puts "❌ Errore Setup Pin: #{e.message}"
   end
 end
-  
+
 
   def self.handle_photo_with_caption(bot, msg, chat_id, user_id)
     caption = msg.caption.strip
