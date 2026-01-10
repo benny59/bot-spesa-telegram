@@ -55,25 +55,41 @@ class MessageHandler
     case msg.text
     
 when '/setup_pin'
-  # Recuperiamo la config dal context (già presente nel tuo log)
   config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
   config = config_row ? JSON.parse(config_row["value"]) : nil
 
-  if config && config["chat_id"]
-    target_chat_id = config["chat_id"]
-    target_gruppo_id = config["db_id"]
-    target_topic_id = config["topic_id"] || 0
+  if config
+    # 1. Aggiorna il PIN nel gruppo (messaggio con tasti inline)
+    self.setup_pinned_access(bot, config["chat_id"], config["db_id"], config["topic_id"])
 
-    puts "📍 [SETUP_PIN-PRIVATO] Reindirizzo a Gruppo:#{target_gruppo_id} Chat:#{target_chat_id} Topic:#{target_topic_id}"
+    # 2. Crea la tastiera FISSA per la chat privata
+    kb_fisso = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
+      keyboard: [
+        [{ text: "🛒 MOSTRA LISTA" }, { text: "➕ AGGIUNGI" }]
+      ],
+      resize_keyboard: true,
+      persistent: true # La rende sempre visibile nei client moderni
+    )
 
-    # Eseguiamo il setup sulla chat del gruppo, non sulla privata
-    self.setup_pinned_access(bot, target_chat_id, target_gruppo_id, target_topic_id)
-
-    bot.api.send_message(chat_id: user_id, text: "✅ Messaggio fissato nel gruppo/topic configurato!")
+    bot.api.send_message(
+      chat_id: user_id, 
+      text: "✅ **Modalità Privata Attiva**\nGruppo: #{config['topic_name']}\n\nUsa i tasti qui sotto invece di scrivere i comandi!",
+      reply_markup: kb_fisso,
+      parse_mode: "Markdown"
+    )
   else
-    bot.api.send_message(chat_id: user_id, text: "⚠️ Errore: Nessun gruppo attivo nel contesto. Vai nel gruppo e scrivi '?'")
+    bot.api.send_message(chat_id: user_id, text: "⚠️ Configurazione mancante. Vai nel gruppo e scrivi /private")
   end
+  
+  when /^🛒 LISTA/
+  # Recuperi il contesto e chiami genera_lista
+  config = get_user_context(user_id) # tuo metodo di utility
+  KeyboardGenerator.genera_lista_compatta(bot, user_id, config["db_id"], user_id, nil, 0, config["topic_id"])
 
+when "➕ AGGIUNGI PRODOTTO"
+  config = get_user_context(user_id)
+  handle_aggiungi(bot, message, user_id, config["db_id"], config["topic_id"])
+  
  
     when "/newgroup"
       handle_newgroup(bot, msg, chat_id, user_id)
@@ -341,47 +357,48 @@ def self.handle_photo_message(bot, msg, chat_id, user_id)
     end
   end
    
-def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
-  thread_id = (topic_id.to_i > 0) ? topic_id.to_i : nil
-
-  # Tastiera con icone distanziate per facilitare il click
+ def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
   keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
-    inline_keyboard: [
-      [
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "   🛒   ", 
-          callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}"
-        ),
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "   ➕   ", 
-          callback_data: "aggiungi:#{gruppo_id}:#{topic_id}"
-        )
-      ]
-    ]
+    inline_keyboard: [[
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "🛒 MOSTRA LISTA AGGIORNATA", 
+        callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}"
+      )
+    ]]
   )
 
+  thread_id = (topic_id.to_i > 0) ? topic_id.to_i : nil
+
   begin
-    # Testo minimale per il messaggio fissato
     res = bot.api.send_message(
       chat_id: chat_id,
       message_thread_id: thread_id,
-      text: "🛒: Mostra Lista | ➕: Aggiungi Prodotto",
+      text: "📌 **Punto di Accesso Rapido**\nUsa il tasto qui sotto per richiamare la lista spesa aggiornata.",
       reply_markup: keyboard,
       parse_mode: "Markdown"
     )
 
     msg_id = res["result"]["message_id"] rescue res.message_id
     
-    # Rimuoviamo eventuali pin precedenti per non fare confusione
-    # bot.api.unpin_all_chat_messages(chat_id: chat_id) # Opzionale
-
-    bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
-    puts "✅ [SETUP_PIN] Hub Icone fissato nel topic #{topic_id}"
-    
+    begin
+      bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
+      puts "✅ [SETUP_PIN] Messaggio fissato nel topic #{topic_id}"
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      if e.message.include?("not enough rights")
+        # Avvisa l'utente nel topic se il bot non è admin
+        bot.api.send_message(
+          chat_id: chat_id,
+          message_thread_id: thread_id,
+          text: "⚠️ **Attenzione**: Il messaggio è stato inviato ma non ho i permessi per fissarlo in alto. Aggiungimi come Amministratore con permesso di 'Fissare messaggi'."
+        )
+      end
+      puts "❌ Errore Pin: #{e.message}"
+    end
   rescue => e
-    puts "❌ Errore Setup Pin: #{e.message}"
+    puts "❌ Errore Invio: #{e.message}"
   end
 end
+
 
 
   def self.handle_photo_with_caption(bot, msg, chat_id, user_id)

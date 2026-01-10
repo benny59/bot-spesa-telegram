@@ -393,6 +393,21 @@ class KeyboardGenerator
     end
   end
 
+def self.tastiera_privata_persistente(gruppo_id, topic_id)
+  Telegram::Bot::Types::ReplyKeyboardMarkup.new(
+    keyboard: [
+      [
+        { text: "🛒 LISTA (Topic #{topic_id})" },
+        { text: "➕ AGGIUNGI PRODOTTO" }
+      ],
+      [ { text: "🔄 CAMBIA GRUPPO/TOPIC" } ]
+    ],
+    resize_keyboard: true, # La rende piccola e compatta
+    one_time_keyboard: false # Resta sempre visibile
+  )
+end
+
+
   # ===================== LISTA COMPATTA =====================
   def self.genera_lista_compatta_old(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0, target_thread_id = nil)
     # MODIFICA: Passa topic_id a Lista.tutti
