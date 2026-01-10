@@ -117,13 +117,46 @@ when /^refresh_lista:(\d+):(\d+)$/
       StoricoManager.gestisci_chiusura_checklist(bot, callback, data)
     when /^show_checklist:(\d+):(\d+)$/
       handle_show_checklist(bot, callback, chat_id, user_id, $1.to_i, $2.to_i)
-    when /^show_storico:(\d+):(\d+)$/
-      gruppo_id, t_id = $1.to_i, $2.to_i
-      acquisti = StoricoManager.ultimi_acquisti(gruppo_id, t_id)
-      testo = StoricoManager.formatta_storico(acquisti)
-      keyboard = KeyboardGenerator.ui_close_keyboard(chat_id, t_id) # Usa il generatore se esiste, o InlineKeyboardMarkup
-      bot.api.send_message(chat_id: chat_id, text: testo, parse_mode: "Markdown", message_thread_id: t_id, reply_markup: keyboard)
-      bot.api.answer_callback_query(callback_query_id: callback.id)
+when /^show_storico:(\d+):(\d+)$/
+  gruppo_id = $1.to_i
+  topic_id = $2.to_i
+
+  # 1. Creiamo l'istanza di contesto dal callback
+  # Questo imposta correttamente @scope leggendo il tipo di chat (private/group)
+  ctx = Context.from_callback(callback)
+
+  # Recupero e formattazione dati
+  acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id)
+  testo = StoricoManager.formatta_storico(acquisti)
+
+  current_chat_id = callback.message.chat.id
+  
+  # 2. Ora puoi usare il metodo di istanza correttamente
+  # Se è una chat privata, target_thread sarà nil, evitando l'errore 400
+  target_thread = ctx.private_chat? ? nil : (topic_id > 0 ? topic_id : nil)
+
+  # Debug per verifica
+  puts "🔍 Scope: #{ctx.scope} | Private?: #{ctx.private_chat?} | Target Thread: #{target_thread.inspect}"
+
+  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+    inline_keyboard: [[
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "❌ Chiudi",
+        callback_data: "ui_close:#{current_chat_id}:#{topic_id}"
+      )
+    ]]
+  )
+
+  bot.api.send_message(
+    chat_id: current_chat_id,
+    message_thread_id: target_thread,
+    text: testo,
+    parse_mode: "Markdown",
+    reply_markup: keyboard
+  )
+
+  bot.api.answer_callback_query(callback_query_id: callback.id)
+  
     when /^comprato:(\d+):(\d+)(?::(\d+))?$/
       handle_comprato(bot, callback, chat_id, user_id, $1.to_i, $2.to_i, ($3 || context.topic_id).to_i)
     when /^cancella:(\d+):(\d+)(?::(\d+))?$/

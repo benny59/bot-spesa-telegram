@@ -93,6 +93,7 @@ class Context
     end
   end
 
+
   # --- modalità ---
   def group_chat?
     @scope == :group
