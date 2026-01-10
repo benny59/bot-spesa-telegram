@@ -392,20 +392,32 @@ class KeyboardGenerator
       return true
     end
   end
+  
 
-def self.tastiera_privata_persistente(gruppo_id, topic_id)
-  Telegram::Bot::Types::ReplyKeyboardMarkup.new(
+def self.show_private_keyboard(bot, chat_id)
+puts "sono in show_private_keyboard" 
+
+  keyboard = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
     keyboard: [
       [
-        { text: "🛒 LISTA (Topic #{topic_id})" },
-        { text: "➕ AGGIUNGI PRODOTTO" }
+        Telegram::Bot::Types::KeyboardButton.new(text: "🛒 LISTA")
       ],
-      [ { text: "🔄 CAMBIA GRUPPO/TOPIC" } ]
+      [
+        Telegram::Bot::Types::KeyboardButton.new(text: "➕ AGGIUNGI PRODOTTO")
+      ]
     ],
-    resize_keyboard: true, # La rende piccola e compatta
-    one_time_keyboard: false # Resta sempre visibile
+    resize_keyboard: true,
+    one_time_keyboard: false
+  )
+
+  bot.api.send_message(
+    chat_id: chat_id,
+    text: "Scegli un'azione:",
+    reply_markup: keyboard
   )
 end
+
+
 
 
   # ===================== LISTA COMPATTA =====================

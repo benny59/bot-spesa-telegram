@@ -54,43 +54,34 @@ class MessageHandler
 
     case msg.text
     
+  
+when "/private"
+  KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
+  Context.show_group_selector(bot, context.user_id)
+  
 when '/setup_pin'
-  config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
-  config = config_row ? JSON.parse(config_row["value"]) : nil
-
-  if config
-    # 1. Aggiorna il PIN nel gruppo (messaggio con tasti inline)
-    self.setup_pinned_access(bot, config["chat_id"], config["db_id"], config["topic_id"])
-
-    # 2. Crea la tastiera FISSA per la chat privata
-    kb_fisso = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
-      keyboard: [
-        [{ text: "🛒 MOSTRA LISTA" }, { text: "➕ AGGIUNGI" }]
-      ],
-      resize_keyboard: true,
-      persistent: true # La rende sempre visibile nei client moderni
-    )
-
-    bot.api.send_message(
-      chat_id: user_id, 
-      text: "✅ **Modalità Privata Attiva**\nGruppo: #{config['topic_name']}\n\nUsa i tasti qui sotto invece di scrivere i comandi!",
-      reply_markup: kb_fisso,
-      parse_mode: "Markdown"
-    )
-  else
-    bot.api.send_message(chat_id: user_id, text: "⚠️ Configurazione mancante. Vai nel gruppo e scrivi /private")
-  end
+return
   
   when /^🛒 LISTA/
-  # Recuperi il contesto e chiami genera_lista
-  config = get_user_context(user_id) # tuo metodo di utility
-  KeyboardGenerator.genera_lista_compatta(bot, user_id, config["db_id"], user_id, nil, 0, config["topic_id"])
-
+     if config
+        # Mostra la lista usando i dati del gruppo selezionato
+        puts "DEBUG ACTION: Genero lista per #{config["db_id"]}"
+        KeyboardGenerator.genera_lista(
+          bot,
+          context.chat_id,   # Chat privata
+          config["db_id"],   # Gruppo da cui leggere
+          context.user_id,
+          nil,
+          0,
+          config["topic_id"], # Filtra per il reparto (es. Topic 2)
+          0 # <-- Invia nel thread 0 (cioè nessuno) della chat privata
+        )
+      else
+        bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
+      end
+      
 when "➕ AGGIUNGI PRODOTTO"
-  config = get_user_context(user_id)
-  handle_aggiungi(bot, message, user_id, config["db_id"], config["topic_id"])
-  
- 
+      CallbackHandler.handle_aggiungi(bot, msg, context.chat_id, context.chat_id,  0)
     when "/newgroup"
       handle_newgroup(bot, msg, chat_id, user_id)
     when "/whitelist_show"
@@ -661,20 +652,7 @@ end
       Lista.aggiungi(config["db_id"], context.user_id, items_text, config["topic_id"] || 0)
 
       # 3. NOTIFICA AL GRUPPO (Questa è la parte che mancava!)
-      begin
-        # Usiamo il chat_id reale del gruppo salvato nella config
-        target_chat_id = config["chat_id"]
-        target_topic_id = config["topic_id"] == 0 ? nil : config["topic_id"]
-
-        bot.api.send_message(
-          chat_id: target_chat_id,
-          message_thread_id: target_topic_id,
-          text: "🛒 #{user_name} ha aggiunto da privato:\n#{items_text}",
-        )
-        puts "✅ Notifica inviata al gruppo #{target_chat_id}"
-      rescue => e
-        puts "❌ Errore notifica gruppo: #{e.message}"
-      end
+      Context.notifica_gruppo_se_privato(bot, context.user_id, "🛒 #{user_name} ha aggiunto da privato:\n#{items_text}")
 
       # 4. Pulisci l'azione e conferma all'utente
       PendingAction.clear(chat_id: context.chat_id, topic_id: 0)
