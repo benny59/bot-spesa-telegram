@@ -400,7 +400,7 @@ class KeyboardGenerator
 
   def self.show_private_keyboard(bot, chat_id)
     puts "sono in show_private_keyboard"
-
+  
     keyboard = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
       keyboard: [
         [

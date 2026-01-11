@@ -56,7 +56,9 @@ class MessageHandler
     config = config_row ? JSON.parse(config_row["value"]) : nil
 
     Logger.debug("route_private", user: context.user_id, config: config)
-
+# 1. Se il messaggio è un comando o un tasto della tastiera fissa, 
+  # dobbiamo cancellare le azioni in sospeso prima di procedere.
+     
     case msg.text
 
     when "/miei", "📋 I MIEI ARTICOLI"
@@ -86,10 +88,29 @@ class MessageHandler
       else
         bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
       end
-    when "➕ AGGIUNGI PRODOTTO"
-      ctx = Context.from_message(msg)
-      ctx.group_chat? ? CallbackHandler.handle_aggiungi(bot, msg, context.chat_id, context.chat_id, 0) : return
-    when "/newgroup"
+when "➕ AGGIUNGI PRODOTTO"
+  if config
+    # 1. Pulizia precauzionale di azioni vecchie
+    PendingAction.clear(chat_id: context.chat_id, topic_id: config["topic_id"])
+    PendingAction.clear(chat_id: context.chat_id, topic_id: 0)
+
+    # 2. Salviamo l'azione pendente usando i dati della config attiva
+    # Questo emula esattamente ciò che fa il CallbackHandler nel gruppo
+    DB.execute(
+      "INSERT INTO pending_actions (chat_id, action, gruppo_id, topic_id, creato_il) VALUES (?, ?, ?, ?, datetime('now'))",
+      [context.chat_id, "add:#{msg.from.first_name}", config["db_id"], config["topic_id"]]
+    )
+
+    # 3. Risposta all'utente
+    bot.api.send_message(
+      chat_id: context.chat_id,
+      text: "✍️ <b>#{msg.from.first_name}</b>, scrivi gli articoli per il reparto <b>#{config['topic_name']}</b>:",
+      parse_mode: "HTML"
+    )
+  else
+    bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
+  end
+      when "/newgroup"
       handle_newgroup(bot, msg, chat_id, user_id)
     when "/whitelist_show"
       Whitelist.is_creator?(user_id) ? handle_whitelist_show(bot, chat_id) : invia_errore_admin(bot, chat_id)
@@ -643,8 +664,11 @@ class MessageHandler
   end
 
   def self.handle_private_pending(bot, msg, context, config)
+  puts "sono in handle_private_pending"
     # 1. Recupera l'azione pendente
-    pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: 0)
+    target_topic = config ? (config["topic_id"] || 0) : 0
+    pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: target_topic) ||
+    PendingAction.fetch(chat_id: context.chat_id, topic_id: 0)
 
     if pending && pending["action"].to_s.start_with?("add:") && config && config["db_id"]
       user_name = msg.from.first_name
@@ -653,12 +677,17 @@ class MessageHandler
 
       # 2. Aggiungi gli articoli al database
       Lista.aggiungi(config["db_id"], context.user_id, items_text, config["topic_id"] || 0)
-
-      # 3. NOTIFICA AL GRUPPO (Questa è la parte che mancava!)
-      Context.notifica_gruppo_se_privato(bot, context.user_id, "🛒 #{user_name} ha aggiunto da privato:\n#{items_text}")
-
+# MODIFICA: Controlla se il verbose è attivo nella config prima di notificare
+  is_verbose = config['verbose'] == true || config['verbose'] == 1 || config['verbose'] == "true"
+  
+  if is_verbose
+    Context.notifica_gruppo_se_privato(bot, context.user_id, "🛒 <b>#{user_name}</b> ha aggiunto da privato:\n#{items_text}")
+  else
+    puts "🔇 Notifica gruppo silenziata (verbose: false)"
+  end
+  
       # 4. Pulisci l'azione e conferma all'utente
-      PendingAction.clear(chat_id: context.chat_id, topic_id: 0)
+PendingAction.clear(chat_id: context.chat_id, topic_id: pending["topic_id"])
       bot.api.send_message(chat_id: context.chat_id, text: "✅ Articoli aggiunti a **#{config["topic_name"]}**!")
 
       # Aggiorna l'interfaccia privata

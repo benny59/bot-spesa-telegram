@@ -293,38 +293,66 @@ when /^refresh_lista:(\d+):(\d+)$/
   private
 
   # 🔥 MODIFICA: Aggiungi topic_id ai metodi principali
-  def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
-    # Recuperiamo il nome dell'item prima del toggle per la notifica
-    item_nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id])
+def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+    # 1. Recuperiamo i dati dell'item prima e il nome utente
+    item = DB.get_first_row("SELECT nome, comprato FROM items WHERE id = ?", [item_id])
+    return unless item
+    
+    item_nome = item["nome"]
     user_name = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || "Qualcuno"
 
-    # Eseguiamo l'azione
+    # 2. Eseguiamo l'azione (ritorna le iniziali se comprato, nil se rimesso in lista)
     nuovo_stato = Lista.toggle_comprato(gruppo_id, item_id, user_id)
 
+    # 3. GESTIONE STORICO
+    # Se nuovo_stato ha un valore (non nil/non vuoto), l'item è stato COMPRATO -> +1
+    # Se nuovo_stato è nil o vuoto, l'item è stato RIMESSO -> -1
+    is_comprato = !(nuovo_stato.to_s.strip.empty? || nuovo_stato.to_s == "0")
+    incremento = is_comprato ? 1 : -1
+    
+    StoricoManager.aggiorna_da_toggle(item_nome, gruppo_id, incremento, topic_id)
+
+    # 4. Feedback e Notifica
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "Stato aggiornato")
 
-    # NOTIFICA
-    emoji = (nuovo_stato.to_s.strip == "" || nuovo_stato.to_s == "0") ? "🔄" : "✅"
-    azione = emoji == "✅" ? "ha preso" : "ha rimesso in lista"
+    emoji = is_comprato ? "✅" : "🔄"
+    azione = is_comprato ? "ha preso" : "ha rimesso in lista"
     Context.notifica_gruppo_se_privato(bot, user_id, "#{emoji} *#{user_name}* #{azione}: #{item_nome}")
 
+    # 5. Refresh della lista
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
   end
+  
+def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+    # 1. Recuperiamo i dati dell'item prima di eliminarlo
+    item = DB.get_first_row("SELECT nome, comprato FROM items WHERE id = ?", [item_id])
+    return unless item
 
-  def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
-    item_nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id])
+    item_nome = item["nome"]
     user_name = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || "Qualcuno"
 
+    # 2. GESTIONE STORICO:
+    # Se l'articolo era già stato segnato come comprato (non nil e non vuoto),
+    # dobbiamo decrementare lo storico perché l'acquisto viene annullato dalla rimozione.
+    is_comprato = !(item["comprato"].nil? || item["comprato"].to_s.strip.empty? || item["comprato"].to_s == "0")
+    
+    if is_comprato
+      StoricoManager.aggiorna_da_toggle(item_nome, gruppo_id, -1, topic_id)
+      puts "📉 Storico: decremento per rimozione articolo già comprato (#{item_nome})"
+    end
+
+    # 3. Eseguiamo la cancellazione fisica
     Lista.cancella(gruppo_id, item_id, user_id)
 
+    # 4. Feedback e Notifica
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "Eliminato")
-
-    # NOTIFICA
+    
     Context.notifica_gruppo_se_privato(bot, user_id, "🗑️ *#{user_name}* ha rimosso: #{item_nome}")
 
+    # 5. Refresh della lista
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
   end
-
+  
   def self.handle_cancella_tutti(bot, msg, chat_id, user_id, gruppo_id, topic_id = 0)
     u_row = DB.get_first_row("SELECT first_name FROM user_names WHERE user_id = ?", [user_id])
     user_display = u_row ? u_row["first_name"] : "Utente #{user_id}"

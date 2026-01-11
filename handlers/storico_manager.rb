@@ -6,41 +6,38 @@ class StoricoManager
   # ========================================
   # 📊 AGGIORNA STORICO - Per toggle articoli
   # ========================================
-  def self.aggiorna_da_toggle(nome_articolo, gruppo_id, incremento, topic_id)
-    nome_normalizzato = nome_articolo.downcase.strip
-    topic_id ||= 0
+# Sostituisci il metodo in storico_manager.rb
+def self.aggiorna_da_toggle(nome_articolo, gruppo_id, incremento, topic_id)
+  nome_normalizzato = nome_articolo.downcase.strip
+  topic_id ||= 0
+  incremento = incremento.to_i
 
-    puts "📊 Storico toggle: #{nome_normalizzato} gruppo #{gruppo_id} topic #{topic_id} (#{incremento})"
+  storico = DB.get_first_row(
+    "SELECT * FROM storico_articoli WHERE nome = ? AND gruppo_id = ? AND COALESCE(topic_id,0) = ?",
+    [nome_normalizzato, gruppo_id, topic_id]
+  )
 
-    storico = DB.get_first_row(
-      "SELECT * FROM storico_articoli
-     WHERE nome = ?
-       AND gruppo_id = ?
-       AND COALESCE(topic_id,0) = ?",
+  if storico
+    # Calcola il nuovo conteggio (non scendere sotto 0)
+    nuovo_conteggio = [storico["conteggio"] + incremento, 0].max
+    
+    DB.execute(
+      "UPDATE storico_articoli 
+       SET conteggio = ?, 
+           ultima_aggiunta = CASE WHEN ? > 0 THEN datetime('now') ELSE ultima_aggiunta END,
+           updated_at = datetime('now') 
+       WHERE id = ?",
+      [nuovo_conteggio, incremento, storico["id"]]
+    )
+  elsif incremento > 0
+    # Crea record solo se l'incremento è positivo
+    DB.execute(
+      "INSERT INTO storico_articoli (nome, gruppo_id, topic_id, conteggio, ultima_aggiunta, updated_at)
+       VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))",
       [nome_normalizzato, gruppo_id, topic_id]
     )
-
-    return if incremento < 0 && !storico
-
-    if storico
-      nuovo = [storico["conteggio"] + incremento, 0].max
-      DB.execute(
-        "UPDATE storico_articoli
-       SET conteggio = ?,
-           ultima_aggiunta = CASE WHEN ? > 0 THEN datetime('now') ELSE ultima_aggiunta END,
-           updated_at = datetime('now')
-       WHERE id = ?",
-        [nuovo, incremento, storico["id"]]
-      )
-    elsif incremento > 0
-      DB.execute(
-        "INSERT INTO storico_articoli
-       (nome, gruppo_id, topic_id, conteggio, ultima_aggiunta, updated_at)
-       VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))",
-        [nome_normalizzato, gruppo_id, topic_id]
-      )
-    end
   end
+end
 
   # ========================================
   # ➕ AGGIORNA STORICO - Per aggiunta articoli
@@ -80,39 +77,27 @@ class StoricoManager
 
   # ========================================
   # 📋 GET TOP ARTICOLI - Per checklist
-  def self.top_articoli(gruppo_id, topic_id, limite = 10)
-    begin
-      puts "🔍 [TOP_ARTICOLI] Cerco articoli frequenti NON in lista per gruppo #{gruppo_id} topic #{topic_id}"
-
-      result = DB.execute(
-        "SELECT s.nome, s.conteggio, s.ultima_aggiunta
-       FROM storico_articoli s
-       WHERE s.gruppo_id = ?
-         AND s.topic_id  = ?
-         AND s.conteggio > 0
-         AND NOT EXISTS (
-           SELECT 1
-           FROM items i
-           WHERE i.gruppo_id = s.gruppo_id
-             AND i.topic_id  = s.topic_id
-             AND LOWER(i.nome) = LOWER(s.nome)
-             AND i.comprato IS NULL
-         )
-       ORDER BY s.conteggio DESC, s.ultima_aggiunta DESC
-       LIMIT ?",
-        [gruppo_id, topic_id, limite]
-      )
-
-      puts "🔍 [TOP_ARTICOLI] Risultato query: #{result.inspect}"
-      puts "🔍 [TOP_ARTICOLI] Articoli frequenti non in lista: #{result.length}"
-
-      result
-    rescue => e
-      puts "❌ Errore recupero top articoli: #{e.message}"
-      []
-    end
-  end
-  # ========================================
+def self.top_articoli(gruppo_id, topic_id, limite = 10)
+  topic_id ||= 0
+  DB.execute(
+    "SELECT s.nome, s.conteggio, s.ultima_aggiunta
+     FROM storico_articoli s
+     WHERE s.gruppo_id = ?
+       AND COALESCE(s.topic_id, 0) = ?
+       AND s.conteggio > 0
+       AND NOT EXISTS (
+         SELECT 1 FROM items i 
+         WHERE i.gruppo_id = s.gruppo_id 
+           AND COALESCE(i.topic_id, 0) = COALESCE(s.topic_id, 0)
+           AND LOWER(i.nome) = LOWER(s.nome)
+           AND (i.comprato IS NULL OR i.comprato = '')
+       )
+     ORDER BY s.conteggio DESC, s.ultima_aggiunta DESC
+     LIMIT ?",
+    [gruppo_id, topic_id, limite]
+  )
+end
+ # ========================================
   # 🔍 GET CHECKLIST - Comando /checklist
   # ========================================
   def self.genera_checklist(bot, chat_id, user_id, gruppo_id, topic_id = 0)
@@ -185,54 +170,54 @@ class StoricoManager
   # ========================================
   # 🔁 GESTIONE TOGGLE ARTICOLI
   # ========================================
-  def self.gestisci_toggle_checklist(bot, msg, callback_data)
-    # Regex corretta per catturare i 4 parametri (nome, gruppo, user, topic)
-    if callback_data =~ /^checklist_toggle:(.+):(\d+):(\d*):(\d+)$/
-      nome_articolo = $1
-      gruppo_id = $2.to_i
-      user_id = $3.empty? ? msg.from.id : $3.to_i # Fallback se vuoto
-      topic_id = $4.to_i
-      chat_id = msg.message.chat.id
+def self.gestisci_toggle_checklist(bot, msg, callback_data)
+  if callback_data =~ /^checklist_toggle:(.+):(\d+):(\d*):(\d+)$/
+    nome_articolo = $1
+    gruppo_id = $2.to_i
+    user_id = $3.empty? ? msg.from.id : $3.to_i
+    topic_id = $4.to_i
+    chat_id = msg.message.chat.id 
 
-      context_key = "#{user_id}:#{topic_id}"
-      @@selezioni_checklist[context_key] ||= []
+    context_key = "#{user_id}:#{topic_id}"
+    @@selezioni_checklist[context_key] ||= []
 
-      if @@selezioni_checklist[context_key].include?(nome_articolo)
-        @@selezioni_checklist[context_key].delete(nome_articolo)
-      else
-        @@selezioni_checklist[context_key] << nome_articolo
-      end
-
-      # Rigenera i tasti con lo user_id corretto stavolta!
-      top_articoli = self.top_articoli(gruppo_id, topic_id, 10)
-      righe = top_articoli.map do |art|
-        selezionato = @@selezioni_checklist[context_key].include?(art["nome"]) ? "✅" : "➕"
-        [
-          Telegram::Bot::Types::InlineKeyboardButton.new(
-            text: "#{selezionato} #{art["nome"].capitalize} (#{art["conteggio"]}x)",
-            callback_data: "checklist_toggle:#{art["nome"]}:#{gruppo_id}:#{user_id}:#{topic_id}",
-          ),
-        ]
-      end
-
-      righe << [
-        Telegram::Bot::Types::InlineKeyboardButton.new(text: "✅ Conferma", callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}:#{topic_id}"),
-        Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "checklist_close:#{chat_id}:#{topic_id}"),
-      ]
-
-      bot.api.edit_message_reply_markup(
-        chat_id: chat_id,
-        message_id: msg.message.message_id,
-        reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe),
-      )
-      return true
+    # Gestiamo solo l'array temporaneo, NO DB UPDATE QUI
+    if @@selezioni_checklist[context_key].include?(nome_articolo)
+      @@selezioni_checklist[context_key].delete(nome_articolo)
+    else
+      @@selezioni_checklist[context_key] << nome_articolo
     end
-    false
+    
+    # Rigenerazione Markup (Usa chat_id definito sopra)
+    top_articoli = self.top_articoli(gruppo_id, topic_id, 10)
+    righe = top_articoli.map do |art|
+      selezionato = @@selezioni_checklist[context_key].include?(art["nome"]) ? "✅" : "➕"
+      [
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "#{selezionato} #{art["nome"].capitalize} (#{art["conteggio"]}x)",
+          callback_data: "checklist_toggle:#{art["nome"]}:#{gruppo_id}:#{user_id}:#{topic_id}"
+        )
+      ]
+    end
+
+    righe << [
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "✅ Conferma", callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}:#{topic_id}"),
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "checklist_close:#{chat_id}:#{topic_id}")
+    ]
+
+    bot.api.edit_message_reply_markup(
+      chat_id: chat_id,
+      message_id: msg.message.message_id,
+      reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe)
+    )
+    return true
   end
+  false
+end
 
   # ========================================
   # ✅ CONFERMA SELEZIONI
-  def self.gestisci_conferma_checklist(bot, msg, callback_data)
+def self.gestisci_conferma_checklist(bot, msg, callback_data)
     if callback_data =~ /^checklist_confirm:(\d+):(\d*):(\d+)$/
       gruppo_id = $1.to_i
       user_id = $2.empty? ? msg.from.id : $2.to_i
@@ -241,32 +226,32 @@ class StoricoManager
 
       context_key = "#{user_id}:#{topic_id}"
       selezioni = @@selezioni_checklist[context_key] || []
-
       return false if selezioni.empty?
 
-      # Recupero info del gruppo per la notifica
+      # --- RECUPERO CONFIG PER VERBOSE ---
+      config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
+      config = config_row ? JSON.parse(config_row["value"]) : nil
+      # ------------------------------------
+
       gruppo = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [gruppo_id])
       return false unless gruppo
 
-      target_chat_id = gruppo["chat_id"]
-      thread_id = (topic_id > 0 ? topic_id : nil)
-      nome_utente = msg.from.first_name
-
-      # 1. Inserimento nel database (Corretto: creato_da invece di aggiunto_da)
-      selezioni.each do |nome|
-        begin
-          DB.execute(
-            "INSERT INTO items (gruppo_id, creato_da, nome, topic_id) VALUES (?, ?, ?, ?)",
-            [gruppo_id, user_id, nome.downcase.strip, topic_id]
-          )
-          # Aggiorna lo storico (incrementa il conteggio per le statistiche)
-          self.aggiorna_da_toggle(nome, gruppo_id, 1, topic_id)
-        rescue => e
-          puts "❌ Errore inserimento item #{nome}: #{e.message}"
-        end
-      end
-
-      # 2. Feedback all'utente in chat PRIVATA
+      # 1. Inserimento nel database
+      
+# In storico_manager.rb
+selezioni.each do |nome|
+  begin
+    DB.execute(
+      "INSERT INTO items (gruppo_id, creato_da, nome, topic_id) VALUES (?, ?, ?, ?)",
+      [gruppo_id, user_id, nome.downcase.strip, topic_id]
+    )
+    # RIMOSSO: self.aggiorna_da_toggle(...) qui non serve più
+  rescue => e
+    puts "❌ Errore inserimento: #{e.message}"
+  end
+end
+    
+      # 2. Feedback all'utente in chat PRIVATA (Edit del messaggio checklist)
       bot.api.edit_message_text(
         chat_id: private_chat_id,
         message_id: msg.message.message_id,
@@ -274,19 +259,39 @@ class StoricoManager
         parse_mode: "Markdown",
       )
 
-      # 3. Notifica nel GRUPPO
-      elenco_testo = selezioni.map { |s| "• #{s.capitalize}" }.join("\n")
-      testo_gruppo = "📋 *Checklist:* #{nome_utente} ha aggiunto:\n#{elenco_testo}"
+      # 3. Notifica nel GRUPPO (CORRETTO con test VERBOSE)
+      is_verbose = config && (config['verbose'] == true || config['verbose'] == 1 || config['verbose'] == "true")
+      
+      if is_verbose
+        elenco_testo = selezioni.map { |s| "• #{s.capitalize}" }.join("\n")
+        testo_gruppo = "📋 *Checklist:* #{msg.from.first_name} ha aggiunto:\n#{elenco_testo}"
+        
+        begin
+          bot.api.send_message(
+            chat_id: gruppo["chat_id"],
+            message_thread_id: (topic_id > 0 ? topic_id : nil),
+            text: testo_gruppo,
+            parse_mode: "Markdown",
+          )
+        rescue => e
+          puts "❌ Errore notifica gruppo: #{e.message}"
+        end
+      else
+        puts "🔇 Notifica checklist silenziata per il gruppo (verbose: false)"
+      end
 
-      begin
-        bot.api.send_message(
-          chat_id: target_chat_id,
-          message_thread_id: thread_id,
-          text: testo_gruppo,
-          parse_mode: "Markdown",
-        )
-      rescue => e
-        puts "❌ Errore notifica gruppo: #{e.message}"
+      # --- AGGIORNAMENTO AUTOMATICO LISTA ---
+      # Dopo aver chiuso la checklist, rimandiamo la lista aggiornata
+      if config && config["db_id"]
+         KeyboardGenerator.genera_lista(
+           bot, 
+           private_chat_id, 
+           config["db_id"], 
+           user_id, 
+           nil, # Nuovo messaggio perché abbiamo appena fatto l'edit di quello checklist
+           0, 
+           config["topic_id"] || 0
+         )
       end
 
       # Pulizia memoria temporanea
@@ -295,7 +300,6 @@ class StoricoManager
     end
     false
   end
-
   # Aggiungi in storico_manager.rb
   def self.gestisci_click_checklist(bot, msg, callback_data)
     chat_id = msg.message.chat.id
