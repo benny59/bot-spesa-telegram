@@ -11,7 +11,12 @@ require "tempfile"
 require "open-uri"
 require "time"
 
+ITEMS_PER_PAGE = 3  # Numero di gruppi per pagina
+GROUPS_PER_PAGE = 2  # Numero di gruppi per pagina
+
 class MessageHandler
+  MYITEMS_GROUPS_PER_PAGE = 3  # Definisci qui a livello di classe
+
   def self.route(bot, msg, context)
     Whitelist.ensure_user_name(msg.from.id, msg.from.first_name, msg.from.last_name)
     text = msg.text.to_s.strip
@@ -53,17 +58,19 @@ class MessageHandler
     Logger.debug("route_private", user: context.user_id, config: config)
 
     case msg.text
-    
-  
-when "/private"
-  KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
-  Context.show_group_selector(bot, context.user_id)
-  
-when '/setup_pin'
-return
-  
-  when /^🛒 LISTA/
-     if config
+
+    when "/miei", "📋 I MIEI ARTICOLI"
+      ctx = Context.from_message(msg)
+      # In chat privata, context.topic_id sarà 0, quindi handle_myitems
+      # saprà di non dover inviare thread_id
+      self.handle_myitems(bot, ctx.chat_id, ctx.user_id, msg)
+    when "/private"
+      KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
+      Context.show_group_selector(bot, context.user_id)
+    when "/setup_pin"
+      return
+    when /^🛒 LISTA/
+      if config
         # Mostra la lista usando i dati del gruppo selezionato
         puts "DEBUG ACTION: Genero lista per #{config["db_id"]}"
         KeyboardGenerator.genera_lista(
@@ -79,9 +86,9 @@ return
       else
         bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
       end
-      
-when "➕ AGGIUNGI PRODOTTO"
-      CallbackHandler.handle_aggiungi(bot, msg, context.chat_id, context.chat_id,  0)
+    when "➕ AGGIUNGI PRODOTTO"
+      ctx = Context.from_message(msg)
+      ctx.group_chat? ? CallbackHandler.handle_aggiungi(bot, msg, context.chat_id, context.chat_id, 0) : return
     when "/newgroup"
       handle_newgroup(bot, msg, chat_id, user_id)
     when "/whitelist_show"
@@ -220,7 +227,6 @@ when "➕ AGGIUNGI PRODOTTO"
       text: "📨 La tua richiesta di accesso è stata inviata all'amministratore.\nRiceverai una notifica quando verrà approvata.",
     )
   end
-  
 
   def self.handle_newgroup_approved(bot, msg, chat_id, user_id)
     begin
@@ -267,9 +273,9 @@ when "➕ AGGIUNGI PRODOTTO"
   end
 
   # Cerca la pending action specifica per questo utente
-def self.handle_photo_message(bot, msg, chat_id, user_id)
+  def self.handle_photo_message(bot, msg, chat_id, user_id)
     # 1. Recuperiamo il contesto dal messaggio usando la factory di Context
-    ctx = Context.from_message(msg) 
+    ctx = Context.from_message(msg)
     puts "🔍 [PHOTO_DEBUG] Inizio scansione per user_id: #{user_id} in chat: #{chat_id}"
 
     # 2. Cerchiamo l'azione pendente (flessibile sul topic per evitare il salto allo 0)
@@ -292,7 +298,7 @@ def self.handle_photo_message(bot, msg, chat_id, user_id)
     # Estrazione dati in sicurezza
     item_id = pending["item_id"]
     gruppo_id = pending["gruppo_id"]
-    
+
     # Recuperiamo il topic originale dal DB (dove abbiamo salvato l'azione)
     # Se nel DB non c'è, usiamo ctx.topic_id come fallback
     target_topic_id = pending["topic_id"] || ctx.topic_id || 0
@@ -318,14 +324,14 @@ def self.handle_photo_message(bot, msg, chat_id, user_id)
 
       # 5. Feedback nel topic corretto (usiamo target_topic_id e logica thread_id)
       puts "📤 [PHOTO_DEBUG] Invio conferma al topic: #{target_topic_id}"
-      
+
       thread_id = (chat_id.to_i < 0 && target_topic_id.to_i != 0) ? target_topic_id.to_i : nil
 
       bot.api.send_message(
         chat_id: chat_id,
         text: "✅ Foto salvata con successo!",
         message_thread_id: thread_id,
-        parse_mode: "Markdown"
+        parse_mode: "Markdown",
       )
 
       # 6. Refresh della lista (usa genera_lista_compatta se preferisci non inviare la tastiera full)
@@ -334,7 +340,6 @@ def self.handle_photo_message(bot, msg, chat_id, user_id)
 
       puts "✨ [PHOTO_DEBUG] Flusso completato con successo."
       return true
-
     rescue => e
       puts "❌ [PHOTO_DEBUG] CRASH: #{e.message}"
       puts e.backtrace.first(3).join("\n")
@@ -342,55 +347,53 @@ def self.handle_photo_message(bot, msg, chat_id, user_id)
       bot.api.send_message(
         chat_id: chat_id,
         text: "❌ Errore durante il salvataggio della foto: #{e.message}",
-        message_thread_id: (target_topic_id.to_i != 0 ? target_topic_id.to_i : nil)
+        message_thread_id: (target_topic_id.to_i != 0 ? target_topic_id.to_i : nil),
       )
       return true
     end
   end
-   
- def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
-  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
-    inline_keyboard: [[
-      Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "🛒 MOSTRA LISTA AGGIORNATA", 
-        callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}"
-      )
-    ]]
-  )
 
-  thread_id = (topic_id.to_i > 0) ? topic_id.to_i : nil
-
-  begin
-    res = bot.api.send_message(
-      chat_id: chat_id,
-      message_thread_id: thread_id,
-      text: "📌 **Punto di Accesso Rapido**\nUsa il tasto qui sotto per richiamare la lista spesa aggiornata.",
-      reply_markup: keyboard,
-      parse_mode: "Markdown"
+  def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
+    keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+      inline_keyboard: [[
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "🛒 MOSTRA LISTA AGGIORNATA",
+          callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}",
+        ),
+      ]],
     )
 
-    msg_id = res["result"]["message_id"] rescue res.message_id
-    
+    thread_id = (topic_id.to_i > 0) ? topic_id.to_i : nil
+
     begin
-      bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
-      puts "✅ [SETUP_PIN] Messaggio fissato nel topic #{topic_id}"
-    rescue Telegram::Bot::Exceptions::ResponseError => e
-      if e.message.include?("not enough rights")
-        # Avvisa l'utente nel topic se il bot non è admin
-        bot.api.send_message(
-          chat_id: chat_id,
-          message_thread_id: thread_id,
-          text: "⚠️ **Attenzione**: Il messaggio è stato inviato ma non ho i permessi per fissarlo in alto. Aggiungimi come Amministratore con permesso di 'Fissare messaggi'."
-        )
+      res = bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: thread_id,
+        text: "📌 **Punto di Accesso Rapido**\nUsa il tasto qui sotto per richiamare la lista spesa aggiornata.",
+        reply_markup: keyboard,
+        parse_mode: "Markdown",
+      )
+
+      msg_id = res["result"]["message_id"] rescue res.message_id
+
+      begin
+        bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
+        puts "✅ [SETUP_PIN] Messaggio fissato nel topic #{topic_id}"
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        if e.message.include?("not enough rights")
+          # Avvisa l'utente nel topic se il bot non è admin
+          bot.api.send_message(
+            chat_id: chat_id,
+            message_thread_id: thread_id,
+            text: "⚠️ **Attenzione**: Il messaggio è stato inviato ma non ho i permessi per fissarlo in alto. Aggiungimi come Amministratore con permesso di 'Fissare messaggi'.",
+          )
+        end
+        puts "❌ Errore Pin: #{e.message}"
       end
-      puts "❌ Errore Pin: #{e.message}"
+    rescue => e
+      puts "❌ Errore Invio: #{e.message}"
     end
-  rescue => e
-    puts "❌ Errore Invio: #{e.message}"
   end
-end
-
-
 
   def self.handle_photo_with_caption(bot, msg, chat_id, user_id)
     caption = msg.caption.strip
@@ -632,8 +635,8 @@ end
       Lista.aggiungi(config["db_id"], context.user_id, items_text, config["topic_id"])
 
       # NOTIFICA AL GRUPPO (Usando il CHAT_ID negativo)
-            Context.notifica_gruppo_se_privato(bot, context.user_id, "🛒 #{user_name} ha aggiunto da privato:\n#{items_text}")
- 
+      Context.notifica_gruppo_se_privato(bot, context.user_id, "🛒 #{user_name} ha aggiunto da privato:\n#{items_text}")
+
       bot.api.send_message(chat_id: context.chat_id, text: "✅ Aggiunto a #{config["topic_name"]}!")
       KeyboardGenerator.genera_lista(bot, context.chat_id, config["db_id"], context.user_id, nil, 0, config["topic_id"])
     end
@@ -696,28 +699,26 @@ end
     puts "DEBUG MSG: '#{msg.text}' in chat #{context.chat_id} topic #{current_topic_id}"
 
     case msg.text
-    
-    when '/setup_pin'
+
+    when "/setup_pin"
       # Recuperiamo l'ID interno del gruppo dal DB (già caricato all'inizio del metodo)
       gruppo_id = gruppo ? gruppo["id"] : nil
 
       if gruppo_id
         puts "📍 [SETUP_PIN] Eseguo per Gruppo DB:#{gruppo_id} nel Chat:#{context.chat_id} Topic:#{current_topic_id}"
-        
+
         # Invocazione del metodo di supporto (definiscilo sotto o nella stessa classe)
         self.setup_pinned_access(bot, context.chat_id, gruppo_id, current_topic_id)
-        
+
         # Pulizia: eliminiamo il comando dell'utente per tenere pulito il topic
         bot.api.delete_message(chat_id: context.chat_id, message_id: msg.message_id) rescue nil
       else
         bot.api.send_message(
-          chat_id: context.chat_id, 
-          text: "⚠️ Errore: Gruppo non registrato.", 
-          message_thread_id: (current_topic_id != 0 ? current_topic_id : nil)
+          chat_id: context.chat_id,
+          text: "⚠️ Errore: Gruppo non registrato.",
+          message_thread_id: (current_topic_id != 0 ? current_topic_id : nil),
         )
       end
-      
-    
     when /^\/addcartagruppo/
       gruppo_id = gruppo ? gruppo["id"] : nil
       return if gruppo_id.nil?
@@ -766,8 +767,6 @@ end
       else
         process_add_items(bot: bot, text: raw, context: context, gruppo: gruppo, msg: msg)
       end
-      
-      
     when "?"
       KeyboardGenerator.genera_lista(
         bot,
@@ -935,6 +934,149 @@ end
         message_thread_id: topic_id,
         text: "❌ Errore nell'aggiunta degli articoli",
       )
+    end
+  end
+
+  def self.chat_still_exists?(bot, telegram_chat_id)
+    begin
+      bot.api.get_chat(chat_id: telegram_chat_id)
+      true
+    rescue Telegram::Bot::Exceptions::ResponseError
+      false
+    end
+  end
+
+  def self.handle_myitems(bot, chat_id, user_id, message, page = 0)
+    ctx = Context.from_message(message)
+    topic_id = ctx.private_chat? ? nil : (message.message_thread_id || nil)
+    message_id = message.respond_to?(:message_id) ? message.message_id : message.message.message_id
+
+    groups_and_topics = DB.execute("
+    SELECT DISTINCT
+      g.id   AS gruppo_id,
+      g.nome AS gruppo_nome,
+      g.chat_id AS chat_id,
+      COALESCE(i.topic_id, 0) AS topic_id
+    FROM gruppi g
+    JOIN items i ON g.id = i.gruppo_id
+    WHERE i.creato_da = ?
+    ORDER BY g.nome, topic_id
+  ", [user_id])
+
+    if groups_and_topics.empty?
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "📭 Non hai articoli in nessun gruppo.",
+      )
+      return
+    end
+
+    valid_items = groups_and_topics.select do |item|
+      item["chat_id"] && chat_still_exists?(bot, item["chat_id"])
+    end
+
+    if valid_items.empty?
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: topic_id,
+        text: "❌ Tutti i tuoi gruppi non sono più accessibili al bot.",
+      )
+      return
+    end
+
+    total_pages = (valid_items.size.to_f / GROUPS_PER_PAGE).ceil
+    page = [[page, 0].max, total_pages - 1].min
+
+    slice = valid_items.slice(page * GROUPS_PER_PAGE, GROUPS_PER_PAGE) || []
+
+    text = "<b>📋 I TUOI ARTICOLI – Pagina #{page + 1}/#{total_pages}</b>\n\n"
+
+    slice.each do |item|
+      gruppo_id = item["gruppo_id"]
+      gruppo_nome = item["gruppo_nome"]
+      topic_ref = item["topic_id"]
+
+      user_items = DB.execute("
+SELECT i.*, u.initials
+FROM items i
+LEFT JOIN user_names u ON i.creato_da = u.user_id
+WHERE i.gruppo_id = ?
+  AND i.creato_da = ?
+  AND COALESCE(i.topic_id,0) = ?
+ORDER BY i.comprato IS NOT NULL, i.nome
+
+    ", [gruppo_id, user_id, topic_ref])
+
+      next if user_items.empty?
+
+      topic_label = topic_ref > 0 ? " (topic #{topic_ref})" : ""
+      text << "🏠 <b>#{gruppo_nome}#{topic_label}</b>\n"
+      text << KeyboardGenerator.formatta_articoli_per_myitems(user_items)
+      text << "\n" + "─" * 30 + "\n\n"
+    end
+
+    nav_buttons = []
+    if total_pages > 1
+      row = []
+      row << Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "◀️",
+        callback_data: "myitems_page:#{user_id}:#{page - 1}",
+      ) if page > 0
+
+      row << Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "#{page + 1}/#{total_pages}",
+        callback_data: "noop",
+      )
+
+      row << Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "▶️",
+        callback_data: "myitems_page:#{user_id}:#{page + 1}",
+      ) if page < total_pages - 1
+
+      nav_buttons << row
+    end
+
+    # Calcolo thread per l'invio (Guardrail per evitare errore 400)
+    target_thread = ctx.private_chat? ? nil : topic_id
+
+    # Costruzione tastiera (Usa il tuo metodo gestisci_chiusura_ui per il tasto X)
+    control_buttons = [[
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "🔄 Aggiorna",
+        callback_data: "myitems_refresh:#{user_id}:#{page}",
+      ),
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "❌ Chiudi",
+        # Coerente con la regex di gestisci_chiusura_ui nel file context.rb
+        callback_data: "ui_close:#{chat_id}:#{topic_id || 0}",
+      ),
+    ]]
+
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+      inline_keyboard: nav_buttons + control_buttons,
+    )
+
+    if message.respond_to?(:from) && message.from.id == user_id
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: target_thread,
+        text: text,
+        reply_markup: markup,
+        parse_mode: "HTML",
+      )
+    else
+      begin
+        bot.api.edit_message_text(
+          chat_id: chat_id,
+          message_id: message_id,
+          text: text,
+          reply_markup: markup,
+          parse_mode: "HTML",
+        )
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        puts "Messaggio non modificato" if e.message.include?("message is not modified")
+      end
     end
   end
 end

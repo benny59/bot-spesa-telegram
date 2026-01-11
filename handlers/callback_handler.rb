@@ -18,64 +18,55 @@ class CallbackHandler
     user_id = callback.from.id
 
     case data
-        when /^cancella_tutti:(\d+)(?::(\d+))?$/
+    when /^cancella_tutti:(\d+)(?::(\d+))?$/
       handle_cancella_tutti(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
     when /^toggle_view_mode:(\d+)(?::(\d+))?$/
       handle_toggle_view_mode(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
-
     when /^aggiungi:(\d+)(?::(\d+))?$/
       handle_aggiungi(bot, callback, context.chat_id, $1.to_i, $2&.to_i || 0)
-
 when /^refresh_lista:(\d+):(\d+)$/
   gruppo_id = $1.to_i
-  t_id = $2.to_i
+  topic_id = $2.to_i
 
-  # 1. Usiamo la factory di Context per mappare l'ambiente del click
-  ctx = Context.from_callback(callback)
-  
-  # 2. Togliamo l'orologio (spinner) dal tasto
-  bot.api.answer_callback_query(callback_query_id: callback.id)
-
-  # 3. Logica di instradamento:
-  # Se ctx.scope è :private, dobbiamo inviare alla chat dell'utente (ctx.chat_id è l'ID utente)
-  # Se ctx.scope è :group, dobbiamo inviare al gruppo nel topic corretto.
-  
-  target_chat_id = ctx.chat_id
-  target_thread_id = (ctx.scope == :group) ? t_id : nil
-
-  puts "🔄 [REFRESH] Click in #{ctx.scope}. Invio lista a Chat: #{target_chat_id}, Topic: #{target_thread_id.inspect}"
-
-  # 4. Generiamo la lista
-  # Importante: passiamo target_chat_id (che sarà l'ID privato se cliccato in privato)
-  # ma manteniamo gruppo_id e t_id per filtrare i dati dal DB
-  KeyboardGenerator.genera_lista_compatta(
-    bot,
-    target_chat_id,   # Dove inviare il messaggio
-    gruppo_id,        # Quali dati leggere (Gruppo)
-    ctx.user_id,      # Chi ha richiesto
-    nil,              # Nuovo messaggio (non modifica il pin)
-    0,                # Pagina
-    t_id              # Filtro dati per topic (sempre 2 nel tuo caso)
-  )
-    
-    when /^lista_page:(\d+):(\d+):(\d+)$/
-  gruppo_id = $1.to_i
-  nuova_pagina = $2.to_i
-  t_id = $3.to_i
-  
-  # Chiamiamo la generazione della lista passando la nuova pagina e il topic
+  # Eseguiamo l'aggiornamento esattamente come fa il toggle
+  # Parametri: bot, chat_id, gruppo_id, user_id, message_id, page, topic_id
   KeyboardGenerator.genera_lista(
     bot, 
-    chat_id, 
-    gruppo_id, 
-    user_id, 
-    callback.message.message_id, 
-    nuova_pagina, 
-    t_id
+    callback.message.chat.id,    # chat_id (2° param)
+    gruppo_id,              # gruppo_id (3° param)
+    callback.from.id,            # user_id (4° param)
+    callback.message.message_id, # message_id (5° param) -> QUESTO ABILITA L'EDIT
+    0,                      # page (6° param)
+    topic_id                # topic_id (7° param)
   )
-  # Rispondiamo al callback per togliere lo spinner
-  bot.api.answer_callback_query(callback_query_id: callback.id)
-    # --- INIZIO BLOCCO FOTO CORRETTO ---
+
+  # Feedback visivo
+  bot.api.answer_callback_query(callback_query_id: callback.id, text: "Lista sincronizzata! 🔄")
+  
+  # Notifica al gruppo se siamo in privato (opzionale)
+  ctx = Context.from_callback(callback)
+  if ctx.private_chat?
+    Context.notifica_gruppo_se_privato(bot, callback.from.id, "🔄 #{callback.from.first_name} ha aggiornato la lista.")
+  end
+  
+      when /^lista_page:(\d+):(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      nuova_pagina = $2.to_i
+      t_id = $3.to_i
+
+      # Chiamiamo la generazione della lista passando la nuova pagina e il topic
+      KeyboardGenerator.genera_lista(
+        bot,
+        chat_id,
+        gruppo_id,
+        user_id,
+        callback.message.message_id,
+        nuova_pagina,
+        t_id
+      )
+      # Rispondiamo al callback per togliere lo spinner
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+      # --- INIZIO BLOCCO FOTO CORRETTO ---
     when /^view_foto:(\d+):(\d+)(?::(\d+))?$/
       t_id = $3&.to_i || 0
       puts "📸 [DEBUG] Eseguo handle_view_foto per item #{$1} nel topic #{t_id}"
@@ -117,46 +108,45 @@ when /^refresh_lista:(\d+):(\d+)$/
       StoricoManager.gestisci_chiusura_checklist(bot, callback, data)
     when /^show_checklist:(\d+):(\d+)$/
       handle_show_checklist(bot, callback, chat_id, user_id, $1.to_i, $2.to_i)
-when /^show_storico:(\d+):(\d+)$/
-  gruppo_id = $1.to_i
-  topic_id = $2.to_i
+    when /^show_storico:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
 
-  # 1. Creiamo l'istanza di contesto dal callback
-  # Questo imposta correttamente @scope leggendo il tipo di chat (private/group)
-  ctx = Context.from_callback(callback)
+      # 1. Creiamo l'istanza di contesto dal callback
+      # Questo imposta correttamente @scope leggendo il tipo di chat (private/group)
+      ctx = Context.from_callback(callback)
 
-  # Recupero e formattazione dati
-  acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id)
-  testo = StoricoManager.formatta_storico(acquisti)
+      # Recupero e formattazione dati
+      acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id)
+      testo = StoricoManager.formatta_storico(acquisti)
 
-  current_chat_id = callback.message.chat.id
-  
-  # 2. Ora puoi usare il metodo di istanza correttamente
-  # Se è una chat privata, target_thread sarà nil, evitando l'errore 400
-  target_thread = ctx.private_chat? ? nil : (topic_id > 0 ? topic_id : nil)
+      current_chat_id = callback.message.chat.id
 
-  # Debug per verifica
-  puts "🔍 Scope: #{ctx.scope} | Private?: #{ctx.private_chat?} | Target Thread: #{target_thread.inspect}"
+      # 2. Ora puoi usare il metodo di istanza correttamente
+      # Se è una chat privata, target_thread sarà nil, evitando l'errore 400
+      target_thread = ctx.private_chat? ? nil : (topic_id > 0 ? topic_id : nil)
 
-  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
-    inline_keyboard: [[
-      Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "❌ Chiudi",
-        callback_data: "ui_close:#{current_chat_id}:#{topic_id}"
+      # Debug per verifica
+      puts "🔍 Scope: #{ctx.scope} | Private?: #{ctx.private_chat?} | Target Thread: #{target_thread.inspect}"
+
+      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+        inline_keyboard: [[
+          Telegram::Bot::Types::InlineKeyboardButton.new(
+            text: "❌ Chiudi",
+            callback_data: "ui_close:#{current_chat_id}:#{topic_id}",
+          ),
+        ]],
       )
-    ]]
-  )
 
-  bot.api.send_message(
-    chat_id: current_chat_id,
-    message_thread_id: target_thread,
-    text: testo,
-    parse_mode: "Markdown",
-    reply_markup: keyboard
-  )
+      bot.api.send_message(
+        chat_id: current_chat_id,
+        message_thread_id: target_thread,
+        text: testo,
+        parse_mode: "Markdown",
+        reply_markup: keyboard,
+      )
 
-  bot.api.answer_callback_query(callback_query_id: callback.id)
-  
+      bot.api.answer_callback_query(callback_query_id: callback.id)
     when /^comprato:(\d+):(\d+)(?::(\d+))?$/
       handle_comprato(bot, callback, chat_id, user_id, $1.to_i, $2.to_i, ($3 || context.topic_id).to_i)
     when /^cancella:(\d+):(\d+)(?::(\d+))?$/
@@ -198,6 +188,37 @@ when /^show_storico:(\d+):(\d+)$/
 
       # --- GESTIONE FOTO: Rotte mancanti ---
       # --- INIZIO BLOCCO FOTO ---
+ when /^refresh_lista:(\d+):(\d+)$/
+  gruppo_id = $1.to_i
+  topic_id = $2.to_i
+  
+  # 1. Recuperiamo il contesto dal callback per gestire i thread
+  ctx = Context.from_callback(msg)
+  
+  # 2. Chiamiamo genera_lista passando msg.message.message_id
+  # Questo forza il ramo 'if message_id' dentro genera_lista_compatta
+  KeyboardGenerator.genera_lista(
+    bot, 
+    ctx.chat_id,         # Chat dove aggiornare (privata o gruppo)
+    gruppo_id,           # ID del database
+    ctx.user_id,         # ID utente per le preferenze
+    msg.message.message_id, # <--- FONDAMENTALE: l'ID del messaggio esistente
+    0,                   # Pagina iniziale
+    topic_id             # Reparto specifico
+  )
+
+  # 3. Notifica silenziosa al gruppo se l'azione avviene in privato
+  if ctx.private_chat?
+    Context.notifica_gruppo_se_privato(
+      bot, 
+      ctx.user_id, 
+      "🔄 <b>#{msg.from.first_name}</b> ha sincronizzato la lista."
+    )
+  end
+
+  # Risponde al callback per togliere l'icona di caricamento
+  bot.api.answer_callback_query(callback_query_id: msg.id, text: "Sincronizzato! 🔄")
+  
     when /^view_foto:(\d+):(\d+)(?::(\d+))?$/
       # $1: item_id, $2: gruppo_id, $3: topic_id
       t_id = $3&.to_i || 0
@@ -422,7 +443,7 @@ when /^show_storico:(\d+):(\d+)$/
     bot.api.delete_message(chat_id: chat_id, message_id: msg.message.message_id)
   end
 
-def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
+  def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
     puts "🔍 [VIEW_FOTO] Richiesta per Item: #{item_id} | Chat: #{chat_id} | Topic: #{topic_id}"
 
     # Cerchiamo l'immagine e il nome dell'item
@@ -441,7 +462,7 @@ def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
         photo: immagine["file_id"],
         caption: "📸 Foto per: *#{item ? item["nome"] : "Articolo"}*",
         parse_mode: "Markdown",
-        message_thread_id: (chat_id < 0 && topic_id != 0) ? topic_id : nil
+        message_thread_id: (chat_id < 0 && topic_id != 0) ? topic_id : nil,
       )
 
       # ✅ Eliminazione automatica del sottomenu (msg.message_id) dopo aver inviato la foto
@@ -451,7 +472,6 @@ def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
       rescue => e
         puts "⚠️ [VIEW_FOTO] Errore pulizia menu: #{e.message}"
       end
-
     else
       puts "❌ [VIEW_FOTO] Nessuna immagine nel DB per item #{item_id}"
       bot.api.answer_callback_query(
@@ -465,8 +485,7 @@ def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
     puts e.backtrace.first(3)
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "❌ Errore visualizzazione")
   end
-  
-  
+
   def self.handle_approve_user(bot, msg, chat_id, user_id, username, full_name)
     # ✅ Aggiungi l'utente alla whitelist
     Whitelist.add_user(user_id, username, full_name.gsub("_", " "))
@@ -516,7 +535,7 @@ def self.handle_view_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, nil, 0, topic_id)
   end
 
-def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
+  def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id = 0)
     user_id = msg.from.id
     user_name = msg.from.first_name
 
@@ -550,11 +569,11 @@ def self.handle_add_replace_foto(bot, msg, chat_id, item_id, gruppo_id, topic_id
     bot.api.send_message(
       chat_id: chat_id,
       text: "📸 Inviami la foto che vuoi associare a questo articolo...",
-message_thread_id: (chat_id < 0 && topic_id != 0) ? topic_id : nil    )
+      message_thread_id: (chat_id < 0 && topic_id != 0) ? topic_id : nil,
+    )
   end
-  
-  
-def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+
+  def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
     # 1. Rimuoviamo l'immagine dal DB
     Lista.rimuovi_immagine(item_id)
     puts "🗑️ [DB] Record rimosso per item #{item_id}"
@@ -574,21 +593,19 @@ def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id, topi
       puts "⚠️ [REMOVE] Errore delete menu: #{e.message}"
     end
 
-    # 5. AGGIORNAMENTO LISTA: 
-    # Usiamo un ID messaggio specifico per la lista principale se lo abbiamo, 
+    # 5. AGGIORNAMENTO LISTA:
+    # Usiamo un ID messaggio specifico per la lista principale se lo abbiamo,
     # altrimenti KeyboardGenerator userà quello del messaggio corrente.
     # IMPORTANTE: KeyboardGenerator deve ricalcolare le icone 📸 basandosi sul DB aggiornato.
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, nil, 0, topic_id)
   end
-  
-   
+
   def self.handle_foto_menu(bot, callback, chat_id, item_id, gruppo_id, topic_id = 0)
     has_image = Lista.ha_immagine?(item_id)
 
-# Calcoliamo il thread corretto: 
-  # Se la chat_id è > 0 (privata), il thread DEVE essere nil
-  thread_corretto = chat_id < 0 ? (topic_id != 0 ? topic_id : nil) : nil
-  
+    # Calcoliamo il thread corretto:
+    # Se la chat_id è > 0 (privata), il thread DEVE essere nil
+    thread_corretto = chat_id < 0 ? (topic_id != 0 ? topic_id : nil) : nil
 
     buttons = if has_image
         [
@@ -626,7 +643,7 @@ def self.handle_remove_foto(bot, msg, chat_id, user_id, item_id, gruppo_id, topi
 
     bot.api.send_message(
       chat_id: chat_id,
-message_thread_id: thread_corretto, # <-- Qui la correzione
+      message_thread_id: thread_corretto, # <-- Qui la correzione
       text: "📸 Gestione foto per l'articolo",
       reply_markup: markup,
     )

@@ -299,6 +299,11 @@ class KeyboardGenerator
         ),
       ],
       [
+         Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "🔄 Aggiorna",
+          callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}",
+        ),
+
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "📋 Checklist",
           callback_data: "show_checklist:#{gruppo_id}:#{topic_id}",
@@ -392,33 +397,32 @@ class KeyboardGenerator
       return true
     end
   end
-  
 
-def self.show_private_keyboard(bot, chat_id)
-puts "sono in show_private_keyboard" 
+  def self.show_private_keyboard(bot, chat_id)
+    puts "sono in show_private_keyboard"
 
-  keyboard = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
-    keyboard: [
-      [
-        Telegram::Bot::Types::KeyboardButton.new(text: "🛒 LISTA")
+    keyboard = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
+      keyboard: [
+        [
+          Telegram::Bot::Types::KeyboardButton.new(text: "🛒 LISTA"),
+        ],
+        [
+          Telegram::Bot::Types::KeyboardButton.new(text: "➕ AGGIUNGI PRODOTTO"),
+        ],
+               [
+          Telegram::Bot::Types::KeyboardButton.new(text: "📋 I MIEI ARTICOLI"),
+        ],
       ],
-      [
-        Telegram::Bot::Types::KeyboardButton.new(text: "➕ AGGIUNGI PRODOTTO")
-      ]
-    ],
-    resize_keyboard: true,
-    one_time_keyboard: false
-  )
+      resize_keyboard: true,
+      one_time_keyboard: false,
+    )
 
-  bot.api.send_message(
-    chat_id: chat_id,
-    text: "Scegli un'azione:",
-    reply_markup: keyboard
-  )
-end
-
-
-
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "Scegli un'azione:",
+      reply_markup: keyboard,
+    )
+  end
 
   # ===================== LISTA COMPATTA =====================
   def self.genera_lista_compatta_old(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0, target_thread_id = nil)
