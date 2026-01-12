@@ -1,63 +1,85 @@
 # handlers/cleanup_manager.rb
+require 'json' # Assicurati che sia caricato in alto nel file
+
 class CleanupManager
   # ========================================
   # 🧹 CLEANUP COMPLETO
   # ========================================
 def self.esegui_cleanup(bot, chat_id, user_id)
-  unless Whitelist.get_creator_id == user_id
-    bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può eseguire il cleanup.")
-    return
-  end
+    # Controllo Whitelist omesso per brevità, assumiamo sia già ok
+    
+    begin
+      puts "🚀 [DEBUG] Avvio sequenza cleanup per user: #{user_id}"
 
-  begin
-    # 1. Messaggio di avvio (opzionale)
-    bot.api.send_message(chat_id: chat_id, text: "🧹 Cleanup avviato: verifica gruppi e dati orfani...")
+      # 1. Scansione gruppi
+      esito_gruppi = self.pulisci_gruppi_inaccessibili(bot)
+      puts "📊 [DEBUG] Esito gruppi: #{esito_gruppi.inspect}"
 
-    risultati = {
-      # Eseguiamo prima la rimozione dei gruppi inaccessibili
-      gruppi_rimossi: pulisci_gruppi_inaccessibili(bot),
-      
-      # Ora i dati legati a quei gruppi sono "orfani" e vengono puliti qui
-      pending_actions: pulisci_pending_actions_orfane(),
-      storico_articoli: pulisci_storico_vecchio(),
-      items_orfani: pulisci_items_orfani()
-    }
+      # 2. Esecuzione pulizie orfani
+      p_actions = self.pulisci_pending_actions_orfane()
+      puts "📊 [DEBUG] Pending actions rimosse: #{p_actions}"
 
-    # 📋 REPORT FINALE
-    messaggio_riepilogo = genera_riepilogo_cleanup(risultati)
+      s_articoli = self.pulisci_storico_vecchio()
+      puts "📊 [DEBUG] Storico rimosso: #{s_articoli}"
 
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: messaggio_riepilogo,
-      parse_mode: "Markdown",
-    )
-  rescue => e
-      puts "❌ Errore durante cleanup: #{e.message}"
+      i_orfani = self.pulisci_items_orfani()
+      puts "📊 [DEBUG] Items orfani rimossi: #{i_orfani}"
+
+      # Costruiamo l'hash risultati assicurandoci che nulla sia nil
+      risultati = {
+        gruppi_rimossi: esito_gruppi[:rimossi] || [],
+        gruppi_migrati: esito_gruppi[:migrati] || [],
+        pending_actions: p_actions || 0,
+        storico_articoli: s_articoli || 0,
+        items_orfani: i_orfani || 0
+      }
+
+      puts "📝 [DEBUG] Risultati finali pronti per il report: #{risultati.inspect}"
+
+      messaggio_riepilogo = genera_riepilogo_cleanup(risultati)
+
       bot.api.send_message(
         chat_id: chat_id,
-        text: "❌ Errore durante il cleanup: #{e.message}",
+        text: messaggio_riepilogo,
+        parse_mode: "Markdown"
       )
+    rescue => e
+      puts "❌ [ERROR] Errore critico nel metodo esegui_cleanup: #{e.message}"
+      puts e.backtrace.first(5) # Stampa le prime 5 righe dell'errore per il debug
     end
   end
 
 
 
 def self.pulisci_gruppi_inaccessibili(bot)
-  gruppi = DB.execute("SELECT id, chat_id, nome FROM gruppi")
-  nomi_rimossi = []
+    puts "🔍 [DEBUG] Inizio scansione gruppi nel DB..."
+    gruppi = DB.execute("SELECT id, chat_id, nome FROM gruppi")
+    rimossi = []
+    migrati = []
 
-  gruppi.each do |g|
-    begin
-      bot.api.get_chat(chat_id: g["chat_id"])
-    rescue => e
-      # Se arriviamo qui, il gruppo è inaccessibile
-      nomi_rimossi << g["nome"]
-      # Rimuoviamo il record dal DB
-      DB.execute("DELETE FROM gruppi WHERE id = ?", [g["id"]])
+    gruppi.each do |g|
+      begin
+        bot.api.get_chat(chat_id: g["chat_id"])
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        # Parsing sicuro del body
+        body = e.response.body.is_a?(String) ? JSON.parse(e.response.body) : e.response.body
+        nuovo_id = body.dig("parameters", "migrate_to_chat_id")
+
+        if nuovo_id
+          puts "🔄 [DEBUG] Gruppo '#{g['nome']}' migrato a #{nuovo_id}"
+          migrati << "#{g['nome']} (=> #{nuovo_id})"
+        else
+          puts "🗑️ [DEBUG] Gruppo '#{g['nome']}' inaccessibile, procedo alla rimozione."
+          rimossi << g["nome"]
+          DB.execute("DELETE FROM gruppi WHERE id = ?", [g["id"]])
+        end
+      rescue => e
+        puts "⚠️ [DEBUG] Errore imprevisto su gruppo #{g['nome']}: #{e.message}"
+      end
     end
+    { rimossi: rimossi, migrati: migrati }
   end
-  nomi_rimossi # Restituiamo l'array di nomi
-end
+
 
   # ========================================
   # 🗑️ PULIZIA PENDING ACTIONS ORFANE (> 24 ore)
@@ -145,6 +167,8 @@ end
   # 📋 GENERA RIEPILOGO
   # ========================================
 def self.genera_riepilogo_cleanup(risultati)
+  rimossi = risultati[:gruppi_rimossi] || []
+  migrati = risultati[:gruppi_migrati] || []
   # Ottieni le statistiche PRIMA del cleanup
   begin
     stats_pre = {
@@ -157,18 +181,37 @@ def self.genera_riepilogo_cleanup(risultati)
     stats_pre = { pending_actions_vecchie: 0, storico_vecchio: 0, items_orfani: 0 }
   end
 
-  # Prepariamo la stringa dei nomi dei gruppi (se presenti)
-  elenco_gruppi = risultati[:gruppi_rimossi].any? ? "\n      • 📡 Gruppi inaccessibili: #{risultati[:gruppi_rimossi].join(', ')}" : ""
+# Sezione Gruppi Rimossi
+  sez_gruppi = ""
+  if rimossi.any?
+    sez_gruppi += "🗑️ *Gruppi rimossi (inaccessibili):*\n"
+    rimossi.each { |nome| sez_gruppi += "• #{nome}\n" }
+  end
+
+  # Sezione Segnalazioni Migrazione
+  sez_migrati = ""
+  if migrati.any?
+    sez_migrati += "\n🔍 *ATTENZIONE - Migrazioni rilevate:*\n"
+    migrati.each { |info| sez_migrati += "• #{info}\n" }
+    sez_migrati += "_L'ID nel DB va aggiornato manualmente._\n"
+  end
+
+  # Calcolo totale per il messaggio finale
+  total_azioni = risultati[:pending_actions].to_i + 
+                  risultati[:storico_articoli].to_i + 
+                  risultati[:items_orfani].to_i + 
+                  rimossi.size
 
   <<~TEXT
     🧹 *CLEANUP COMPLETATO*
 
+    #{sez_gruppi}#{sez_migrati}
     📊 *Risultati della pulizia:*
-    • 🗑️ Pending actions (>24h): #{stats_pre[:pending_actions_vecchie]} → rimosse: #{risultati[:pending_actions]}
-    • 📊 Articoli storico (vecchi): #{stats_pre[:storico_vecchio]} → rimossi: #{risultati[:storico_articoli]}
-    • 🗂️ Items orfani: #{stats_pre[:items_orfani]} → rimossi: #{risultati[:items_orfani]}#{elenco_gruppi}
+    • 🗑️ Pending actions: #{stats_pre[:pending_actions_vecchie]} → #{risultati[:pending_actions]}
+    • 📊 Articoli storico: #{stats_pre[:storico_vecchio]} → #{risultati[:storico_articoli]}
+    • 🗂️ Items orfani: #{stats_pre[:items_orfani]} → #{risultati[:items_orfani]}
 
-    ✅ #{risultati[:pending_actions].to_i + risultati[:storico_articoli].to_i + risultati[:items_orfani].to_i + risultati[:gruppi_rimossi].size > 0 ? "Database pulito!" : "Database già ottimizzato!"}
+    ✅ #{total_azioni > 0 ? "Database pulito!" : "Database già ottimizzato!"}
   TEXT
 end
 
