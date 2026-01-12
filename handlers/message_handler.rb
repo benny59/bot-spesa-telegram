@@ -2,6 +2,8 @@
 require_relative "storico_manager"
 require_relative "../models/pending_action"
 require_relative "../models/context"
+require_relative "../handlers/cleanup_manager"
+
 require "json"
 require_relative "../utils/logger"
 require "rmagick"
@@ -48,6 +50,8 @@ class MessageHandler
   end
 
   def self.route_private(bot, msg, context)
+  bot_username = bot.api.get_me["result"]["username"] rescue "il_tuo_bot_username"
+
     # --- FISSA QUI ---
     chat_id = msg.chat.id
     user_id = msg.from.id
@@ -60,6 +64,17 @@ class MessageHandler
   # dobbiamo cancellare le azioni in sospeso prima di procedere.
      
     case msg.text
+       when "/listagruppi", "/listagruppi@#{bot_username}"
+       handle_listagruppi(bot, chat_id, user_id)
+    
+        when "/whois_creator"
+      handle_whois_creator(bot, chat_id, user_id)
+    when "/cleanup"
+      if Whitelist.is_creator?(user_id)
+        CleanupManager.esegui_cleanup(bot, chat_id, user_id)
+      else
+        bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può usare questo comando.")
+      end
 
     when "/miei", "📋 I MIEI ARTICOLI"
       ctx = Context.from_message(msg)
@@ -88,28 +103,31 @@ class MessageHandler
       else
         bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
       end
-when "➕ AGGIUNGI PRODOTTO"
-  if config
-    # 1. Pulizia precauzionale di azioni vecchie
-    PendingAction.clear(chat_id: context.chat_id, topic_id: config["topic_id"])
-    PendingAction.clear(chat_id: context.chat_id, topic_id: 0)
+    when "➕ AGGIUNGI PRODOTTO"
+      if config
+        # 1. Pulizia precauzionale di azioni vecchie
+        PendingAction.clear(chat_id: context.chat_id, topic_id: config["topic_id"])
+        PendingAction.clear(chat_id: context.chat_id, topic_id: 0)
 
-    # 2. Salviamo l'azione pendente usando i dati della config attiva
-    # Questo emula esattamente ciò che fa il CallbackHandler nel gruppo
-    DB.execute(
-      "INSERT INTO pending_actions (chat_id, action, gruppo_id, topic_id, creato_il) VALUES (?, ?, ?, ?, datetime('now'))",
-      [context.chat_id, "add:#{msg.from.first_name}", config["db_id"], config["topic_id"]]
-    )
+        # 2. Salviamo l'azione pendente usando i dati della config attiva
+        # Questo emula esattamente ciò che fa il CallbackHandler nel gruppo
+        DB.execute(
+          "INSERT INTO pending_actions (chat_id, action, gruppo_id, topic_id, creato_il) VALUES (?, ?, ?, ?, datetime('now'))",
+          [context.chat_id, "add:#{msg.from.first_name}", config["db_id"], config["topic_id"]]
+        )
 
-    # 3. Risposta all'utente
-    bot.api.send_message(
-      chat_id: context.chat_id,
-      text: "✍️ <b>#{msg.from.first_name}</b>, scrivi gli articoli per il reparto <b>#{config['topic_name']}</b>:",
-      parse_mode: "HTML"
-    )
-  else
-    bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
-  end
+        # 3. Risposta all'utente
+        bot.api.send_message(
+          chat_id: context.chat_id,
+          text: "✍️ <b>#{msg.from.first_name}</b>, scrivi gli articoli per il reparto <b>#{config["topic_name"]}</b>:",
+          parse_mode: "HTML",
+        )
+      else
+        bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
+      end
+  
+  
+  
       when "/newgroup"
       handle_newgroup(bot, msg, chat_id, user_id)
     when "/whitelist_show"
@@ -374,47 +392,31 @@ when "➕ AGGIUNGI PRODOTTO"
     end
   end
 
-  def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
-    keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
-      inline_keyboard: [[
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "🛒 MOSTRA LISTA AGGIORNATA",
-          callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}",
-        ),
-      ]],
-    )
-
-    thread_id = (topic_id.to_i > 0) ? topic_id.to_i : nil
-
-    begin
-      res = bot.api.send_message(
-        chat_id: chat_id,
-        message_thread_id: thread_id,
-        text: "📌 **Punto di Accesso Rapido**\nUsa il tasto qui sotto per richiamare la lista spesa aggiornata.",
-        reply_markup: keyboard,
-        parse_mode: "Markdown",
+def self.setup_pinned_access(bot, chat_id, gruppo_id, topic_id)
+  keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+    inline_keyboard: [[
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "🛒 MOSTRA LISTA AGGIORNATA",
+        # Cambiamo il prefisso in pin_refresh per distinguerlo dal tasto "aggiorna" della lista
+        callback_data: "pin_refresh:#{gruppo_id}:#{topic_id}"
       )
+    ]]
+  )
 
-      msg_id = res["result"]["message_id"] rescue res.message_id
+  thread_id = (topic_id.to_i > 0) ? topic_id.to_i : nil
 
-      begin
-        bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
-        puts "✅ [SETUP_PIN] Messaggio fissato nel topic #{topic_id}"
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        if e.message.include?("not enough rights")
-          # Avvisa l'utente nel topic se il bot non è admin
-          bot.api.send_message(
-            chat_id: chat_id,
-            message_thread_id: thread_id,
-            text: "⚠️ **Attenzione**: Il messaggio è stato inviato ma non ho i permessi per fissarlo in alto. Aggiungimi come Amministratore con permesso di 'Fissare messaggi'.",
-          )
-        end
-        puts "❌ Errore Pin: #{e.message}"
-      end
-    rescue => e
-      puts "❌ Errore Invio: #{e.message}"
-    end
-  end
+  res = bot.api.send_message(
+    chat_id: chat_id,
+    message_thread_id: thread_id,
+    text: "📌 **Punto di Accesso Rapido**\nUsa il tasto qui sotto per richiamare la lista spesa in questo topic.",
+    reply_markup: keyboard,
+    parse_mode: "Markdown"
+  )
+
+  msg_id = res["result"]["message_id"] rescue res.message_id
+  bot.api.pin_chat_message(chat_id: chat_id, message_id: msg_id)
+end
+
 
   def self.handle_photo_with_caption(bot, msg, chat_id, user_id)
     caption = msg.caption.strip
@@ -701,9 +703,10 @@ PendingAction.clear(chat_id: context.chat_id, topic_id: pending["topic_id"])
   # GROUP / SUPERGROUP
   # =============================
   def self.route_group(bot, msg, context)
+        TopicManager.update_from_msg(msg)
+
     config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{context.user_id}"])
     config = config_row ? JSON.parse(config_row["value"]) : nil
-
     gruppo = GroupManager.get_gruppo_by_chat_id(context.chat_id)
 
     # --- AUTO-AGGANCIAMENTO ---
@@ -729,26 +732,31 @@ PendingAction.clear(chat_id: context.chat_id, topic_id: pending["topic_id"])
 
     case msg.text
 
-    when "/setup_pin"
-      # Recuperiamo l'ID interno del gruppo dal DB (già caricato all'inizio del metodo)
-      gruppo_id = gruppo ? gruppo["id"] : nil
-
-      if gruppo_id
-        puts "📍 [SETUP_PIN] Eseguo per Gruppo DB:#{gruppo_id} nel Chat:#{context.chat_id} Topic:#{current_topic_id}"
-
-        # Invocazione del metodo di supporto (definiscilo sotto o nella stessa classe)
-        self.setup_pinned_access(bot, context.chat_id, gruppo_id, current_topic_id)
-
-        # Pulizia: eliminiamo il comando dell'utente per tenere pulito il topic
-        bot.api.delete_message(chat_id: context.chat_id, message_id: msg.message_id) rescue nil
-      else
-        bot.api.send_message(
-          chat_id: context.chat_id,
-          text: "⚠️ Errore: Gruppo non registrato.",
-          message_thread_id: (current_topic_id != 0 ? current_topic_id : nil),
-        )
-      end
-    when /^\/addcartagruppo/
+when "/setup_pin"
+  config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
+  config = config_row ? JSON.parse(config_row["value"]) : nil
+  
+  if config
+    # PRENDIAMO IL TOPIC ATTUALE DAL MESSAGGIO, NON DALLA CONFIG
+    current_topic = msg.message_thread_id.to_i 
+    
+    # Aggiorniamo la config al volo per coerenza
+    config["topic_id"] = current_topic
+    
+    puts "📍 [SETUP_PIN] Forzo Topic: #{current_topic}"
+    
+    self.setup_pinned_access(bot, config["chat_id"], config["db_id"], current_topic)
+    
+    bot.api.send_message(
+      chat_id: user_id, 
+      text: "✅ Pin configurato per il topic corrente (ID: #{current_topic})"
+    )
+  else
+    bot.api.send_message(chat_id: user_id, text: "⚠️ Usa /private nel topic desiderato.")
+  end
+  
+    
+      when /^\/addcartagruppo/
       gruppo_id = gruppo ? gruppo["id"] : nil
       return if gruppo_id.nil?
 

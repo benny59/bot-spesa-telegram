@@ -18,6 +18,24 @@ class CallbackHandler
     user_id = callback.from.id
 
     case data
+    when /^pin_refresh:(\d+):(\d+)$/
+  gruppo_id = $1.to_i
+  topic_id = $2.to_i
+
+  # Forza l'invio di un NUOVO messaggio passando nil come message_id
+  KeyboardGenerator.genera_lista(
+    bot,
+    callback.message.chat.id,
+    gruppo_id,
+    callback.from.id,
+    nil, # <--- Questo impedisce al tasto di sparire!
+    0,
+    topic_id
+  )
+
+  # Rispondi per togliere l'orologio dal tasto
+  bot.api.answer_callback_query(callback_query_id: callback.id, text: "Lista aggiornata nel topic! 🛒")
+  
     when /^cancella_tutti:(\d+)(?::(\d+))?$/
       handle_cancella_tutti(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
     when /^toggle_view_mode:(\d+)(?::(\d+))?$/
@@ -28,27 +46,32 @@ when /^refresh_lista:(\d+):(\d+)$/
   gruppo_id = $1.to_i
   topic_id = $2.to_i
 
-  # Eseguiamo l'aggiornamento esattamente come fa il toggle
-  # Parametri: bot, chat_id, gruppo_id, user_id, message_id, page, topic_id
+  # Identifichiamo se il click proviene dal messaggio pinnato.
+  # Possiamo farlo controllando se il testo del messaggio contiene la stringa del setup.
+  is_pinned_access = callback.message.text.to_s.include?("Punto di Accesso")
+
+  # Decidiamo l'ID messaggio: 
+  # - Se è il pin, passiamo nil (genera un NUOVO messaggio)
+  # - Se è una lista normale, passiamo l'ID (esegue l'EDIT)
+  target_message_id = is_pinned_access ? nil : callback.message.message_id
+
   KeyboardGenerator.genera_lista(
     bot, 
-    callback.message.chat.id,    # chat_id (2° param)
-    gruppo_id,              # gruppo_id (3° param)
-    callback.from.id,            # user_id (4° param)
-    callback.message.message_id, # message_id (5° param) -> QUESTO ABILITA L'EDIT
-    0,                      # page (6° param)
-    topic_id                # topic_id (7° param)
+    callback.message.chat.id,
+    gruppo_id,
+    callback.from.id,
+    target_message_id, 
+    0,
+    topic_id
   )
 
-  # Feedback visivo
-  bot.api.answer_callback_query(callback_query_id: callback.id, text: "Lista sincronizzata! 🔄")
+  bot.api.answer_callback_query(callback_query_id: callback.id, text: "Lista caricata! 🛒")
   
-  # Notifica al gruppo se siamo in privato (opzionale)
+  # Notifica al gruppo (manteniamo la tua logica esistente)
   ctx = Context.from_callback(callback)
   if ctx.private_chat?
     Context.notifica_gruppo_se_privato(bot, callback.from.id, "🔄 #{callback.from.first_name} ha aggiornato la lista.")
   end
-  
       when /^lista_page:(\d+):(\d+):(\d+)$/
       gruppo_id = $1.to_i
       nuova_pagina = $2.to_i
