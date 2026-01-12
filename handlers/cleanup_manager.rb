@@ -3,31 +3,35 @@ class CleanupManager
   # ========================================
   # 🧹 CLEANUP COMPLETO
   # ========================================
-  def self.esegui_cleanup(bot, chat_id, user_id)
-    unless Whitelist.get_creator_id == user_id
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: "❌ Solo il creatore può eseguire il cleanup.",
-      )
-      return
-    end
+def self.esegui_cleanup(bot, chat_id, user_id)
+  unless Whitelist.get_creator_id == user_id
+    bot.api.send_message(chat_id: chat_id, text: "❌ Solo il creatore può eseguire il cleanup.")
+    return
+  end
 
-    begin
-      risultati = {
-        pending_actions: pulisci_pending_actions_orfane(),
-        storico_articoli: pulisci_storico_vecchio(),
-        items_orfani: pulisci_items_orfani(),
-      }
+  begin
+    # 1. Messaggio di avvio (opzionale)
+    bot.api.send_message(chat_id: chat_id, text: "🧹 Cleanup avviato: verifica gruppi e dati orfani...")
 
-      # 📋 REPORT FINALE
-      messaggio_riepilogo = genera_riepilogo_cleanup(risultati)
+    risultati = {
+      # Eseguiamo prima la rimozione dei gruppi inaccessibili
+      gruppi_rimossi: pulisci_gruppi_inaccessibili(bot),
+      
+      # Ora i dati legati a quei gruppi sono "orfani" e vengono puliti qui
+      pending_actions: pulisci_pending_actions_orfane(),
+      storico_articoli: pulisci_storico_vecchio(),
+      items_orfani: pulisci_items_orfani()
+    }
 
-      bot.api.send_message(
-        chat_id: chat_id,
-        text: messaggio_riepilogo,
-        parse_mode: "Markdown",
-      )
-    rescue => e
+    # 📋 REPORT FINALE
+    messaggio_riepilogo = genera_riepilogo_cleanup(risultati)
+
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: messaggio_riepilogo,
+      parse_mode: "Markdown",
+    )
+  rescue => e
       puts "❌ Errore durante cleanup: #{e.message}"
       bot.api.send_message(
         chat_id: chat_id,
@@ -35,6 +39,25 @@ class CleanupManager
       )
     end
   end
+
+
+
+def self.pulisci_gruppi_inaccessibili(bot)
+  gruppi = DB.execute("SELECT id, chat_id, nome FROM gruppi")
+  nomi_rimossi = []
+
+  gruppi.each do |g|
+    begin
+      bot.api.get_chat(chat_id: g["chat_id"])
+    rescue => e
+      # Se arriviamo qui, il gruppo è inaccessibile
+      nomi_rimossi << g["nome"]
+      # Rimuoviamo il record dal DB
+      DB.execute("DELETE FROM gruppi WHERE id = ?", [g["id"]])
+    end
+  end
+  nomi_rimossi # Restituiamo l'array di nomi
+end
 
   # ========================================
   # 🗑️ PULIZIA PENDING ACTIONS ORFANE (> 24 ore)
@@ -121,30 +144,34 @@ class CleanupManager
   # ========================================
   # 📋 GENERA RIEPILOGO
   # ========================================
-  def self.genera_riepilogo_cleanup(risultati)
-    # Ottieni le statistiche PRIMA del cleanup (dove possibile)
-    begin
-      stats_pre = {
-        pending_actions_vecchie: DB.get_first_value("SELECT COUNT(*) FROM pending_actions WHERE creato_il < datetime('now', '-1 day')") || 0,
-        storico_vecchio: DB.get_first_value("SELECT COUNT(*) FROM storico_articoli WHERE conteggio = 1 AND ultima_aggiunta < datetime('now', '-1 year')") || 0,
-        items_orfani: DB.get_first_value("SELECT COUNT(*) FROM items WHERE gruppo_id NOT IN (SELECT id FROM gruppi)") || 0,
-      }
-    rescue => e
-      puts "❌ Errore statistiche pre-cleanup: #{e.message}"
-      stats_pre = { pending_actions_vecchie: 0, storico_vecchio: 0, items_orfani: 0 }
-    end
-
-    <<~TEXT
-      🧹 *CLEANUP COMPLETATO*
-
-      📊 *Risultati della pulizia:*
-      • 🗑️ Pending actions (>24h): #{stats_pre[:pending_actions_vecchie]} → rimosse: #{risultati[:pending_actions]}
-      • 📊 Articoli storico (vecchi): #{stats_pre[:storico_vecchio]} → rimossi: #{risultati[:storico_articoli]}
-      • 🗂️ Items orfani: #{stats_pre[:items_orfani]} → rimossi: #{risultati[:items_orfani]}
-
-      ✅ #{risultati.values.sum > 0 ? "Database pulito!" : "Database già ottimizzato!"}
-    TEXT
+def self.genera_riepilogo_cleanup(risultati)
+  # Ottieni le statistiche PRIMA del cleanup
+  begin
+    stats_pre = {
+      pending_actions_vecchie: DB.get_first_value("SELECT COUNT(*) FROM pending_actions WHERE creato_il < datetime('now', '-1 day')") || 0,
+      storico_vecchio: DB.get_first_value("SELECT COUNT(*) FROM storico_articoli WHERE conteggio = 1 AND ultima_aggiunta < datetime('now', '-1 year')") || 0,
+      items_orfani: DB.get_first_value("SELECT COUNT(*) FROM items WHERE gruppo_id NOT IN (SELECT id FROM gruppi)") || 0,
+    }
+  rescue => e
+    puts "❌ Errore statistiche pre-cleanup: #{e.message}"
+    stats_pre = { pending_actions_vecchie: 0, storico_vecchio: 0, items_orfani: 0 }
   end
+
+  # Prepariamo la stringa dei nomi dei gruppi (se presenti)
+  elenco_gruppi = risultati[:gruppi_rimossi].any? ? "\n      • 📡 Gruppi inaccessibili: #{risultati[:gruppi_rimossi].join(', ')}" : ""
+
+  <<~TEXT
+    🧹 *CLEANUP COMPLETATO*
+
+    📊 *Risultati della pulizia:*
+    • 🗑️ Pending actions (>24h): #{stats_pre[:pending_actions_vecchie]} → rimosse: #{risultati[:pending_actions]}
+    • 📊 Articoli storico (vecchi): #{stats_pre[:storico_vecchio]} → rimossi: #{risultati[:storico_articoli]}
+    • 🗂️ Items orfani: #{stats_pre[:items_orfani]} → rimossi: #{risultati[:items_orfani]}#{elenco_gruppi}
+
+    ✅ #{risultati[:pending_actions].to_i + risultati[:storico_articoli].to_i + risultati[:items_orfani].to_i + risultati[:gruppi_rimossi].size > 0 ? "Database pulito!" : "Database già ottimizzato!"}
+  TEXT
+end
+
   # ========================================
   # 🔍 STATISTICHE DATABASE (opzionale)
   # ========================================

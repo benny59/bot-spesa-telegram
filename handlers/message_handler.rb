@@ -703,7 +703,9 @@ PendingAction.clear(chat_id: context.chat_id, topic_id: pending["topic_id"])
   # GROUP / SUPERGROUP
   # =============================
   def self.route_group(bot, msg, context)
-        TopicManager.update_from_msg(msg)
+  @bot_username ||= bot.api.get_me.username rescue "spesadevmb_bot"
+
+     TopicManager.update_from_msg(msg)
 
     config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{context.user_id}"])
     config = config_row ? JSON.parse(config_row["value"]) : nil
@@ -722,15 +724,34 @@ PendingAction.clear(chat_id: context.chat_id, topic_id: pending["topic_id"])
     end
     # --------------------------
 
-    TopicManager.update_from_msg(msg)
-    # estrai sempre user_id e topic_id all'inizio del metodo
     user_id = msg.from&.id
     # usa prima context.topic_id (normalizzato), poi msg.message_thread_id, poi fallback 0
     current_topic_id = (context.respond_to?(:topic_id) && context.topic_id && context.topic_id != 0) ? context.topic_id : (msg.message_thread_id || 0)
 
     puts "DEBUG MSG: '#{msg.text}' in chat #{context.chat_id} topic #{current_topic_id}"
 
-    case msg.text
+current_topic = 0
+if msg.respond_to?(:message_thread_id) && msg.message_thread_id
+  current_topic = msg.message_thread_id.to_i
+end
+
+
+testo_pulito = msg.text.to_s.gsub("@#{@bot_username}", "").strip
+    case testo_pulito
+# Forza l'estrazione del topic_id in modo che non sia mai nullo o vuoto
+
+
+
+when "/ss", "/share"
+  puts "DEBUG: Topic rilevato: #{current_topic}"
+  gruppo = GroupManager.get_gruppo_by_chat_id(msg.chat.id)
+  if gruppo
+    # Usiamo la variabile current_topic appena estratta
+    self.handle_share_text(bot, msg, gruppo, current_topic)
+  else
+    bot.api.send_message(chat_id: msg.chat.id, text: "⚠️ Errore: Gruppo non configurato.")
+  end
+  
 
 when "/setup_pin"
   config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
@@ -836,6 +857,43 @@ when "/setup_pin"
       text: "👋 Bot avviato",
     )
   end
+  
+  
+def self.handle_share_text(bot, msg, gruppo, topic_id)
+puts "in handle_share_text topic_id è #{topic_id}"
+  # CORREZIONE: Passiamo sia gruppo_id che topic_id come richiesto da lista.rb
+  items = Lista.tutti(gruppo["id"], topic_id)
+  target_thread = (topic_id.to_i > 0) ? topic_id.to_i : nil
+  
+  if items.empty?
+    bot.api.send_message(
+      chat_id: msg.chat.id,
+      message_thread_id: topic_id,
+      text: "📝 La lista per questo reparto è vuota."
+    )
+    return
+  end
+
+  # Costruzione del testo (rimane uguale, ma gli items sono già filtrati dal metodo Lista.tutti)
+  testo = "🛒 *LISTA SPESA* 🛒\n"
+  testo += "📍 *Reparto:* #{DB.get_first_value("SELECT nome FROM topics WHERE topic_id = ?", [topic_id]) || 'Generale'}\n\n"
+
+  items.each do |item|
+    status = item["comprato"] == 1 ? "✅" : "▫️"
+    testo += "#{status} *#{item['nome']}*\n"
+  end
+
+  testo += "\n" + "-"*15
+  testo += "\n_Inoltra questo messaggio per condividere la lista!_"
+
+  bot.api.send_message(
+    chat_id: msg.chat.id,
+    message_thread_id: target_thread,
+    text: testo,
+    parse_mode: "Markdown"
+  )
+end
+
 
   def self.process_add_items(bot:, text:, context:, gruppo:, msg:)
     return if text.nil? || text.strip.empty?
