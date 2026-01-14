@@ -52,33 +52,66 @@ def self.esegui_cleanup(bot, chat_id, user_id)
 
 
 def self.pulisci_gruppi_inaccessibili(bot)
-    puts "🔍 [DEBUG] Inizio scansione gruppi nel DB..."
-    gruppi = DB.execute("SELECT id, chat_id, nome FROM gruppi")
-    rimossi = []
-    migrati = []
+  puts "🔍 [DEBUG] Inizio scansione e sonda gruppi..."
+  gruppi = DB.execute("SELECT id, chat_id, nome FROM gruppi")
+  rimossi = []
+  migrati = []
+  svegliati = []
 
-    gruppi.each do |g|
-      begin
-        bot.api.get_chat(chat_id: g["chat_id"])
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        # Parsing sicuro del body
-        body = e.response.body.is_a?(String) ? JSON.parse(e.response.body) : e.response.body
-        nuovo_id = body.dig("parameters", "migrate_to_chat_id")
-
-        if nuovo_id
-          puts "🔄 [DEBUG] Gruppo '#{g['nome']}' migrato a #{nuovo_id}"
-          migrati << "#{g['nome']} (=> #{nuovo_id})"
-        else
-          puts "🗑️ [DEBUG] Gruppo '#{g['nome']}' inaccessibile, procedo alla rimozione."
-          rimossi << g["nome"]
-          DB.execute("DELETE FROM gruppi WHERE id = ?", [g["id"]])
-        end
-      rescue => e
-        puts "⚠️ [DEBUG] Errore imprevisto su gruppo #{g['nome']}: #{e.message}"
+  gruppi.each do |g|
+    chat_id_str = g["chat_id"].to_s
+    begin
+      chat_info = bot.api.get_chat(chat_id: g["chat_id"])
+      
+      if chat_info.title && chat_info.title != g["nome"]
+        DB.execute("UPDATE gruppi SET nome = ? WHERE id = ?", [chat_info.title, g["id"]])
+        puts "📝 [UPDATE] Nome sincronizzato: #{g['nome']} -> #{chat_info.title}"
+        g["nome"] = chat_info.title
       end
+
+      if !chat_id_str.start_with?("-100")
+        bot.api.send_message(chat_id: g["chat_id"], text: "📡 *Sonda Visibilità* attiva.")
+        svegliati << g["nome"]
+        puts "📡 [PING] Gruppo semplice svegliato: #{g['nome']}"
+      end
+
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      body = e.response.body.is_a?(String) ? JSON.parse(e.response.body) : e.response.body
+      nuovo_id = body.dig("parameters", "migrate_to_chat_id")
+
+      if nuovo_id
+        # --- LOGICA MERGE CORRETTA ---
+        esistente = DB.get_first_row("SELECT id FROM gruppi WHERE chat_id = ?", [nuovo_id])
+
+        if esistente
+          puts "🔗 [MERGE] Trovato doppione con ID: #{esistente['id']}. Fondendo record #{g['id']} -> #{esistente['id']}..."
+          
+          # Se la tua tabella items usa 'gruppo_id', spostiamo gli articoli sul record esistente
+          # Usiamo un BEGIN/RESCUE interno per evitare crash se la colonna ha un nome diverso
+          begin
+            DB.execute("UPDATE items SET gruppo_id = ? WHERE gruppo_id = ?", [esistente['id'], g['id']])
+          rescue => e_sql
+            puts "⚠️ [INFO] Salto update items: #{e_sql.message} (probabile struttura diversa)"
+          end
+
+          DB.execute("DELETE FROM gruppi WHERE id = ?", [g["id"]])
+          migrati << "#{g['nome']} (Unificato)"
+        else
+          puts "🔄 [DEBUG] Gruppo '#{g['nome']}' migrato a #{nuovo_id}"
+          DB.execute("UPDATE gruppi SET chat_id = ? WHERE id = ?", [nuovo_id, g["id"]])
+          migrati << "#{g['nome']} (=> #{nuovo_id})"
+        end
+      else
+        puts "🗑️ [DEBUG] Gruppo '#{g['nome']}' inaccessibile. Rimuovo."
+        rimossi << g["nome"]
+        DB.execute("DELETE FROM gruppi WHERE id = ?", [g["id"]])
+      end
+    rescue => e
+      puts "⚠️ [DEBUG] Errore imprevisto su #{g['nome']}: #{e.message}"
     end
-    { rimossi: rimossi, migrati: migrati }
   end
+  { rimossi: rimossi, migrati: migrati, svegliati: svegliati }
+end
 
 
   # ========================================

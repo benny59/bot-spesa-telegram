@@ -146,16 +146,13 @@ class Context
     end
   end
 
-  def self.show_group_selector(bot, user_id, message_id = nil)
+def self.show_group_selector(bot, user_id, message_id = nil)
     # 1. Recupero configurazione dal DB
     current_config = nil
     config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
     current_config = JSON.parse(config_row["value"]) rescue nil if config_row
 
-    # Query che trova:
-    # - I gruppi creati dall'utente
-    # - I gruppi dove l'utente è stato visto (tramite la tabella items o altre interazioni)
-    # - Includiamo tutti i topic censiti per quei gruppi
+    # Query che trova i gruppi e i topic relativi
     query = <<-SQL
     SELECT DISTINCT g.id, g.chat_id, g.nome as g_nome, 
            COALESCE(t.topic_id, 0) as topic_id,
@@ -174,13 +171,16 @@ class Context
 
     return bot.api.send_message(chat_id: user_id, text: "❌ Nessuna lista attiva.") if rows.empty?
 
-    # 2. Build della tastiera gruppi
+    # 2. Build della tastiera gruppi con distinzione icone
     keyboard = rows.map do |row|
       is_active = current_config &&
                   current_config["db_id"].to_i == row["id"].to_i &&
                   current_config["topic_id"].to_i == row["topic_id"].to_i
 
-      prefix = is_active ? "✅ " : "🏠 "
+      # MODIFICA SOLO ICONA: 👥 per Supergruppo (-100), 🏠 per Gruppo Legacy
+      icona_tipo = row["chat_id"].to_s.start_with?("-100") ? "👥 " : "🏠 "
+      prefix = is_active ? "✅ #{icona_tipo}" : icona_tipo
+
       t_label = row["t_nome"] || (row["topic_id"] == 0 ? "Generale" : "Topic #{row["topic_id"]}")
 
       [Telegram::Bot::Types::InlineKeyboardButton.new(
@@ -190,8 +190,7 @@ class Context
     end
 
     # 3. Tasti di servizio con Check su Modalità Gruppo
-    # Se current_config è nil, mettiamo il check qui
-    group_mode_label = current_config.nil? ? "✅ Modalità Gruppo" : "👥 Modalità Gruppo"
+    group_mode_label = current_config.nil? ? "✅ Modalità Gruppo" : "💬 Modalità Gruppo"
 
     keyboard << [
       Telegram::Bot::Types::InlineKeyboardButton.new(text: group_mode_label, callback_data: "switch_to_group"),
@@ -221,7 +220,6 @@ class Context
       )
     end
   end
-
   # ========================================
   # Feedback all’utente
   # ========================================

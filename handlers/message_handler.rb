@@ -126,7 +126,8 @@ class MessageHandler
         bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
       end
   
-  
+ when "💳 LE MIE CARTE"
+  CarteFedeltaGruppo.show_user_shared_cards_report(bot, msg.from.id) 
   
       when "/newgroup"
       handle_newgroup(bot, msg, chat_id, user_id)
@@ -140,7 +141,7 @@ class MessageHandler
       Whitelist.is_creator?(user_id) ? handle_pending_requests(bot, chat_id) : invia_errore_admin(bot, chat_id)
     when /^\/start$/
       handle_start(bot, context)
-    when "/private"
+    when "/private", "⚙️ IMPOSTA GRUPPO"
       Context.show_group_selector(bot, context.user_id)
     when "/group", "/exit"
       # 1. Cancelliamo la configurazione dal DB
