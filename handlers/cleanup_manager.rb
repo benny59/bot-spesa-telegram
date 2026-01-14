@@ -10,7 +10,7 @@ def self.esegui_cleanup(bot, chat_id, user_id)
     
     begin
       puts "🚀 [DEBUG] Avvio sequenza cleanup per user: #{user_id}"
-
+puts sonda_gruppi_semplici(bot)
       # 1. Scansione gruppi
       esito_gruppi = self.pulisci_gruppi_inaccessibili(bot)
       puts "📊 [DEBUG] Esito gruppi: #{esito_gruppi.inspect}"
@@ -113,6 +113,31 @@ def self.pulisci_gruppi_inaccessibili(bot)
   { rimossi: rimossi, migrati: migrati, svegliati: svegliati }
 end
 
+def self.sonda_gruppi_semplici(bot)
+  gruppi = DB.execute("SELECT chat_id, nome FROM gruppi")
+  pingati = 0
+
+  gruppi.each do |g|
+    chat_id = g['chat_id'].to_i
+    
+    # Verifichiamo se è un gruppo "semplice" (ID non inizia con -100)
+    # Nota: su Telegram i supergruppi iniziano sempre con -100
+    if chat_id < 0 && !g['chat_id'].to_s.start_with?("-100")
+      begin
+        # Inviamo un messaggio per rendere visibile la chat nel tuo client
+        bot.api.send_message(
+          chat_id: g['chat_id'], 
+          text: "🔍 *Sonda di visibilità*: questo gruppo è ancora attivo nel database del bot."
+        )
+        puts "📡 Ping inviato a: #{g['nome']} (#{g['chat_id']})"
+        pingati += 1
+      rescue => e
+        puts "❌ Impossibile pingare #{g['nome']}: #{e.message}"
+      end
+    end
+  end
+  pingati
+end
 
   # ========================================
   # 🗑️ PULIZIA PENDING ACTIONS ORFANE (> 24 ore)
