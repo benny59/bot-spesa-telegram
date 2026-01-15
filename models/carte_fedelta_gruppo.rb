@@ -108,6 +108,12 @@ class CarteFedeltaGruppo < CarteFedelta
   def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     Logger.debug("show_group_cards called", gruppo_id: gruppo_id, chat_id: chat_id, user_id: user_id, topic_id: topic_id)
 
+if gruppo_id.to_i == 0
+    puts "[DEBUG] Modalità Personale: Recupero carte private per user #{user_id}"
+    # Chiama il metodo che mostra le carte personali dell'utente
+    return CarteFedelta.show_user_cards(bot, user_id) 
+  end
+  
     carte = DB.execute("
       SELECT c.id, c.nome, c.user_id
       FROM #{CARDS_TABLE} c

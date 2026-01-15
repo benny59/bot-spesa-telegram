@@ -147,80 +147,95 @@ class Context
   end
 
 def self.show_group_selector(bot, user_id, message_id = nil)
-    # 1. Recupero configurazione dal DB
-    current_config = nil
+    # 1. Recupero configurazione
     config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
     current_config = JSON.parse(config_row["value"]) rescue nil if config_row
 
-    # Query che trova i gruppi e i topic relativi
-    query = <<-SQL
-    SELECT DISTINCT g.id, g.chat_id, g.nome as g_nome, 
-           COALESCE(t.topic_id, 0) as topic_id,
-           COALESCE(t.nome, CASE WHEN t.topic_id = 0 OR t.topic_id IS NULL THEN 'Generale' ELSE 'Topic ' || t.topic_id END) as t_nome
-    FROM gruppi g
-    LEFT JOIN topics t ON g.chat_id = t.chat_id
-    WHERE g.id IN (
-      SELECT gruppo_id FROM items WHERE creato_da = ?
-      UNION
-      SELECT id FROM gruppi WHERE creato_da = ?
-    )
-    ORDER BY g.nome ASC, topic_id ASC
-  SQL
+    # Identifichiamo se siamo in modalità personale
+    is_personal_active = current_config && current_config["db_id"].to_i == 0
 
+    # 2. Query gruppi (estratta dal tuo file)
+    query = <<-SQL
+      SELECT DISTINCT g.id, g.chat_id, g.nome as g_nome, 
+             COALESCE(t.topic_id, 0) as topic_id,
+             COALESCE(t.nome, CASE WHEN t.topic_id = 0 OR t.topic_id IS NULL THEN 'Generale' ELSE 'Topic ' || t.topic_id END) as t_nome
+      FROM gruppi g
+      LEFT JOIN topics t ON g.chat_id = t.chat_id
+      WHERE g.id IN (SELECT gruppo_id FROM items WHERE creato_da = ? UNION SELECT id FROM gruppi WHERE creato_da = ?)
+      ORDER BY g.nome ASC, topic_id ASC
+    SQL
     rows = DB.execute(query, [user_id, user_id])
 
-    return bot.api.send_message(chat_id: user_id, text: "❌ Nessuna lista attiva.") if rows.empty?
+    # 3. Costruzione Tastiera
+    keyboard = []
+    
+    # --- TASTO LISTA PERSONALE ---
+    personal_prefix = is_personal_active ? "✅ 👤 " : "👤 "
+    keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "#{personal_prefix}LA MIA LISTA (Privata)",
+      callback_data: "private_set:0:#{user_id}:0" 
+    )]
 
-    # 2. Build della tastiera gruppi con distinzione icone
-    keyboard = rows.map do |row|
-      is_active = current_config &&
+    rows.each do |row|
+      is_active = !is_personal_active && current_config &&
                   current_config["db_id"].to_i == row["id"].to_i &&
                   current_config["topic_id"].to_i == row["topic_id"].to_i
 
-      # MODIFICA SOLO ICONA: 👥 per Supergruppo (-100), 🏠 per Gruppo Legacy
       icona_tipo = row["chat_id"].to_s.start_with?("-100") ? "👥 " : "🏠 "
       prefix = is_active ? "✅ #{icona_tipo}" : icona_tipo
+      t_label = row["t_nome"] || "Generale"
 
-      t_label = row["t_nome"] || (row["topic_id"] == 0 ? "Generale" : "Topic #{row["topic_id"]}")
-
-      [Telegram::Bot::Types::InlineKeyboardButton.new(
+      keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "#{prefix}#{row["g_nome"]} (#{t_label})",
-        callback_data: "private_set:#{row["id"]}:#{row["chat_id"]}:#{row["topic_id"]}",
+        callback_data: "private_set:#{row["id"]}:#{row["chat_id"]}:#{row["topic_id"]}"
       )]
     end
 
-    # 3. Tasti di servizio con Check su Modalità Gruppo
-    group_mode_label = current_config.nil? ? "✅ Modalità Gruppo" : "💬 Modalità Gruppo"
-
     keyboard << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: group_mode_label, callback_data: "switch_to_group"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{user_id}:0"),
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: (current_config.nil? ? "✅ Modalità Gruppo" : "💬 Modalità Gruppo"), callback_data: "switch_to_group"),
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{user_id}:0")
     ]
 
+    # --- DEFINIZIONE VARIABILI (Prima dell'uso) ---
     markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
-    text = "🔒 **Seleziona la lista specifica:**\n_(Il check ✅ indica la configurazione attiva)_"
+    
+ # TESTO DINAMICO MIGLIORATO
+    current_label = if current_config
+                      if current_config["db_id"].to_i == 0
+                        "👤 La mia lista (Privata)"
+                      else
+                        "📍 #{current_config['topic_name']}"
+                      end
+                    else
+                      "🚫 Nessun contesto (Default Gruppo)"
+                    end
 
-    # 4. Aggiornamento o Invio
-    if message_id
-      begin
-        bot.api.edit_message_reply_markup(
+    text = "🔒 **Gestione Liste**\nAttivo su: **#{current_label}**"
+
+    # Aggiungi il controllo per evitare l'errore "message is not modified"
+    begin
+      if message_id
+        bot.api.edit_message_text(
           chat_id: user_id,
           message_id: message_id,
+          text: text,
           reply_markup: markup,
+          parse_mode: "Markdown"
         )
-      rescue Telegram::Bot::Exceptions::ResponseError
-        # Ignoriamo l'errore se la tastiera è identica
+      else
+        bot.api.send_message(
+          chat_id: user_id, 
+          text: text, 
+          reply_markup: markup, 
+          parse_mode: "Markdown"
+        )
       end
-    else
-      bot.api.send_message(
-        chat_id: user_id,
-        text: text,
-        reply_markup: markup,
-        parse_mode: "Markdown",
-      )
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      return if e.message.include?("message is not modified")
+      puts "❌ Errore API: #{e.message}"
     end
-  end
-  # ========================================
+end
+# ========================================
   # Feedback all’utente
   # ========================================
   def self.notify_private_activated(bot, user_id, gruppo_id)

@@ -218,89 +218,90 @@ end
   # ========================================
   # ✅ CONFERMA SELEZIONI
 def self.gestisci_conferma_checklist(bot, msg, callback_data)
-    if callback_data =~ /^checklist_confirm:(\d+):(\d*):(\d+)$/
-      gruppo_id = $1.to_i
-      user_id = $2.empty? ? msg.from.id : $2.to_i
-      topic_id = $3.to_i
-      private_chat_id = msg.message.chat.id
+  if callback_data =~ /^checklist_confirm:(\d+):(\d*):(\d+)$/
+    gruppo_id = $1.to_i
+    user_id = $2.empty? ? msg.from.id : $2.to_i
+    topic_id = $3.to_i
+    private_chat_id = msg.message.chat.id
 
-      context_key = "#{user_id}:#{topic_id}"
-      selezioni = @@selezioni_checklist[context_key] || []
-      return false if selezioni.empty?
+    context_key = "#{user_id}:#{topic_id}"
+    selezioni = @@selezioni_checklist[context_key] || []
+    return false if selezioni.empty?
 
-      # --- RECUPERO CONFIG PER VERBOSE ---
-      config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
-      config = config_row ? JSON.parse(config_row["value"]) : nil
-      # ------------------------------------
+    # --- RECUPERO CONFIG PER VERBOSE ---
+    config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
+    config = config_row ? JSON.parse(config_row["value"]) : nil
 
+    # --- MODIFICA PER LISTA PERSONALE (ID 0) ---
+    if gruppo_id == 0
+      gruppo = { "nome" => "Lista Personale", "chat_id" => nil }
+    else
       gruppo = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [gruppo_id])
       return false unless gruppo
-
-      # 1. Inserimento nel database
-      
-# In storico_manager.rb
-selezioni.each do |nome|
-  begin
-    DB.execute(
-      "INSERT INTO items (gruppo_id, creato_da, nome, topic_id) VALUES (?, ?, ?, ?)",
-      [gruppo_id, user_id, nome.downcase.strip, topic_id]
-    )
-    # RIMOSSO: self.aggiorna_da_toggle(...) qui non serve più
-  rescue => e
-    puts "❌ Errore inserimento: #{e.message}"
-  end
-end
-    
-      # 2. Feedback all'utente in chat PRIVATA (Edit del messaggio checklist)
-      bot.api.edit_message_text(
-        chat_id: private_chat_id,
-        message_id: msg.message.message_id,
-        text: "✅ Ho aggiunto #{selezioni.size} articoli alla lista di *#{gruppo["nome"]}*!",
-        parse_mode: "Markdown",
-      )
-
-      # 3. Notifica nel GRUPPO (CORRETTO con test VERBOSE)
-      is_verbose = config && (config['verbose'] == true || config['verbose'] == 1 || config['verbose'] == "true")
-      
-      if is_verbose
-        elenco_testo = selezioni.map { |s| "• #{s.capitalize}" }.join("\n")
-        testo_gruppo = "📋 *Checklist:* #{msg.from.first_name} ha aggiunto:\n#{elenco_testo}"
-        
-        begin
-          bot.api.send_message(
-            chat_id: gruppo["chat_id"],
-            message_thread_id: (topic_id > 0 ? topic_id : nil),
-            text: testo_gruppo,
-            parse_mode: "Markdown",
-          )
-        rescue => e
-          puts "❌ Errore notifica gruppo: #{e.message}"
-        end
-      else
-        puts "🔇 Notifica checklist silenziata per il gruppo (verbose: false)"
-      end
-
-      # --- AGGIORNAMENTO AUTOMATICO LISTA ---
-      # Dopo aver chiuso la checklist, rimandiamo la lista aggiornata
-      if config && config["db_id"]
-         KeyboardGenerator.genera_lista(
-           bot, 
-           private_chat_id, 
-           config["db_id"], 
-           user_id, 
-           nil, # Nuovo messaggio perché abbiamo appena fatto l'edit di quello checklist
-           0, 
-           config["topic_id"] || 0
-         )
-      end
-
-      # Pulizia memoria temporanea
-      @@selezioni_checklist.delete(context_key)
-      return true
     end
-    false
+
+    # 1. Inserimento nel database
+    selezioni.each do |nome|
+      begin
+        DB.execute(
+          "INSERT INTO items (gruppo_id, creato_da, nome, topic_id) VALUES (?, ?, ?, ?)",
+          [gruppo_id, user_id, nome.downcase.strip, topic_id]
+        )
+      rescue => e
+        puts "❌ Errore inserimento: #{e.message}"
+      end
+    end
+    
+    # 2. Feedback all'utente in chat PRIVATA
+    bot.api.edit_message_text(
+      chat_id: private_chat_id,
+      message_id: msg.message.message_id,
+      text: "✅ Ho aggiunto #{selezioni.size} articoli alla lista *#{gruppo["nome"]}*!",
+      parse_mode: "Markdown",
+    )
+
+    # 3. Notifica nel GRUPPO (Solo se non è lista personale e verbose è attivo)
+    is_verbose = config && (config['verbose'] == true || config['verbose'] == 1 || config['verbose'] == "true")
+    
+    if is_verbose && gruppo["chat_id"] # gruppo["chat_id"] è nil se gruppo_id == 0
+      elenco_testo = selezioni.map { |s| "• #{s.capitalize}" }.join("\n")
+      testo_gruppo = "📋 *Checklist:* #{msg.from.first_name} ha aggiunto:\n#{elenco_testo}"
+      
+      begin
+        bot.api.send_message(
+          chat_id: gruppo["chat_id"],
+          message_thread_id: (topic_id > 0 ? topic_id : nil),
+          text: testo_gruppo,
+          parse_mode: "Markdown",
+        )
+      rescue => e
+        puts "❌ Errore notifica gruppo: #{e.message}"
+      end
+    else
+      puts "🔇 Notifica checklist saltata (verbose false o Lista Personale)"
+    end
+
+    # --- AGGIORNAMENTO AUTOMATICO LISTA ---
+    if config && !config["db_id"].nil?
+       KeyboardGenerator.genera_lista(
+         bot, 
+         private_chat_id, 
+         config["db_id"], 
+         user_id, 
+         nil, 
+         0, 
+         config["topic_id"] || 0
+       )
+    end
+
+    # Pulizia memoria temporanea
+    @@selezioni_checklist.delete(context_key)
+    return true
   end
-  # Aggiungi in storico_manager.rb
+  false
+end
+
+ # Aggiungi in storico_manager.rb
   def self.gestisci_click_checklist(bot, msg, callback_data)
     chat_id = msg.message.chat.id
     user_id = msg.from.id
