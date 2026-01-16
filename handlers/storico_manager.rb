@@ -6,38 +6,38 @@ class StoricoManager
   # ========================================
   # 📊 AGGIORNA STORICO - Per toggle articoli
   # ========================================
-# Sostituisci il metodo in storico_manager.rb
-def self.aggiorna_da_toggle(nome_articolo, gruppo_id, incremento, topic_id)
-  nome_normalizzato = nome_articolo.downcase.strip
-  topic_id ||= 0
-  incremento = incremento.to_i
+  # Sostituisci il metodo in storico_manager.rb
+  def self.aggiorna_da_toggle(nome_articolo, gruppo_id, incremento, topic_id)
+    nome_normalizzato = nome_articolo.downcase.strip
+    topic_id ||= 0
+    incremento = incremento.to_i
 
-  storico = DB.get_first_row(
-    "SELECT * FROM storico_articoli WHERE nome = ? AND gruppo_id = ? AND COALESCE(topic_id,0) = ?",
-    [nome_normalizzato, gruppo_id, topic_id]
-  )
+    storico = DB.get_first_row(
+      "SELECT * FROM storico_articoli WHERE nome = ? AND gruppo_id = ? AND COALESCE(topic_id,0) = ?",
+      [nome_normalizzato, gruppo_id, topic_id]
+    )
 
-  if storico
-    # Calcola il nuovo conteggio (non scendere sotto 0)
-    nuovo_conteggio = [storico["conteggio"] + incremento, 0].max
-    
-    DB.execute(
-      "UPDATE storico_articoli 
+    if storico
+      # Calcola il nuovo conteggio (non scendere sotto 0)
+      nuovo_conteggio = [storico["conteggio"] + incremento, 0].max
+
+      DB.execute(
+        "UPDATE storico_articoli 
        SET conteggio = ?, 
            ultima_aggiunta = CASE WHEN ? > 0 THEN datetime('now') ELSE ultima_aggiunta END,
            updated_at = datetime('now') 
        WHERE id = ?",
-      [nuovo_conteggio, incremento, storico["id"]]
-    )
-  elsif incremento > 0
-    # Crea record solo se l'incremento è positivo
-    DB.execute(
-      "INSERT INTO storico_articoli (nome, gruppo_id, topic_id, conteggio, ultima_aggiunta, updated_at)
+        [nuovo_conteggio, incremento, storico["id"]]
+      )
+    elsif incremento > 0
+      # Crea record solo se l'incremento è positivo
+      DB.execute(
+        "INSERT INTO storico_articoli (nome, gruppo_id, topic_id, conteggio, ultima_aggiunta, updated_at)
        VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))",
-      [nome_normalizzato, gruppo_id, topic_id]
-    )
+        [nome_normalizzato, gruppo_id, topic_id]
+      )
+    end
   end
-end
 
   # ========================================
   # ➕ AGGIORNA STORICO - Per aggiunta articoli
@@ -77,10 +77,10 @@ end
 
   # ========================================
   # 📋 GET TOP ARTICOLI - Per checklist
-def self.top_articoli(gruppo_id, topic_id, limite = 10)
-  topic_id ||= 0
-  DB.execute(
-    "SELECT s.nome, s.conteggio, s.ultima_aggiunta
+  def self.top_articoli(gruppo_id, topic_id, limite = 10)
+    topic_id ||= 0
+    DB.execute(
+      "SELECT s.nome, s.conteggio, s.ultima_aggiunta
      FROM storico_articoli s
      WHERE s.gruppo_id = ?
        AND COALESCE(s.topic_id, 0) = ?
@@ -94,10 +94,10 @@ def self.top_articoli(gruppo_id, topic_id, limite = 10)
        )
      ORDER BY s.conteggio DESC, s.ultima_aggiunta DESC
      LIMIT ?",
-    [gruppo_id, topic_id, limite]
-  )
-end
- # ========================================
+      [gruppo_id, topic_id, limite]
+    )
+  end
+  # ========================================
   # 🔍 GET CHECKLIST - Comando /checklist
   # ========================================
   def self.genera_checklist(bot, chat_id, user_id, gruppo_id, topic_id = 0)
@@ -170,138 +170,138 @@ end
   # ========================================
   # 🔁 GESTIONE TOGGLE ARTICOLI
   # ========================================
-def self.gestisci_toggle_checklist(bot, msg, callback_data)
-  if callback_data =~ /^checklist_toggle:(.+):(\d+):(\d*):(\d+)$/
-    nome_articolo = $1
-    gruppo_id = $2.to_i
-    user_id = $3.empty? ? msg.from.id : $3.to_i
-    topic_id = $4.to_i
-    chat_id = msg.message.chat.id 
+  def self.gestisci_toggle_checklist(bot, msg, callback_data)
+    if callback_data =~ /^checklist_toggle:(.+):(\d+):(\d*):(\d+)$/
+      nome_articolo = $1
+      gruppo_id = $2.to_i
+      user_id = $3.empty? ? msg.from.id : $3.to_i
+      topic_id = $4.to_i
+      chat_id = msg.message.chat.id
 
-    context_key = "#{user_id}:#{topic_id}"
-    @@selezioni_checklist[context_key] ||= []
+      context_key = "#{user_id}:#{topic_id}"
+      @@selezioni_checklist[context_key] ||= []
 
-    # Gestiamo solo l'array temporaneo, NO DB UPDATE QUI
-    if @@selezioni_checklist[context_key].include?(nome_articolo)
-      @@selezioni_checklist[context_key].delete(nome_articolo)
-    else
-      @@selezioni_checklist[context_key] << nome_articolo
-    end
-    
-    # Rigenerazione Markup (Usa chat_id definito sopra)
-    top_articoli = self.top_articoli(gruppo_id, topic_id, 10)
-    righe = top_articoli.map do |art|
-      selezionato = @@selezioni_checklist[context_key].include?(art["nome"]) ? "✅" : "➕"
-      [
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "#{selezionato} #{art["nome"].capitalize} (#{art["conteggio"]}x)",
-          callback_data: "checklist_toggle:#{art["nome"]}:#{gruppo_id}:#{user_id}:#{topic_id}"
-        )
+      # Gestiamo solo l'array temporaneo, NO DB UPDATE QUI
+      if @@selezioni_checklist[context_key].include?(nome_articolo)
+        @@selezioni_checklist[context_key].delete(nome_articolo)
+      else
+        @@selezioni_checklist[context_key] << nome_articolo
+      end
+
+      # Rigenerazione Markup (Usa chat_id definito sopra)
+      top_articoli = self.top_articoli(gruppo_id, topic_id, 10)
+      righe = top_articoli.map do |art|
+        selezionato = @@selezioni_checklist[context_key].include?(art["nome"]) ? "✅" : "➕"
+        [
+          Telegram::Bot::Types::InlineKeyboardButton.new(
+            text: "#{selezionato} #{art["nome"].capitalize} (#{art["conteggio"]}x)",
+            callback_data: "checklist_toggle:#{art["nome"]}:#{gruppo_id}:#{user_id}:#{topic_id}",
+          ),
+        ]
+      end
+
+      righe << [
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "✅ Conferma", callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}:#{topic_id}"),
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "checklist_close:#{chat_id}:#{topic_id}"),
       ]
+
+      bot.api.edit_message_reply_markup(
+        chat_id: chat_id,
+        message_id: msg.message.message_id,
+        reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe),
+      )
+      return true
     end
-
-    righe << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "✅ Conferma", callback_data: "checklist_confirm:#{gruppo_id}:#{user_id}:#{topic_id}"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "checklist_close:#{chat_id}:#{topic_id}")
-    ]
-
-    bot.api.edit_message_reply_markup(
-      chat_id: chat_id,
-      message_id: msg.message.message_id,
-      reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: righe)
-    )
-    return true
+    false
   end
-  false
-end
 
   # ========================================
   # ✅ CONFERMA SELEZIONI
-def self.gestisci_conferma_checklist(bot, msg, callback_data)
-  if callback_data =~ /^checklist_confirm:(\d+):(\d*):(\d+)$/
-    gruppo_id = $1.to_i
-    user_id = $2.empty? ? msg.from.id : $2.to_i
-    topic_id = $3.to_i
-    private_chat_id = msg.message.chat.id
+  def self.gestisci_conferma_checklist(bot, msg, callback_data)
+    if callback_data =~ /^checklist_confirm:(\d+):(\d*):(\d+)$/
+      gruppo_id = $1.to_i
+      user_id = $2.empty? ? msg.from.id : $2.to_i
+      topic_id = $3.to_i
+      private_chat_id = msg.message.chat.id
 
-    context_key = "#{user_id}:#{topic_id}"
-    selezioni = @@selezioni_checklist[context_key] || []
-    return false if selezioni.empty?
+      context_key = "#{user_id}:#{topic_id}"
+      selezioni = @@selezioni_checklist[context_key] || []
+      return false if selezioni.empty?
 
-    # --- RECUPERO CONFIG PER VERBOSE ---
-    config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
-    config = config_row ? JSON.parse(config_row["value"]) : nil
+      # --- RECUPERO CONFIG PER VERBOSE ---
+      config_row = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
+      config = config_row ? JSON.parse(config_row["value"]) : nil
 
-    # --- MODIFICA PER LISTA PERSONALE (ID 0) ---
-    if gruppo_id == 0
-      gruppo = { "nome" => "Lista Personale", "chat_id" => nil }
-    else
-      gruppo = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [gruppo_id])
-      return false unless gruppo
-    end
-
-    # 1. Inserimento nel database
-    selezioni.each do |nome|
-      begin
-        DB.execute(
-          "INSERT INTO items (gruppo_id, creato_da, nome, topic_id) VALUES (?, ?, ?, ?)",
-          [gruppo_id, user_id, nome.downcase.strip, topic_id]
-        )
-      rescue => e
-        puts "❌ Errore inserimento: #{e.message}"
+      # --- MODIFICA PER LISTA PERSONALE (ID 0) ---
+      if gruppo_id == 0
+        gruppo = { "nome" => "Lista Personale", "chat_id" => nil }
+      else
+        gruppo = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [gruppo_id])
+        return false unless gruppo
       end
-    end
-    
-    # 2. Feedback all'utente in chat PRIVATA
-    bot.api.edit_message_text(
-      chat_id: private_chat_id,
-      message_id: msg.message.message_id,
-      text: "✅ Ho aggiunto #{selezioni.size} articoli alla lista *#{gruppo["nome"]}*!",
-      parse_mode: "Markdown",
-    )
 
-    # 3. Notifica nel GRUPPO (Solo se non è lista personale e verbose è attivo)
-    is_verbose = config && (config['verbose'] == true || config['verbose'] == 1 || config['verbose'] == "true")
-    
-    if is_verbose && gruppo["chat_id"] # gruppo["chat_id"] è nil se gruppo_id == 0
-      elenco_testo = selezioni.map { |s| "• #{s.capitalize}" }.join("\n")
-      testo_gruppo = "📋 *Checklist:* #{msg.from.first_name} ha aggiunto:\n#{elenco_testo}"
-      
-      begin
-        bot.api.send_message(
-          chat_id: gruppo["chat_id"],
-          message_thread_id: (topic_id > 0 ? topic_id : nil),
-          text: testo_gruppo,
-          parse_mode: "Markdown",
-        )
-      rescue => e
-        puts "❌ Errore notifica gruppo: #{e.message}"
+      # 1. Inserimento nel database
+      selezioni.each do |nome|
+        begin
+          DB.execute(
+            "INSERT INTO items (gruppo_id, creato_da, nome, topic_id) VALUES (?, ?, ?, ?)",
+            [gruppo_id, user_id, nome.downcase.strip, topic_id]
+          )
+        rescue => e
+          puts "❌ Errore inserimento: #{e.message}"
+        end
       end
-    else
-      puts "🔇 Notifica checklist saltata (verbose false o Lista Personale)"
-    end
 
-    # --- AGGIORNAMENTO AUTOMATICO LISTA ---
-    if config && !config["db_id"].nil?
-       KeyboardGenerator.genera_lista(
-         bot, 
-         private_chat_id, 
-         config["db_id"], 
-         user_id, 
-         nil, 
-         0, 
-         config["topic_id"] || 0
-       )
-    end
+      # 2. Feedback all'utente in chat PRIVATA
+      bot.api.edit_message_text(
+        chat_id: private_chat_id,
+        message_id: msg.message.message_id,
+        text: "✅ Ho aggiunto #{selezioni.size} articoli alla lista *#{gruppo["nome"]}*!",
+        parse_mode: "Markdown",
+      )
 
-    # Pulizia memoria temporanea
-    @@selezioni_checklist.delete(context_key)
-    return true
+      # 3. Notifica nel GRUPPO (Solo se non è lista personale e verbose è attivo)
+      is_verbose = config && (config["verbose"] == true || config["verbose"] == 1 || config["verbose"] == "true")
+
+      if is_verbose && gruppo["chat_id"] # gruppo["chat_id"] è nil se gruppo_id == 0
+        elenco_testo = selezioni.map { |s| "• #{s.capitalize}" }.join("\n")
+        testo_gruppo = "📋 *Checklist:* #{msg.from.first_name} ha aggiunto:\n#{elenco_testo}"
+
+        begin
+          bot.api.send_message(
+            chat_id: gruppo["chat_id"],
+            message_thread_id: (topic_id > 0 ? topic_id : nil),
+            text: testo_gruppo,
+            parse_mode: "Markdown",
+          )
+        rescue => e
+          puts "❌ Errore notifica gruppo: #{e.message}"
+        end
+      else
+        puts "🔇 Notifica checklist saltata (verbose false o Lista Personale)"
+      end
+
+      # --- AGGIORNAMENTO AUTOMATICO LISTA ---
+      if config && !config["db_id"].nil?
+        KeyboardGenerator.genera_lista(
+          bot,
+          private_chat_id,
+          config["db_id"],
+          user_id,
+          nil,
+          0,
+          config["topic_id"] || 0
+        )
+      end
+
+      # Pulizia memoria temporanea
+      @@selezioni_checklist.delete(context_key)
+      return true
+    end
+    false
   end
-  false
-end
 
- # Aggiungi in storico_manager.rb
+  # Aggiungi in storico_manager.rb
   def self.gestisci_click_checklist(bot, msg, callback_data)
     chat_id = msg.message.chat.id
     user_id = msg.from.id

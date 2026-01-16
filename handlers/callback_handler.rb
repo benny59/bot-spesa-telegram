@@ -18,61 +18,77 @@ class CallbackHandler
     user_id = callback.from.id
 
     case data
+
+    when /^myitems_page:(\d+):(\d+)$/
+      u_id = $1.to_i
+      page = $2.to_i
+      # Chiamiamo handle_myitems passando la nuova pagina
+      MessageHandler.handle_myitems(bot, chat_id, u_id, callback, page)
+
+      # Gestione refresh Dashboard
+    when /^myitems_refresh:(\d+):(\d+)$/
+      u_id = $1.to_i
+      page = $2.to_i
+      MessageHandler.handle_myitems(bot, chat_id, u_id, callback, page)
+
+      # Gestione bottone neutro (quello con il numero di pagina)
+    when "noop"
+      # Rispondiamo al callback senza fare nulla per togliere l'orologio di caricamento su Telegram
+      bot.api.answer_callback_query(callback_query_id: callback.id)
     when /^pin_refresh:(\d+):(\d+)$/
-  gruppo_id = $1.to_i
-  topic_id = $2.to_i
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
 
-  # Forza l'invio di un NUOVO messaggio passando nil come message_id
-  KeyboardGenerator.genera_lista(
-    bot,
-    callback.message.chat.id,
-    gruppo_id,
-    callback.from.id,
-    nil, # <--- Questo impedisce al tasto di sparire!
-    0,
-    topic_id
-  )
+      # Forza l'invio di un NUOVO messaggio passando nil come message_id
+      KeyboardGenerator.genera_lista(
+        bot,
+        callback.message.chat.id,
+        gruppo_id,
+        callback.from.id,
+        nil, # <--- Questo impedisce al tasto di sparire!
+        0,
+        topic_id
+      )
 
-  # Rispondi per togliere l'orologio dal tasto
-  bot.api.answer_callback_query(callback_query_id: callback.id, text: "Lista aggiornata nel topic! 🛒")
-  
+      # Rispondi per togliere l'orologio dal tasto
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "Lista aggiornata nel topic! 🛒")
     when /^cancella_tutti:(\d+)(?::(\d+))?$/
       handle_cancella_tutti(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
     when /^toggle_view_mode:(\d+)(?::(\d+))?$/
       handle_toggle_view_mode(bot, callback, context.chat_id, context.user_id, $1.to_i, $2&.to_i || 0)
     when /^aggiungi:(\d+)(?::(\d+))?$/
       handle_aggiungi(bot, callback, context.chat_id, $1.to_i, $2&.to_i || 0)
-when /^refresh_lista:(\d+):(\d+)$/
-  gruppo_id = $1.to_i
-  topic_id = $2.to_i
+    when /^refresh_lista:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
 
-  # Identifichiamo se il click proviene dal messaggio pinnato.
-  # Possiamo farlo controllando se il testo del messaggio contiene la stringa del setup.
-  is_pinned_access = callback.message.text.to_s.include?("Punto di Accesso")
+      # Identifichiamo se il click proviene dal messaggio pinnato.
+      # Possiamo farlo controllando se il testo del messaggio contiene la stringa del setup.
+      is_pinned_access = callback.message.text.to_s.include?("Punto di Accesso")
 
-  # Decidiamo l'ID messaggio: 
-  # - Se è il pin, passiamo nil (genera un NUOVO messaggio)
-  # - Se è una lista normale, passiamo l'ID (esegue l'EDIT)
-  target_message_id = is_pinned_access ? nil : callback.message.message_id
+      # Decidiamo l'ID messaggio:
+      # - Se è il pin, passiamo nil (genera un NUOVO messaggio)
+      # - Se è una lista normale, passiamo l'ID (esegue l'EDIT)
+      target_message_id = is_pinned_access ? nil : callback.message.message_id
 
-  KeyboardGenerator.genera_lista(
-    bot, 
-    callback.message.chat.id,
-    gruppo_id,
-    callback.from.id,
-    target_message_id, 
-    0,
-    topic_id
-  )
+      KeyboardGenerator.genera_lista(
+        bot,
+        callback.message.chat.id,
+        gruppo_id,
+        callback.from.id,
+        target_message_id,
+        0,
+        topic_id
+      )
 
-  bot.api.answer_callback_query(callback_query_id: callback.id, text: "Lista caricata! 🛒")
-  
-  # Notifica al gruppo (manteniamo la tua logica esistente)
-  ctx = Context.from_callback(callback)
-  if ctx.private_chat?
-    Context.notifica_gruppo_se_privato(bot, callback.from.id, "🔄 #{callback.from.first_name} ha aggiornato la lista.")
-  end
-      when /^lista_page:(\d+):(\d+):(\d+)$/
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "Lista caricata! 🛒")
+
+      # Notifica al gruppo (manteniamo la tua logica esistente)
+      ctx = Context.from_callback(callback)
+      if ctx.private_chat?
+        Context.notifica_gruppo_se_privato(bot, callback.from.id, "🔄 #{callback.from.first_name} ha aggiornato la lista.")
+      end
+    when /^lista_page:(\d+):(\d+):(\d+)$/
       gruppo_id = $1.to_i
       nuova_pagina = $2.to_i
       t_id = $3.to_i
@@ -196,15 +212,14 @@ when /^refresh_lista:(\d+):(\d+)$/
     end
   end
 
-
   private
 
   # 🔥 MODIFICA: Aggiungi topic_id ai metodi principali
-def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+  def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
     # 1. Recuperiamo i dati dell'item prima e il nome utente
     item = DB.get_first_row("SELECT nome, comprato FROM items WHERE id = ?", [item_id])
     return unless item
-    
+
     item_nome = item["nome"]
     user_name = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || "Qualcuno"
 
@@ -216,7 +231,7 @@ def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_i
     # Se nuovo_stato è nil o vuoto, l'item è stato RIMESSO -> -1
     is_comprato = !(nuovo_stato.to_s.strip.empty? || nuovo_stato.to_s == "0")
     incremento = is_comprato ? 1 : -1
-    
+
     StoricoManager.aggiorna_da_toggle(item_nome, gruppo_id, incremento, topic_id)
 
     # 4. Feedback e Notifica
@@ -229,8 +244,8 @@ def self.handle_comprato(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_i
     # 5. Refresh della lista
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
   end
-  
-def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
+
+  def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_id = 0)
     # 1. Recuperiamo i dati dell'item prima di eliminarlo
     item = DB.get_first_row("SELECT nome, comprato FROM items WHERE id = ?", [item_id])
     return unless item
@@ -242,7 +257,7 @@ def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_i
     # Se l'articolo era già stato segnato come comprato (non nil e non vuoto),
     # dobbiamo decrementare lo storico perché l'acquisto viene annullato dalla rimozione.
     is_comprato = !(item["comprato"].nil? || item["comprato"].to_s.strip.empty? || item["comprato"].to_s == "0")
-    
+
     if is_comprato
       StoricoManager.aggiorna_da_toggle(item_nome, gruppo_id, -1, topic_id)
       puts "📉 Storico: decremento per rimozione articolo già comprato (#{item_nome})"
@@ -253,13 +268,13 @@ def self.handle_cancella(bot, msg, chat_id, user_id, item_id, gruppo_id, topic_i
 
     # 4. Feedback e Notifica
     bot.api.answer_callback_query(callback_query_id: msg.id, text: "Eliminato")
-    
+
     Context.notifica_gruppo_se_privato(bot, user_id, "🗑️ *#{user_name}* ha rimosso: #{item_nome}")
 
     # 5. Refresh della lista
     KeyboardGenerator.genera_lista(bot, chat_id, gruppo_id, user_id, msg.message.message_id, 0, topic_id)
   end
-  
+
   def self.handle_cancella_tutti(bot, msg, chat_id, user_id, gruppo_id, topic_id = 0)
     u_row = DB.get_first_row("SELECT first_name FROM user_names WHERE user_id = ?", [user_id])
     user_display = u_row ? u_row["first_name"] : "Utente #{user_id}"

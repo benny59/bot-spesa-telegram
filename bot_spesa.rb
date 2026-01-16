@@ -34,7 +34,7 @@ puts "🤖 Avvio bot in ambiente: #{env}"
 
 Telegram::Bot::Client.run(token) do |bot|
   puts "✅ Bot avviato correttamente"
-CommandSetter.aggiorna_comandi(bot)
+  CommandSetter.aggiorna_comandi(bot)
 
   bot.listen do |update|
     begin

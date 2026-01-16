@@ -299,7 +299,7 @@ class KeyboardGenerator
         ),
       ],
       [
-         Telegram::Bot::Types::InlineKeyboardButton.new(
+        Telegram::Bot::Types::InlineKeyboardButton.new(
           text: "🔄 Aggiorna",
           callback_data: "refresh_lista:#{gruppo_id}:#{topic_id}",
         ),
@@ -398,35 +398,34 @@ class KeyboardGenerator
     end
   end
 
-def self.show_private_keyboard(bot, chat_id)
-  puts "📟 [DEBUG] Visualizzazione tastiera privata (con switch gruppo) per: #{chat_id}"
-  
-  keyboard = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
-    keyboard: [
-      [
-        Telegram::Bot::Types::KeyboardButton.new(text: "🛒 LISTA"),
-        Telegram::Bot::Types::KeyboardButton.new(text: "➕ AGGIUNGI PRODOTTO")
-      ],
-      [
-        Telegram::Bot::Types::KeyboardButton.new(text: "📋 I MIEI ARTICOLI"),
-        Telegram::Bot::Types::KeyboardButton.new(text: "💳 LE MIE CARTE")
-      ],
-      [
-        Telegram::Bot::Types::KeyboardButton.new(text: "⚙️ IMPOSTA GRUPPO") # Richiama /private
-      ]
-    ],
-    resize_keyboard: true,
-    one_time_keyboard: false
-  )
+  def self.show_private_keyboard(bot, chat_id)
+    puts "📟 [DEBUG] Visualizzazione tastiera privata (con switch gruppo) per: #{chat_id}"
 
-  bot.api.send_message(
-    chat_id: chat_id,
-    text: "🎮 *Pannello di Controllo Privato*\nUsa i tasti qui sotto per gestire la tua spesa o cambiare il gruppo di destinazione:",
-    reply_markup: keyboard,
-    parse_mode: "Markdown"
-  )
-end
+    keyboard = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
+      keyboard: [
+        [
+          Telegram::Bot::Types::KeyboardButton.new(text: "🛒 LISTA"),
+          Telegram::Bot::Types::KeyboardButton.new(text: "➕ AGGIUNGI PRODOTTO"),
+        ],
+        [
+          Telegram::Bot::Types::KeyboardButton.new(text: "📋 I MIEI ARTICOLI"),
+          Telegram::Bot::Types::KeyboardButton.new(text: "💳 LE MIE CARTE"),
+        ],
+        [
+          Telegram::Bot::Types::KeyboardButton.new(text: "⚙️ IMPOSTA GRUPPO"), # Richiama /private
+        ],
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false,
+    )
 
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "🎮 *Pannello di Controllo Privato*\nUsa i tasti qui sotto per gestire la tua spesa o cambiare il gruppo di destinazione:",
+      reply_markup: keyboard,
+      parse_mode: "Markdown",
+    )
+  end
 
   # ===================== LISTA COMPATTA =====================
   def self.genera_lista_compatta_old(bot, chat_id, gruppo_id, user_id, message_id = nil, page = 0, topic_id = 0, target_thread_id = nil)
