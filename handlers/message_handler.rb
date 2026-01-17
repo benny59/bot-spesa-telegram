@@ -1028,23 +1028,21 @@ class MessageHandler
     end
   end
 
-  def self.handle_myitems(bot, chat_id, user_id, message, page = 0)
-    # ✅ NORMALIZZAZIONE: se è una callback, prendiamo il messaggio contenuto
-    real_message = message.is_a?(Telegram::Bot::Types::CallbackQuery) ? message.message : message
+  # handlers/message_handler.rb
 
-    # Ora usiamo real_message per il contesto e il thread
+  def self.handle_myitems(bot, chat_id, user_id, message, page = 0)
+    is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
+    real_message = is_callback ? message.message : message
     ctx = Context.from_message(real_message)
     topic_id = ctx.private_chat? ? nil : (real_message.message_thread_id || nil)
-
-    # Il message_id serve per l'eventuale edit
     message_id = real_message.message_id
 
-    # MODIFICA: Query inclusiva per Gruppi e Articoli Personali
+    # 1. Query Gruppi/Topic
     groups_and_topics = DB.execute("
     SELECT DISTINCT
-      COALESCE(g.id, 0)      AS gruppo_id,
+      COALESCE(g.id, 0) AS gruppo_id,
       COALESCE(g.nome, '📦 Lista Personale') AS gruppo_nome,
-      g.chat_id              AS chat_id,
+      g.chat_id AS chat_id,
       COALESCE(i.topic_id, 0) AS topic_id
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
@@ -1052,75 +1050,94 @@ class MessageHandler
     ORDER BY gruppo_id = 0 DESC, g.nome ASC, topic_id ASC
   ", [user_id])
 
-    if groups_and_topics.empty?
-      bot.api.send_message(
-        chat_id: chat_id,
-        message_thread_id: topic_id,
-        text: "📭 Non hai articoli in nessun gruppo.",
-      )
-      return
+    return if groups_and_topics.empty?
+
+    row_c = DB.get_first_row("SELECT value FROM config WHERE key = ?", ["context:#{user_id}"])
+
+    # Inizializziamo a 0 nel caso non ci sia ancora una configurazione
+    current_g_id = 0
+    current_t_id = 0
+
+    if row_c && row_c["value"]
+      begin
+        config_data = JSON.parse(row_c["value"])
+        current_g_id = config_data["db_id"].to_i
+        current_t_id = config_data["topic_id"].to_i
+      rescue JSON::ParserError
+        # Se il JSON è rotto, restiamo sugli zeri di default
+      end
     end
 
-    # Filtro gruppi validi: la lista personale (gruppo_id 0) è sempre valida
-    valid_items = groups_and_topics.select do |item|
-      item["gruppo_id"] == 0 || (item["chat_id"] && chat_still_exists?(bot, item["chat_id"]))
-    end
-
+    valid_items = groups_and_topics.select { |i| i["gruppo_id"] == 0 || (i["chat_id"] && chat_still_exists?(bot, i["chat_id"])) }
     total_pages = (valid_items.size.to_f / GROUPS_PER_PAGE).ceil
     page = [[page, 0].max, total_pages - 1].min
     slice = valid_items.slice(page * GROUPS_PER_PAGE, GROUPS_PER_PAGE) || []
 
-    text = "<b>📋 I TUOI ARTICOLI – Pagina #{page + 1}/#{total_pages}</b>\n\n"
+    text = "<b>📋 I TUOI ARTICOLI – Pagina #{page + 1}/#{total_pages}</b>\n"
+    text << "<i>Clicca l'articolo per spuntare, il gruppo per cambiare contesto.</i>\n\n"
 
-    slice.each do |item|
-      gruppo_id = item["gruppo_id"]
-      gruppo_nome = item["gruppo_nome"]
-      topic_ref = item["topic_id"]
+    item_buttons = []
 
-      # Recupero i dettagli degli articoli
-      user_items = DB.execute("
-      SELECT i.*, u.initials
-      FROM items i
-      LEFT JOIN user_names u ON i.creato_da = u.user_id
-      WHERE i.gruppo_id = ?
-        AND i.creato_da = ?
-        AND COALESCE(i.topic_id, 0) = ?
-      ORDER BY i.comprato IS NOT NULL, i.nome
-    ", [gruppo_id, user_id, topic_ref])
+    slice.each do |group_data|
+      g_id = group_data["gruppo_id"]
+      t_id = group_data["topic_id"]
+      c_id = group_data["chat_id"]
 
-      next if user_items.empty?
+      # Recupero Nome Topic
+      t_label = ""
+      if t_id > 0
+        tn = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [c_id, t_id])
+        t_label = " (#{tn || t_id})"
+      end
 
-      topic_label = topic_ref > 0 ? " (topic #{topic_ref})" : ""
-      text << "🏠 <b>#{gruppo_nome}#{topic_label}</b>\n"
-      text << KeyboardGenerator.formatta_articoli_per_myitems(user_items)
-      text << "\n" + "─" * 30 + "\n\n"
+      # ✅ LOGICA DI EVIDENZIAZIONE
+      # Un gruppo è attivo se coincidono sia gruppo_id che topic_id
+      is_active = (g_id == current_g_id && t_id == current_t_id)
+
+      prefix = is_active ? "🎯 " : "📂 "
+      suffix = is_active ? " 🎯" : ""
+      display_name = "#{prefix}#{group_data["gruppo_nome"]}#{t_label}#{suffix}".upcase if is_active
+      display_name ||= "#{prefix}#{group_data["gruppo_nome"]}#{t_label}"
+
+      # ✅ TASTO SEPARATORE AGGIORNATO
+      item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: display_name,
+        callback_data: "mycontext:#{g_id}:#{t_id}",
+      )]
+
+      # Recupero articoli
+      articoli = DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND creato_da = ? AND COALESCE(topic_id,0) = ? ORDER BY comprato IS NOT NULL, nome", [g_id, user_id, t_id])
+
+      articoli.each do |art|
+        status_icon = art["comprato"] ? "✅" : "⬜"
+        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "#{status_icon} #{art["nome"]}",
+          callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}",
+        )]
+      end
     end
 
-    # ... [Resto del codice per i bottoni di navigazione e invio rimane uguale] ...
-    nav_buttons = []
+    # Navigazione e Controlli
+    nav_row = []
     if total_pages > 1
-      row = []
-      row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "◀️", callback_data: "myitems_page:#{user_id}:#{page - 1}") if page > 0
-      row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
-      row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "▶️", callback_data: "myitems_page:#{user_id}:#{page + 1}") if page < total_pages - 1
-      nav_buttons << row
+      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "◀️", callback_data: "myitems_page:#{user_id}:#{page - 1}") if page > 0
+      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
+      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "▶️", callback_data: "myitems_page:#{user_id}:#{page + 1}") if page < total_pages - 1
     end
 
-    target_thread = ctx.private_chat? ? nil : topic_id
-    control_buttons = [[
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄 Aggiorna", callback_data: "myitems_refresh:#{user_id}:#{page}"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:#{topic_id || 0}"),
-    ]]
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+      inline_keyboard: item_buttons + (nav_row.empty? ? [] : [nav_row]) + [[
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}"),
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:#{topic_id || 0}"),
+      ]],
+    )
 
-    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: nav_buttons + control_buttons)
-
-    if message.respond_to?(:from) && message.from.id == user_id
-      bot.api.send_message(chat_id: chat_id, message_thread_id: target_thread, text: text, reply_markup: markup, parse_mode: "HTML")
+    if !is_callback
+      bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
     else
       begin
         bot.api.edit_message_text(chat_id: chat_id, message_id: message_id, text: text, reply_markup: markup, parse_mode: "HTML")
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        puts "Messaggio non modificato" if e.message.include?("message is not modified")
+      rescue Telegram::Bot::Exceptions::ResponseError
       end
     end
   end

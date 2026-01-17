@@ -335,24 +335,34 @@ class KeyboardGenerator
         chat_id
       end
 
-    # 2. Recuperiamo il nome del Gruppo e del Topic in un'unica query (se possibile) o separatamente
+    # --- INIZIO CORREZIONE INTESTAZIONE ---
+
+    # 1. Recuperiamo i dati del gruppo direttamente dal gruppo_id (più affidabile del JSON)
     nome_gruppo = "Gruppo Sconosciuto"
+    real_group_chat_id = nil
+
+    if gruppo_id.to_i > 0
+      gruppo_data = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [gruppo_id])
+      if gruppo_data
+        nome_gruppo = gruppo_data["nome"]
+        real_group_chat_id = gruppo_data["chat_id"]
+      end
+    else
+      nome_gruppo = "Lista Personale"
+    end
+
+    # 2. Recuperiamo il nome del Topic
     topic_label = (topic_id.to_i == 0) ? "Generale" : "Topic #{topic_id}"
-
-    if real_group_chat_id
-      # Recupero nome gruppo
-      g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE chat_id = ?", [real_group_chat_id])
-      nome_gruppo = g_nome if g_nome
-
-      # Recupero nome topic
+    if real_group_chat_id && topic_id.to_i > 0
       t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [real_group_chat_id, topic_id])
       topic_label = t_nome if t_nome
     end
 
     # 3. Componiamo il testo dell'intestazione
-    # Esempio: 🛒 <b>Casa (Generale)</b>
     text_message = "🛒 <b>#{nome_gruppo} (#{topic_label})</b>\n"
     text_message += "📄 Pagina #{page + 1}/#{total_pages} (#{lista.size} elementi)"
+
+    # --- FINE CORREZIONE ---
 
     # 1. Calcoliamo il thread di destinazione reale
     # Se siamo in privato (chat_id > 0), il thread deve essere SEMPRE nil

@@ -13,19 +13,68 @@ require_relative "../utils/logger" unless defined?(Logger)
 class CallbackHandler
   def self.route(bot, callback, context)
     Logger.debug("Callback ricevuto", data: callback.data)
-    data = callback.data
-    chat_id = callback.message.chat.id
+    real_message = callback.is_a?(Telegram::Bot::Types::CallbackQuery) ? callback.message : callback
+    chat_id = real_message.chat.id
     user_id = callback.from.id
-
+    data = callback.data
     case data
 
+    # 1. TOGGLE ARTICOLO
+    # 1. TOGGLE ARTICOLO DALLA DASHBOARD
+    # handlers/callback_handler.rb
+
+    # --- GESTIONE DASHBOARD ---
+
+    when /^mycomprato:(\d+):(\d+):(\d+):(\d+)$/
+      item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
+
+      item = DB.get_first_row("SELECT nome, comprato FROM items WHERE id = ?", [item_id])
+      initials = DB.get_first_value("SELECT initials FROM user_names WHERE user_id = ?", [user_id]) || "U"
+
+      if item["comprato"].nil? || item["comprato"].strip == ""
+        DB.execute("UPDATE items SET comprato = ? WHERE id = ?", [initials, item_id])
+        # Passiamo 4 argomenti come richiesto dal tuo metodo
+        StoricoManager.aggiorna_da_toggle(item["nome"], g_id, 1, t_id) rescue nil
+      else
+        DB.execute("UPDATE items SET comprato = NULL WHERE id = ?", [item_id])
+        StoricoManager.aggiorna_da_toggle(item["nome"], g_id, -1, t_id) rescue nil
+      end
+
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+      MessageHandler.handle_myitems(bot, chat_id, user_id, callback, page)
+    when /^mycontext:(\d+):(\d+)$/
+      g_id, t_id = $1.to_i, $2.to_i
+
+      # 1. Recupero nomi
+      nome_g = g_id == 0 ? "Lista Personale" : (DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo #{g_id}")
+
+      nome_t = "Generale"
+      if t_id > 0
+        # Recupero chat_id del gruppo per trovare il topic corretto
+        group_chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [g_id])
+        res_t = DB.get_first_value("SELECT nome FROM topics WHERE topic_id = ? AND chat_id = ?", [t_id, group_chat_id])
+        nome_t = res_t || "Topic #{t_id}"
+      end
+
+      # 2. Aggiornamento JSON nel DB
+      require "json" unless defined?(JSON)
+      nuovo_contesto = {
+        db_id: g_id,
+        chat_id: user_id,
+        topic_id: t_id,
+        topic_name: nome_t,
+      }.to_json
+
+      DB.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", ["context:#{user_id}", nuovo_contesto])
+
+      # 3. Feedback e Refresh
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🎯 Switch: #{nome_g} > #{nome_t}")
+      MessageHandler.handle_myitems(bot, chat_id, user_id, callback, 0)
     when /^myitems_page:(\d+):(\d+)$/
       u_id = $1.to_i
       page = $2.to_i
-      # Chiamiamo handle_myitems passando la nuova pagina
+      # Passiamo 'callback' come oggetto originale, ma handle_myitems saprà gestirlo
       MessageHandler.handle_myitems(bot, chat_id, u_id, callback, page)
-
-      # Gestione refresh Dashboard
     when /^myitems_refresh:(\d+):(\d+)$/
       u_id = $1.to_i
       page = $2.to_i
