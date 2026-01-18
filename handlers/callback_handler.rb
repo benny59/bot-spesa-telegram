@@ -249,12 +249,23 @@ class CallbackHandler
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "Modalità Gruppo ripristinata")
     when /^private_set:(-?\d+):(-?\d+):(\d+)$/
       db_id, c_id, t_id = $1.to_i, $2.to_i, $3.to_i
+
+      # 🔄 Refresh silente della membership (solo se non è la lista personale db_id: 0)
+      if db_id > 0
+        DB.execute(
+          "UPDATE memberships SET last_seen = CURRENT_TIMESTAMP WHERE user_id = ? AND gruppo_id = ?",
+          [user_id, db_id]
+        )
+      end
+
       t_row = DB.get_first_row("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [c_id, t_id])
       t_name = t_row ? t_row["nome"] : (t_id == 0 ? "Generale" : "Topic #{t_id}")
+
       config_value = { db_id: db_id, chat_id: c_id, topic_id: t_id, topic_name: t_name }.to_json
       DB.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", ["context:#{user_id}", config_value])
+
       Context.show_group_selector(bot, user_id, callback.message.message_id)
-      bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Modalità privata attiva")
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Contesto aggiornato")
     else
       puts "❓ Callback non gestita: #{data}"
       bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
