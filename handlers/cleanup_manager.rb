@@ -9,11 +9,13 @@ class CleanupManager
     # Controllo Whitelist omesso per brevità, assumiamo sia già ok
 
     begin
-      puts "🚀 [DEBUG] Avvio sequenza cleanup per user: #{user_id}"
-      puts sonda_gruppi_semplici(bot)
+      #puts "🚀 [DEBUG] Avvio sequenza cleanup per user: #{user_id}"
+      #puts sonda_gruppi_semplici(bot)
       # 1. Scansione gruppi
-      esito_gruppi = self.pulisci_gruppi_inaccessibili(bot)
-      puts "📊 [DEBUG] Esito gruppi: #{esito_gruppi.inspect}"
+      #esito_gruppi = self.pulisci_gruppi_inaccessibili(bot)
+      #puts "📊 [DEBUG] Esito gruppi: #{esito_gruppi.inspect}"
+
+      puts procedi_cleanup(bot, user_id)
 
       # 2. Esecuzione pulizie orfani
       p_actions = self.pulisci_pending_actions_orfane()
@@ -27,8 +29,8 @@ class CleanupManager
 
       # Costruiamo l'hash risultati assicurandoci che nulla sia nil
       risultati = {
-        gruppi_rimossi: esito_gruppi[:rimossi] || [],
-        gruppi_migrati: esito_gruppi[:migrati] || [],
+        #gruppi_rimossi: esito_gruppi[:rimossi] || [],
+        #gruppi_migrati: esito_gruppi[:migrati] || [],
         pending_actions: p_actions || 0,
         storico_articoli: s_articoli || 0,
         items_orfani: i_orfani || 0,
@@ -47,6 +49,38 @@ class CleanupManager
       puts "❌ [ERROR] Errore critico nel metodo esegui_cleanup: #{e.message}"
       puts e.backtrace.first(5) # Stampa le prime 5 righe dell'errore per il debug
     end
+  end
+
+  def self.procedi_cleanup(bot, user_id)
+    gruppi_rilevati = []
+
+    # 1. Recuperiamo tutti i gruppi censiti nel DB
+    tutti_i_gruppi = DB.execute("SELECT id, nome, chat_id FROM gruppi")
+
+    tutti_i_gruppi.each do |gruppo|
+      begin
+        # 2. VERIFICA DOPPIA: Il bot è dentro? L'utente è dentro?
+        # Telegram restituisce l'oggetto ChatMember se l'utente è presente
+        membro = bot.api.get_chat_member(chat_id: gruppo["chat_id"], user_id: user_id)
+
+        # Stati che indicano presenza attiva: creator, administrator, member, restricted
+        presenza_attiva = ["creator", "administrator", "member", "restricted"].include?(membro.status)
+
+        if presenza_attiva
+          gruppi_rilevati << gruppo["nome"]
+
+          # 3. AZIONE: Se l'utente è presente ma non era il creatore originale,
+          # possiamo "marcare" l'appartenenza nel DB (es. aggiornando una tabella pivot o whitelist)
+          # Per ora stampiamo un log di conferma
+          puts "✅ Utente #{user_id} rilevato nel gruppo: #{gruppo["nome"]} (ID: #{gruppo["id"]})"
+        end
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        # Se l'errore è 'user not found' o 'bot was kicked', saltiamo silenziosamente
+        puts "❌ Impossibile verificare gruppo #{gruppo["nome"]}: #{e.message}"
+      end
+    end
+
+    return gruppi_rilevati
   end
 
   def self.pulisci_gruppi_inaccessibili(bot)

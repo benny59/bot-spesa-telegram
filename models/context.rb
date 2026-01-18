@@ -47,6 +47,13 @@ class Context
     # Log di sicurezza per il debug interno
     puts "🛠️ [Context] Eseguo attivazione: User #{user_id}, Group DB ID #{gruppo["id"]}, Topic #{t_id}"
 
+    # --- [IDEONA]: Registrazione Membership ---
+    # Ogni volta che l'utente lancia /private in un gruppo, lo marchiamo come membro
+    DB.execute(
+      "INSERT OR REPLACE INTO memberships (user_id, gruppo_id, last_seen) VALUES (?, ?, CURRENT_TIMESTAMP)",
+      [user_id, gruppo["id"]]
+    )
+
     # 1. Recupero nome topic (gestione fallback)
     topic_name = DB.get_first_value(
       "SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?",
@@ -155,16 +162,21 @@ class Context
     is_personal_active = current_config && current_config["db_id"].to_i == 0
 
     # 2. Query gruppi (estratta dal tuo file)
+    # Nuova query in show_group_selector
     query = <<-SQL
-      SELECT DISTINCT g.id, g.chat_id, g.nome as g_nome, 
-             COALESCE(t.topic_id, 0) as topic_id,
-             COALESCE(t.nome, CASE WHEN t.topic_id = 0 OR t.topic_id IS NULL THEN 'Generale' ELSE 'Topic ' || t.topic_id END) as t_nome
-      FROM gruppi g
-      LEFT JOIN topics t ON g.chat_id = t.chat_id
-      WHERE g.id IN (SELECT gruppo_id FROM items WHERE creato_da = ? UNION SELECT id FROM gruppi WHERE creato_da = ?)
-      ORDER BY g.nome ASC, topic_id ASC
-    SQL
-    rows = DB.execute(query, [user_id, user_id])
+  SELECT DISTINCT g.id, g.chat_id, g.nome as g_nome, 
+         COALESCE(t.topic_id, 0) as topic_id,
+         COALESCE(t.nome, CASE WHEN t.topic_id = 0 OR t.topic_id IS NULL THEN 'Generale' ELSE 'Topic ' || t.topic_id END) as t_nome
+  FROM gruppi g
+  LEFT JOIN topics t ON g.chat_id = t.chat_id
+  -- [MODIFICA]: Ora guardiamo se sei il creatore O se sei nella tabella memberships
+  WHERE g.creato_da = ? 
+     OR g.id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
+     OR g.id IN (SELECT gruppo_id FROM items WHERE creato_da = ?)
+  ORDER BY g.nome ASC, topic_id ASC
+SQL
+
+    rows = DB.execute(query, [user_id, user_id, user_id])
 
     # 3. Costruzione Tastiera
     keyboard = []

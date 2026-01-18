@@ -91,6 +91,23 @@ SQL
     );
   SQL
 
+  # 🔗 memberships -> lega gli utenti ai gruppi (scoperta tramite /private, items o cleanup)
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS memberships (
+      user_id INTEGER,
+      gruppo_id INTEGER,
+      last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, gruppo_id),
+      FOREIGN KEY (gruppo_id) REFERENCES gruppi (id) ON DELETE CASCADE
+    );
+  SQL
+
+  # Indice per velocizzare il recupero dei gruppi di un utente
+  db.execute <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_memberships_user 
+    ON memberships (user_id);
+  SQL
+
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS pending_requests (
       user_id INTEGER PRIMARY KEY,
