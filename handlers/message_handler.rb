@@ -76,9 +76,10 @@ class MessageHandler
       end
     when "/miei", "📋 I MIEI ARTICOLI"
       ctx = Context.from_message(msg)
-      # In chat privata, context.topic_id sarà 0, quindi handle_myitems
-      # saprà di non dover inviare thread_id
-      self.handle_myitems(bot, ctx.chat_id, ctx.user_id, msg)
+      self.handle_myitems(bot, ctx.chat_id, ctx.user_id, msg, 0, false) # false = solo i miei
+    when "/tutti", "📦 TUTTI GLI ARTICOLI"
+      ctx = Context.from_message(msg)
+      self.handle_myitems(bot, ctx.chat_id, ctx.user_id, msg, 0, true) # true = tutti quelli dei miei gruppi
     when "/private"
       KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
       Context.show_group_selector(bot, context.user_id)
@@ -1030,25 +1031,42 @@ class MessageHandler
 
   # handlers/message_handler.rb
 
-  def self.handle_myitems(bot, chat_id, user_id, message, page = 0)
+  def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
     is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
     real_message = is_callback ? message.message : message
     ctx = Context.from_message(real_message)
     topic_id = ctx.private_chat? ? nil : (real_message.message_thread_id || nil)
     message_id = real_message.message_id
 
-    # 1. Query Gruppi/Topic
-    groups_and_topics = DB.execute("
-    SELECT DISTINCT
-      COALESCE(g.id, 0) AS gruppo_id,
-      COALESCE(g.nome, '📦 Lista Personale') AS gruppo_nome,
-      g.chat_id AS chat_id,
-      COALESCE(i.topic_id, 0) AS topic_id
-    FROM items i
-    LEFT JOIN gruppi g ON i.gruppo_id = g.id
-    WHERE i.creato_da = ?
-    ORDER BY gruppo_id = 0 DESC, g.nome ASC, topic_id ASC
-  ", [user_id])
+    # --- [QUERY 1: GRUPPI E TOPIC] ---
+    # Se show_all è true, cerchiamo tutti i gruppi dove l'utente è membro
+    if show_all
+      query_groups = "
+      SELECT DISTINCT 
+        g.id AS gruppo_id, 
+        g.nome AS gruppo_nome, 
+        g.chat_id, 
+        COALESCE(t.topic_id, 0) AS topic_id,
+        0 AS ordine_lista -- I gruppi reali hanno ordine 0
+      FROM gruppi g
+      JOIN memberships m ON g.id = m.gruppo_id
+      LEFT JOIN topics t ON g.chat_id = t.chat_id
+      WHERE m.user_id = ?
+      UNION
+      SELECT 0, '📦 Lista Personale', NULL, 0, 1 -- La lista personale ha ordine 1
+      ORDER BY ordine_lista DESC, gruppo_nome ASC, topic_id ASC"
+
+      groups_and_topics = DB.execute(query_groups, [user_id])
+    else
+      # Query originale (solo dove ho creato io degli articoli o il gruppo)
+      groups_and_topics = DB.execute("
+      SELECT DISTINCT COALESCE(g.id, 0) AS gruppo_id, COALESCE(g.nome, '📦 Lista Personale') AS gruppo_nome,
+             g.chat_id AS chat_id, COALESCE(i.topic_id, 0) AS topic_id
+      FROM items i
+      LEFT JOIN gruppi g ON i.gruppo_id = g.id
+      WHERE i.creato_da = ?
+      ORDER BY gruppo_id = 0 DESC, g.nome ASC, topic_id ASC", [user_id])
+    end
 
     return if groups_and_topics.empty?
 
@@ -1073,7 +1091,8 @@ class MessageHandler
     page = [[page, 0].max, total_pages - 1].min
     slice = valid_items.slice(page * GROUPS_PER_PAGE, GROUPS_PER_PAGE) || []
 
-    text = "<b>📋 I TUOI ARTICOLI – Pagina #{page + 1}/#{total_pages}</b>\n"
+    title_text = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I TUOI ARTICOLI"
+    text = "<b>#{title_text} – Pagina #{page + 1}/#{total_pages}</b>\n"
     text << "<i>Clicca l'articolo per spuntare, il gruppo per cambiare contesto.</i>\n\n"
 
     item_buttons = []
@@ -1100,19 +1119,39 @@ class MessageHandler
       display_name ||= "#{prefix}#{group_data["gruppo_nome"]}#{t_label}"
 
       # ✅ TASTO SEPARATORE AGGIORNATO
+      # Tasto del gruppo/context aggiornato con il flag show_all (Obiezione 5)
       item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
         text: display_name,
-        callback_data: "mycontext:#{g_id}:#{t_id}",
+        callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}",
       )]
 
       # Recupero articoli
-      articoli = DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND creato_da = ? AND COALESCE(topic_id,0) = ? ORDER BY comprato IS NOT NULL, nome", [g_id, user_id, t_id])
+      if show_all && g_id != 0
+        articoli = DB.execute("
+        SELECT * FROM items 
+        WHERE gruppo_id = ? AND COALESCE(topic_id,0) = ? 
+        ORDER BY (comprato IS NOT NULL AND comprato != ''), nome", [g_id, t_id])
+      else
+        articoli = DB.execute("
+        SELECT * FROM items 
+        WHERE gruppo_id = ? AND creato_da = ? AND COALESCE(topic_id,0) = ? 
+        ORDER BY (comprato IS NOT NULL AND comprato != ''), nome", [g_id, user_id, t_id])
+      end
 
       articoli.each do |art|
-        status_icon = art["comprato"] ? "✅" : "⬜"
+        status_icon = art["comprato"] ? "✅" : " "
+
+        # 2. Iniziali dell'autore solo per /tutti (Obiezione 2)
+        author_tag = ""
+        if show_all
+          # Recupero veloce dell'iniziale dell'autore dell'item
+          author_init = DB.get_first_value("SELECT initials FROM user_names WHERE user_id = ?", [art["creato_da"]]) || "?"
+          author_tag = " [#{author_init}] - "
+        end
+
         item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "#{status_icon} #{art["nome"]}",
-          callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}",
+          text: "#{status_icon}#{author_tag}#{art["nome"]}", # Risultato: ✅ [MB] Pane
+          callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
         )]
       end
     end
@@ -1120,14 +1159,14 @@ class MessageHandler
     # Navigazione e Controlli
     nav_row = []
     if total_pages > 1
-      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "◀️", callback_data: "myitems_page:#{user_id}:#{page - 1}") if page > 0
+      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "◀️", callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}") if page > 0
       nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
       nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "▶️", callback_data: "myitems_page:#{user_id}:#{page + 1}") if page < total_pages - 1
     end
 
     markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(
       inline_keyboard: item_buttons + (nav_row.empty? ? [] : [nav_row]) + [[
-        Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}"),
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"),
         Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:#{topic_id || 0}"),
       ]],
     )

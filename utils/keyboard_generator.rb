@@ -422,6 +422,7 @@ class KeyboardGenerator
           Telegram::Bot::Types::KeyboardButton.new(text: "💳 LE MIE CARTE"),
         ],
         [
+          Telegram::Bot::Types::KeyboardButton.new(text: "📦 TUTTI GLI ARTICOLI"),
           Telegram::Bot::Types::KeyboardButton.new(text: "⚙️ IMPOSTA GRUPPO"), # Richiama /private
         ],
       ],

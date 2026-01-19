@@ -25,15 +25,19 @@ class CallbackHandler
 
     # --- GESTIONE DASHBOARD ---
 
-    when /^mycomprato:(\d+):(\d+):(\d+):(\d+)$/
-      item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
+    # Aggiunto :(\d) alla fine della regex per catturare show_all
+    # Regex aggiornata con :(\d) finale per catturare show_all
+    when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
+      item_id, g_id, t_id, page, s_all_flag = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
+      show_all = (s_all_flag == 1)
 
       item = DB.get_first_row("SELECT nome, comprato FROM items WHERE id = ?", [item_id])
+
+      # Usiamo 'user_names' e 'initials' come nel tuo codice originale
       initials = DB.get_first_value("SELECT initials FROM user_names WHERE user_id = ?", [user_id]) || "U"
 
       if item["comprato"].nil? || item["comprato"].strip == ""
         DB.execute("UPDATE items SET comprato = ? WHERE id = ?", [initials, item_id])
-        # Passiamo 4 argomenti come richiesto dal tuo metodo
         StoricoManager.aggiorna_da_toggle(item["nome"], g_id, 1, t_id) rescue nil
       else
         DB.execute("UPDATE items SET comprato = NULL WHERE id = ?", [item_id])
@@ -41,11 +45,15 @@ class CallbackHandler
       end
 
       bot.api.answer_callback_query(callback_query_id: callback.id)
-      MessageHandler.handle_myitems(bot, chat_id, user_id, callback, page)
-    when /^mycontext:(\d+):(\d+)$/
-      g_id, t_id = $1.to_i, $2.to_i
 
-      # 1. Recupero nomi
+      # Messaggio originale: passiamo il flag show_all alla fine
+      MessageHandler.handle_myitems(bot, chat_id, user_id, callback, page, show_all)
+      # Regex aggiornata per catturare il flag show_all finale (:(\d))
+    when /^mycontext:(\d+):(\d+):(\d)$/
+      g_id, t_id, s_all_flag = $1.to_i, $2.to_i, $3.to_i
+      show_all = (s_all_flag == 1)
+
+      # 1. Recupero nomi (Invariato)
       nome_g = g_id == 0 ? "Lista Personale" : (DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo #{g_id}")
 
       nome_t = "Generale"
@@ -56,7 +64,7 @@ class CallbackHandler
         nome_t = res_t || "Topic #{t_id}"
       end
 
-      # 2. Aggiornamento JSON nel DB
+      # 2. Aggiornamento JSON nel DB (Invariato)
       require "json" unless defined?(JSON)
       nuovo_contesto = {
         db_id: g_id,
@@ -67,9 +75,11 @@ class CallbackHandler
 
       DB.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", ["context:#{user_id}", nuovo_contesto])
 
-      # 3. Feedback e Refresh
+      # 3. Feedback e Refresh (Aggiornato con show_all)
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🎯 Switch: #{nome_g} > #{nome_t}")
-      MessageHandler.handle_myitems(bot, chat_id, user_id, callback, 0)
+
+      # Passiamo show_all come sesto parametro per mantenere la visualizzazione corretta
+      MessageHandler.handle_myitems(bot, chat_id, user_id, callback, 0, show_all)
     when /^myitems_page:(\d+):(\d+)$/
       u_id = $1.to_i
       page = $2.to_i
