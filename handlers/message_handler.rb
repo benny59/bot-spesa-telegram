@@ -1042,21 +1042,34 @@ class MessageHandler
     # Se show_all è true, cerchiamo tutti i gruppi dove l'utente è membro
     if show_all
       query_groups = "
+      -- 1. Recupera i gruppi a cui appartengo che hanno articoli
       SELECT DISTINCT 
         g.id AS gruppo_id, 
         g.nome AS gruppo_nome, 
         g.chat_id, 
-        COALESCE(t.topic_id, 0) AS topic_id,
-        0 AS ordine_lista -- I gruppi reali hanno ordine 0
+        COALESCE(i.topic_id, 0) AS topic_id,
+        0 AS ordine_lista
       FROM gruppi g
       JOIN memberships m ON g.id = m.gruppo_id
-      LEFT JOIN topics t ON g.chat_id = t.chat_id
+      JOIN items i ON g.id = i.gruppo_id
+      LEFT JOIN topics t ON (g.chat_id = t.chat_id AND i.topic_id = t.topic_id)
       WHERE m.user_id = ?
-      UNION
-      SELECT 0, '📦 Lista Personale', NULL, 0, 1 -- La lista personale ha ordine 1
+
+      UNION ALL
+
+      -- 2. Recupera la Lista Personale (gruppo 0) se contiene articoli
+      SELECT 
+        0 AS gruppo_id, 
+        '📦 Lista Personale' AS gruppo_nome, 
+        NULL AS chat_id, 
+        0 AS topic_id, 
+        1 AS ordine_lista
+      WHERE EXISTS (SELECT 1 FROM items WHERE gruppo_id = 0 AND creato_da = ?)
+      
       ORDER BY ordine_lista DESC, gruppo_nome ASC, topic_id ASC"
 
-      groups_and_topics = DB.execute(query_groups, [user_id])
+      # Passiamo user_id due volte: per le memberships e per gli articoli privati
+      groups_and_topics = DB.execute(query_groups, [user_id, user_id])
     else
       # Query originale (solo dove ho creato io degli articoli o il gruppo)
       groups_and_topics = DB.execute("
@@ -1086,7 +1099,9 @@ class MessageHandler
       end
     end
 
+    # Filtro di sicurezza per evitare di contare gruppi non più raggiungibili
     valid_items = groups_and_topics.select { |i| i["gruppo_id"] == 0 || (i["chat_id"] && chat_still_exists?(bot, i["chat_id"])) }
+
     total_pages = (valid_items.size.to_f / GROUPS_PER_PAGE).ceil
     page = [[page, 0].max, total_pages - 1].min
     slice = valid_items.slice(page * GROUPS_PER_PAGE, GROUPS_PER_PAGE) || []
@@ -1125,19 +1140,19 @@ class MessageHandler
         callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}",
       )]
 
-      # Recupero articoli
       if show_all && g_id != 0
+        # Per i gruppi reali: vedo tutto quello che c'è nel gruppo/topic
         articoli = DB.execute("
         SELECT * FROM items 
         WHERE gruppo_id = ? AND COALESCE(topic_id,0) = ? 
         ORDER BY (comprato IS NOT NULL AND comprato != ''), nome", [g_id, t_id])
       else
+        # Per la Lista Personale (g_id == 0) o modalità /miei: vedo solo i MIEI
         articoli = DB.execute("
         SELECT * FROM items 
         WHERE gruppo_id = ? AND creato_da = ? AND COALESCE(topic_id,0) = ? 
         ORDER BY (comprato IS NOT NULL AND comprato != ''), nome", [g_id, user_id, t_id])
       end
-
       articoli.each do |art|
         status_icon = art["comprato"] ? "✅" : " "
 

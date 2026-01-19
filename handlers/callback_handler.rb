@@ -80,15 +80,15 @@ class CallbackHandler
 
       # Passiamo show_all come sesto parametro per mantenere la visualizzazione corretta
       MessageHandler.handle_myitems(bot, chat_id, user_id, callback, 0, show_all)
-    when /^myitems_page:(\d+):(\d+)$/
-      u_id = $1.to_i
-      page = $2.to_i
-      # Passiamo 'callback' come oggetto originale, ma handle_myitems saprà gestirlo
-      MessageHandler.handle_myitems(bot, chat_id, u_id, callback, page)
-    when /^myitems_refresh:(\d+):(\d+)$/
-      u_id = $1.to_i
-      page = $2.to_i
-      MessageHandler.handle_myitems(bot, chat_id, u_id, callback, page)
+      # Gestione pagine con supporto show_all (ultimo parametro)
+    when /^myitems_page:(\d+):(-?\d+):(\d)$/
+      u_id, p_idx, s_all = $1.to_i, $2.to_i, ($3.to_i == 1)
+      MessageHandler.handle_myitems(bot, chat_id, u_id, callback, p_idx, s_all)
+
+      # Gestione refresh con supporto show_all
+    when /^myitems_refresh:(\d+):(\d+):(\d)$/
+      u_id, p_idx, s_all = $1.to_i, $2.to_i, ($3.to_i == 1)
+      MessageHandler.handle_myitems(bot, chat_id, u_id, callback, p_idx, s_all)
 
       # Gestione bottone neutro (quello con il numero di pagina)
     when "noop"
