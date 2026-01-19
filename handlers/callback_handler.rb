@@ -250,14 +250,14 @@ class CallbackHandler
     when /^private_set:(-?\d+):(-?\d+):(\d+)$/
       db_id, c_id, t_id = $1.to_i, $2.to_i, $3.to_i
 
-      # 🔄 Refresh silente della membership (solo se non è la lista personale db_id: 0)
+      # 🔄 Invece di UPDATE, usiamo INSERT OR REPLACE
+      # Così se il record non c'è, lo crea; se c'è, aggiorna il last_seen
       if db_id > 0
         DB.execute(
-          "UPDATE memberships SET last_seen = CURRENT_TIMESTAMP WHERE user_id = ? AND gruppo_id = ?",
+          "INSERT OR REPLACE INTO memberships (user_id, gruppo_id, last_seen) VALUES (?, ?, CURRENT_TIMESTAMP)",
           [user_id, db_id]
         )
       end
-
       t_row = DB.get_first_row("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [c_id, t_id])
       t_name = t_row ? t_row["nome"] : (t_id == 0 ? "Generale" : "Topic #{t_id}")
 
