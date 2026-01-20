@@ -189,6 +189,9 @@ class MessageHandler
       else
         bot.api.send_message(chat_id: context.chat_id, text: "❌ Seleziona prima un gruppo con /private")
       end
+    when /^\*(.*)/
+      # $1 deve restare una stringa (.to_s), NON .to_i
+      process_asterisk_shortcut(bot, user_id, chat_id, $1.to_s.strip, msg)
     when /^\+(.+)?/
       if config
         # Gestione aggiunta articoli (usa il metodo che abbiamo creato prima)
@@ -205,6 +208,28 @@ class MessageHandler
   # =============================
   # METODI DI SUPPORTO PRIVATI
   # =============================
+  def self.process_asterisk_shortcut(bot, user_id, chat_id, items_text, msg)
+    user_name = msg.from.first_name
+
+    if items_text.empty?
+      # Pending Action per Gruppo 0
+      DB.execute(
+        "INSERT OR REPLACE INTO pending_actions (chat_id, topic_id, action, gruppo_id) VALUES (?, ?, ?, ?)",
+        [chat_id, 0, "add:#{user_name}", 0]
+      )
+      bot.api.send_message(chat_id: chat_id, text: "✍️ Scrivi gli articoli per la tua **Lista Personale**:")
+    else
+      # Aggiunta diretta
+      Lista.aggiungi(0, user_id, items_text, 0)
+
+      bot.api.send_message(chat_id: chat_id, text: "🔒 Aggiunto alla tua Lista Personale!")
+
+      # REFRESH: Passiamo 'msg' come quarto parametro invece di 'nil'
+      # per evitare l'errore NoMethodError - undefined method `chat' for nil:NilClass
+      self.handle_myitems(bot, chat_id, user_id, msg, 0, false)
+    end
+  end
+
   def self.handle_newgroup(bot, msg, chat_id, user_id)
     puts "🔍 /newgroup richiesto da: #{msg.from.first_name} (ID: #{user_id})"
 
@@ -663,39 +688,48 @@ class MessageHandler
   end
 
   def self.handle_private_pending(bot, msg, context, config)
-    puts "sono in handle_private_pending"
-    # 1. Recupera l'azione pendente
-    target_topic = config ? (config["topic_id"] || 0) : 0
-    pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: target_topic) ||
-              PendingAction.fetch(chat_id: context.chat_id, topic_id: 0)
+    # 1. Recupera l'azione pendente.
+    # Proviamo prima il topic 0 (scorciatoie globali come '*') poi il topic attivo
+    pending = PendingAction.fetch(chat_id: context.chat_id, topic_id: 0) ||
+              (config ? PendingAction.fetch(chat_id: context.chat_id, topic_id: config["topic_id"] || 0) : nil)
 
-    if pending && pending["action"].to_s.start_with?("add:") && config && config["db_id"]
-      user_name = msg.from.first_name
+    if pending && pending["action"].to_s.start_with?("add:")
       items_text = msg.text.strip
       return if items_text.empty?
 
-      # 2. Aggiungi gli articoli al database
-      Lista.aggiungi(config["db_id"], context.user_id, items_text, config["topic_id"] || 0)
-      # MODIFICA: Controlla se il verbose è attivo nella config prima di notificare
-      is_verbose = config["verbose"] == true || config["verbose"] == 1 || config["verbose"] == "true"
+      # DETERMINAZIONE TARGET (LA CHIAVE È QUI)
+      # Se la pending ha un gruppo_id (0 o altro), usiamo quello.
+      # Altrimenti usiamo il contesto attuale.
+      actual_group_id = pending["gruppo_id"] || (config ? config["db_id"] : 0)
+      actual_topic_id = (actual_group_id == 0) ? 0 : (pending["topic_id"] || 0)
 
-      if is_verbose
-        Context.notifica_gruppo_se_privato(bot, context.user_id, "🛒 <b>#{user_name}</b> ha aggiunto da privato:\n#{items_text}")
+      # 2. Aggiunta
+      Lista.aggiungi(actual_group_id, context.user_id, items_text, actual_topic_id)
+
+      # 3. Messaggio di conferma differenziato
+      if actual_group_id == 0
+        confirm_msg = "🔒 Aggiunti alla tua **Lista Personale**!"
       else
-        puts "🔇 Notifica gruppo silenziata (verbose: false)"
+        target_name = config ? config["topic_name"] : "Gruppo"
+        confirm_msg = "✅ Articoli aggiunti a **#{target_name}**!"
+
+        # Notifica al gruppo solo se NON è lista personale
+        is_verbose = config && (config["verbose"] == true || config["verbose"] == 1 || config["verbose"] == "true")
+        if is_verbose
+          Context.notifica_gruppo_se_privato(bot, context.user_id, "🛒 <b>#{msg.from.first_name}</b> ha aggiunto:\n#{items_text}")
+        end
       end
 
-      # 4. Pulisci l'azione e conferma all'utente
+      # 4. Pulizia e Refresh
       PendingAction.clear(chat_id: context.chat_id, topic_id: pending["topic_id"])
-      bot.api.send_message(chat_id: context.chat_id, text: "✅ Articoli aggiunti a **#{config["topic_name"]}**!")
+      bot.api.send_message(chat_id: context.chat_id, text: confirm_msg)
 
-      # Aggiorna l'interfaccia privata
-      KeyboardGenerator.genera_lista(bot, context.chat_id, config["db_id"], context.user_id, nil, 0, config["topic_id"] || 0)
+      # Refresh con il gruppo reale di destinazione
+      KeyboardGenerator.genera_lista(bot, context.chat_id, actual_group_id, context.user_id, nil, 0, actual_topic_id)
     else
       log_unhandled(context, "private: #{msg.text}")
     end
   end
-
   # =============================
   # GROUP / SUPERGROUP
   # =============================
