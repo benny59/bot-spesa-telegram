@@ -285,19 +285,25 @@ end
     raise e
   end
   # In db.rb, dentro la classe DataManager
-  def self.aggiorna_membership(user_id, gruppo_id)
-    # Se il gruppo_id è 0 o negativo (ID di Telegram), è un gruppo reale.
-    # La lista personale (0) non ha bisogno di membership esplicita.
-    return if gruppo_id == 0
+  
+# db.rb (DataManager)
 
-    sql = <<-SQL
-    INSERT INTO memberships (user_id, gruppo_id, updated_at)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(user_id, gruppo_id) DO UPDATE SET updated_at = excluded.updated_at
+def self.aggiorna_membership(u_id, g_id)
+  # Usiamo 'last_seen' come definito nel tuo CREATE TABLE
+  query = <<-SQL
+    INSERT INTO memberships (user_id, gruppo_id, last_seen)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id, gruppo_id) DO UPDATE SET
+    last_seen = CURRENT_TIMESTAMP
   SQL
-    DB.execute(sql, [user_id, gruppo_id])
+  
+  begin
+    DB.execute(query, [u_id, g_id])
+    # puts "[DB] Membership aggiornata: U:#{u_id} G:#{g_id}" 
+  rescue SQLite3::Exception => e
+    puts "❌ [DB ERROR] Errore aggiorna_membership: #{e.message}"
   end
-
+end
   def self.prendi_destinazioni_censite(user_id)
     # Usiamo 'g_nome' anche qui per coerenza
     destinazioni = [{ "chat_id" => 0, "topic_id" => 0, "nome" => "👤 Lista Personale", "g_nome" => "Privata" }]

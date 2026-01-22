@@ -7,62 +7,81 @@ require_relative "../db"
 class MessageHandler
   # ==============================================================================
   # ROUTER PRINCIPALE (DISPATCHER)
-  # ==============================================================================
-  def self.route(bot, msg, context)
-    # 1. Censimento (Nome corretto: aggiorna_membership)
+def self.route(bot, msg, context)
+    u_id = msg.from.id
+    g_chat_id = msg.chat.id
+    scope = context.scope
+    
+    # 1. Censimento
     unless context.private_chat?
-      DataManager.aggiorna_membership(msg.from.id, msg.chat.id) # riga 218 di db.rb
+      puts "[ROUTING] 👥 Gruppo rilevato. Aggiorno membership per U:#{u_id} in G:#{g_chat_id}"
+      DataManager.aggiorna_membership(u_id, g_chat_id)
     end
 
-    # 2. Scambio di Contesto
-    if context.private_chat?
-      # Usa il tuo metodo JSON a riga 331 di db.rb
-      config_salvata = DataManager.carica_config_utente(msg.from.id)
+    # 2. Scambio di Contesto (Cruciale per i target)
+if context.private_chat?
+      puts "[ROUTING] 🏠 Chat Privata: Carico config target..."
+      config_salvata = DataManager.carica_config_utente(u_id)
       if config_salvata && config_salvata["target_g"]
         context.config["db_id"] = config_salvata["target_g"].to_i
         context.config["topic_id"] = (config_salvata["target_t"] || 0).to_i
+        puts "[ROUTING] 🎯 Target impostato: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
       else
-        # Se non c'è config, forza la Lista Personale per non perderla
         context.config["db_id"] = 0
         context.config["topic_id"] = 0
+        puts "[ROUTING] 👤 Nessun target: uso Lista Personale"
       end
-    end
+    else
+# --- AGGIUNTA PER I GRUPPI ---
+      # Se siamo in un gruppo, dobbiamo usare l'id del database associato a questo chat_id
+      # e il topic_id reale del messaggio corrente.
+      g_db_id = DB.get_first_value("SELECT id FROM gruppi WHERE chat_id = ?", [g_chat_id]) || 0
+      context.config["db_id"] = g_db_id
+      context.config["topic_id"] = (msg.message_thread_id || 0).to_i
+      puts "[ROUTING] 🏢 Chat di Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
+          end
 
-    # Gestione Foto (Ponte verso la logica esistente)
+    # Gestione Foto
     if msg.photo && msg.photo.any?
+      puts "[ROUTING] 📸 Ricevuta Foto. Smisto a handle_photo_bridge"
       return self.handle_photo_bridge(bot, msg, context)
     end
 
     text = msg.text.to_s.strip
-    puts "[ROUTING] 🚦 Smistamento: '#{text[0..20]}...' (Scope: #{context.scope})"
+    puts "[ROUTING] 🚦 Smistamento: '#{text[0..20]}...' (Scope: #{scope})"
 
     case text
     when /^\/(start|help)/
+      puts "[ROUTING] ✅ Comando Start/Help rilevato"
       self.core_start(bot, context)
     when /^\+(.*)/
-      # PILASTRO '+': Aggiunta articoli (Metodo Universale)
-      self.core_aggiunta(bot, context, $1.to_s.strip)
+      payload = $1.to_s.strip
+      puts "[ROUTING] ✅ Comando '+' rilevato. Payload: '#{payload}'"
+      self.core_aggiunta(bot, context, payload)
     when /^\?(.*)/
-      # PILASTRO '?': Ricerca/Storico
+      puts "[ROUTING] ✅ Comando '?' rilevato. Mostro lista"
       self.core_mostra_lista(bot, context)
     when /^\*(.*)/
-      # Shortcut Lista Personale (Forza gruppo 0)
-      self.core_aggiunta_personale(bot, context, $1.to_s.strip)
+      payload = $1.to_s.strip
+      puts "[ROUTING] ✅ Comando '*' rilevato. Aggiunta personale: '#{payload}'"
+      self.core_aggiunta_personale(bot, context, payload)
     when "/private", "📋 MODALITÀ PRIVATA"
+      puts "[ROUTING] ✅ Cambio modalità privata rilevato"
       self.core_cambio_modalita(bot, context)
     when "/miei", "📋 I MIEI ARTICOLI"
-      # Richiama lo storico manager (Ponte)
+      puts "[ROUTING] ✅ Richiesta storico rilevata"
       self.handle_myitems(bot, context, false)
     when "/cleanup"
-      # Protezione di sistema
+      puts "[ROUTING] ✅ Comando cleanup rilevato"
       self.core_cleanup(bot, context)
     else
-      # Gestione delle risposte testuali alle Pending Actions
+      puts "[ROUTING] 🔍 Nessun comando pattern trovato. Controllo pending actions..."
       self.handle_pending_responses(bot, msg, context)
     end
   end
-
-  # ==============================================================================
+  
+  
+   # ==============================================================================
   # FUNZIONI CORE (I PILASTRI)
   # ==============================================================================
   # In message_handler.rb, modifica core_mostra_lista
@@ -84,37 +103,49 @@ class MessageHandler
     end
   end
 
-  def self.core_mostra_lista(bot, context, page = 0)
-    g_db_id = context.config["target_g"] || 0
-    t_id = context.config["target_t"] || 0
+def self.core_mostra_lista(bot, context, page = 0)
+    # 1. Recuperiamo gli ID corretti dal contesto (già popolati dal route)
+    g_db_id = context.config["db_id"] || 0
+    t_id = context.config["topic_id"] || 0
+    
+    puts "[CORE] 📋 Preparazione lista per G:#{g_db_id} T:#{t_id} (Page: #{page})"
 
-    if context.lista_personale?
+    # 2. Gestione Header (Standardizzato e pulito)
+    if g_db_id == 0
       header = "🏠 Lista Personale"
     else
-      # Recuperiamo il chat_id reale di Telegram per interrogare i topics
-      g_info = DB.get_first_row("SELECT chat_id, nome FROM gruppi WHERE id = ?", [g_db_id])
-      real_chat_id = g_info ? g_info["chat_id"] : 0
-      nome_gruppo = g_info ? g_info["nome"] : "Gruppo"
-
-      # Otteniamo il nome PURO dal DataManager
-      nome_topic = DataManager.get_topic_name(real_chat_id, t_id)
-
-      # Decidiamo qui come formattare la parola di chiarimento
-      etichetta_topic = (t_id == 0) ? nome_topic : "Lista #{nome_topic}"
-      header = "🎯 #{nome_gruppo}: #{etichetta_topic}"
+      # Usiamo il DataManager per risolvere il nome "sperimentale" o "Generale"
+      nome_t = DataManager.get_topic_name(g_db_id, t_id)
+      g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_db_id]) || "Gruppo"
+      header = "🎯 #{g_nome}: Lista #{nome_t}"
     end
 
+    # 3. Recupero Articoli e Generazione UI
     items = DataManager.prendi_articoli_ordinati(g_db_id, t_id)
     ui = KeyboardGenerator.genera_lista(items, g_db_id, t_id, page, header)
 
-    bot.api.send_message(
-      chat_id: context.user_id,
-      text: ui[:text],
-      reply_markup: ui[:markup],
-      parse_mode: "Markdown",
-    )
-  end
+    # 4. Invio Unificato (Gestendo il thread_id per i gruppi)
+    begin
+      params = {
+        chat_id: context.chat_id,
+        text: ui[:text],
+        reply_markup: ui[:markup],
+        parse_mode: "Markdown"
+      }
 
+      # Se siamo in un gruppo e il topic non è quello generale (0), serve il thread_id
+      if !context.private_chat? && t_id > 0
+        params[:message_thread_id] = t_id
+        puts "[CORE] 🧵 Invio nel Topic ID: #{t_id}"
+      end
+
+      bot.api.send_message(params)
+      puts "[CORE] ✅ Lista inviata con successo"
+    rescue => e
+      puts "❌ [CORE ERROR] Fallimento invio: #{e.message}"
+    end
+  end
+  
   def self.show_private_keyboard(bot, chat_id)
     puts "📟 [DEBUG] Visualizzazione tastiera privata per: #{chat_id}"
 
@@ -183,26 +214,6 @@ class MessageHandler
   # ==============================================================================
   # METODI PONTE E FALLBACK
   # ==============================================================================
-  def self.mostra_lista(bot, context, gruppo_id, topic_id, page = 0)
-    # 1. Recupero dati dal Monitor DB
-    items = DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND topic_id = ? ORDER BY creato_il DESC", [gruppo_id, topic_id])
-    nome_gruppo = (gruppo_id == 0) ? "Lista Personale" : "Gruppo #{gruppo_id}"
-
-    # 2. Generazione UI tramite il modulo Keyboard
-    ui = KeyboardGenerator.genera_lista(items, gruppo_id, topic_id, page, nome_gruppo)
-
-    # 3. Invio (Gestendo correttamente il thread_id per i gruppi)
-    t_id = context.private_chat? ? nil : (context.topic_id || topic_id)
-
-    bot.api.send_message(
-      chat_id: context.chat_id,
-      message_thread_id: t_id,
-      text: ui[:text],
-      reply_markup: ui[:markup],
-      parse_mode: "Markdown",
-    )
-  end
-
   def self.handle_pending_responses(bot, msg, context)
     pending = DataManager.ottieni_pending(context.chat_id, context.topic_id)
     if pending
