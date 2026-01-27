@@ -1,5 +1,7 @@
 # handlers/callback_handler.rb
 require_relative "storico_manager"
+require_relative "../models/carte_fedelta"
+
 require_relative "../models/context"
 require_relative "../db"
 
@@ -12,16 +14,24 @@ class CallbackHandler
     puts "[CALLBACK] 🖱️ Ricevuto: '#{data}' da #{user_name}"
 
     case data
-    # --------------------------------------------------------------------------
-    # GESTIONE CARRELLO (Soluzione B: Spunta/Despunta)
-    # --------------------------------------------------------------------------
-    # handlers/callback_handler.rb -> dentro il case update.data
 
-    # --------------------------------------------------------------------------
-    # GESTIONE PAGINAZIONE
-    # --------------------------------------------------------------------------
-    # In handlers/callback_handler.rb (dentro la gestione ui_page)
- when /^ui_page:(\d+):(\d+):(\d+)$/
+    when /^carte:/, "close_barcode"
+      CarteFedelta.handle_callback(bot, callback)
+    when /^carte_confirm_delete:(\d+)$/
+      CarteFedelta.delete_card(bot, context.user_id, $1.to_i)
+    when "carte_cancel_delete"
+      bot.api.delete_message(chat_id: context.chat_id, message_id: callback.message.message_id)
+
+      # --------------------------------------------------------------------------
+      # GESTIONE CARRELLO (Soluzione B: Spunta/Despunta)
+      # --------------------------------------------------------------------------
+      # handlers/callback_handler.rb -> dentro il case update.data
+
+      # --------------------------------------------------------------------------
+      # GESTIONE PAGINAZIONE
+      # --------------------------------------------------------------------------
+      # In handlers/callback_handler.rb (dentro la gestione ui_page)
+    when /^ui_page:(\d+):(\d+):(\d+)$/
       g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i
       puts "[DEBUG] 📄 Cambio Pagina -> G:#{g_id} T:#{t_id} P:#{page}" # LOG 1
 
@@ -44,7 +54,7 @@ class CallbackHandler
           message_id: callback.message.message_id,
           text: ui[:text],
           reply_markup: ui[:markup],
-          parse_mode: "Markdown"
+          parse_mode: "Markdown",
         )
         puts "[DEBUG] ✅ Messaggio sostituito con successo"
       rescue => e
@@ -54,7 +64,7 @@ class CallbackHandler
       end
 
       bot.api.answer_callback_query(callback_query_id: callback.id)
-      
+
       # --------------------------------------------------------------------------
       # GESTIONE RITORNO ALLA LISTA (Fix per il tasto Indietro)
       # --------------------------------------------------------------------------
@@ -190,7 +200,7 @@ class CallbackHandler
 
       # handlers/callback_handler.rb
 
-when /^set_target:(.+):(.+)$/
+    when /^set_target:(.+):(.+)$/
       g_db_id = $1.to_i # L'ID interno (es: 50)
       t_id = $2.to_i    # L'ID del topic (es: 2)
       u_id = callback.from.id
@@ -209,15 +219,15 @@ when /^set_target:(.+):(.+)$/
       # 3. Feedback all'utente usando la stringa restituita
       # answer_callback_query mostra il bannerino in alto su Telegram
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🎯 Target: #{nome_t}")
-      
+
       # send_message conferma l'operazione nella chat
       bot.api.send_message(
-        chat_id: u_id, 
-        text: "✅ Destinazione impostata: *#{nome_t}*", 
-        parse_mode: "Markdown"
+        chat_id: u_id,
+        text: "✅ Destinazione impostata: *#{nome_t}*",
+        parse_mode: "Markdown",
       )
-            
-     # --------------------------------------------------------------------------
+
+      # --------------------------------------------------------------------------
       # CHIUSURA INTERFACCIA
       # --------------------------------------------------------------------------
     when /^ui_close:(-?\d+):(\d+)$/
@@ -237,48 +247,47 @@ when /^set_target:(.+):(.+)$/
   # METODI DI SUPPORTO UI
   # ==============================================================================
 
-# handlers/callback_handler.rb
+  # handlers/callback_handler.rb
 
-# handlers/callback_handler.rb
+  # handlers/callback_handler.rb
 
-def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
-  puts "[REFRESH] 🔄 Avvio refresh: G:#{g_id} T:#{t_id} P:#{page}" # LOG 1
+  def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
+    puts "[REFRESH] 🔄 Avvio refresh: G:#{g_id} T:#{t_id} P:#{page}" # LOG 1
 
-  # 1. Recupero nome e dati
-  nome_topic = DataManager.get_topic_name(g_id, t_id)
-  puts "[REFRESH] 🏷️ Nome recuperato: '#{nome_topic}'" # LOG 2
-  
-  items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-  
-  # 2. Costruzione Header
-  g_nome = (g_id == 0) ? "Privata" : (DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo")
-  header = (g_id == 0) ? "Lista #{nome_topic}" : "#{g_nome}: Lista #{nome_topic}"
-  
-  # 3. Generazione UI
-  ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
-  
-  # 4. Tentativo di EDIT
-  begin
-    puts "[REFRESH] 📤 Invio edit_message_text al msg_id: #{callback.message.message_id}" # LOG 3
-    bot.api.edit_message_text(
-      chat_id: callback.message.chat.id,
-      message_id: callback.message.message_id,
-      text: ui[:text],
-      reply_markup: ui[:markup],
-      parse_mode: "Markdown"
-    )
-    puts "[REFRESH] ✅ Edit completato con successo" # LOG 4
-  rescue Telegram::Bot::Exceptions::ResponseError => e
-    if e.message.include?("message is not modified")
-      puts "[REFRESH] ℹ️ Nessuna modifica necessaria (stesso contenuto)"
-    else
-      puts "[REFRESH] ❌ ERRORE TELEGRAM: #{e.message}"
-      # Se l'edit fallisce, proviamo a rimandarlo per non lasciare l'utente a piedi
-      bot.api.send_message(chat_id: callback.message.chat.id, text: ui[:text], reply_markup: ui[:markup], parse_mode: "Markdown")
+    # 1. Recupero nome e dati
+    nome_topic = DataManager.get_topic_name(g_id, t_id)
+    puts "[REFRESH] 🏷️ Nome recuperato: '#{nome_topic}'" # LOG 2
+
+    items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+
+    # 2. Costruzione Header
+    g_nome = (g_id == 0) ? "Privata" : (DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo")
+    header = (g_id == 0) ? "Lista #{nome_topic}" : "#{g_nome}: Lista #{nome_topic}"
+
+    # 3. Generazione UI
+    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
+
+    # 4. Tentativo di EDIT
+    begin
+      puts "[REFRESH] 📤 Invio edit_message_text al msg_id: #{callback.message.message_id}" # LOG 3
+      bot.api.edit_message_text(
+        chat_id: callback.message.chat.id,
+        message_id: callback.message.message_id,
+        text: ui[:text],
+        reply_markup: ui[:markup],
+        parse_mode: "Markdown",
+      )
+      puts "[REFRESH] ✅ Edit completato con successo" # LOG 4
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      if e.message.include?("message is not modified")
+        puts "[REFRESH] ℹ️ Nessuna modifica necessaria (stesso contenuto)"
+      else
+        puts "[REFRESH] ❌ ERRORE TELEGRAM: #{e.message}"
+        # Se l'edit fallisce, proviamo a rimandarlo per non lasciare l'utente a piedi
+        bot.api.send_message(chat_id: callback.message.chat.id, text: ui[:text], reply_markup: ui[:markup], parse_mode: "Markdown")
+      end
+    rescue => e
+      puts "[REFRESH] 💥 ERRORE GENERICO: #{e.message}\n#{e.backtrace.first}"
     end
-  rescue => e
-    puts "[REFRESH] 💥 ERRORE GENERICO: #{e.message}\n#{e.backtrace.first}"
   end
-end
-
 end

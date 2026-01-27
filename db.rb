@@ -85,7 +85,7 @@ def init_db
       user_id INTEGER,
       nome TEXT,
       codice TEXT,
-      tipo TEXT,
+      formato TEXT,
       creato_il DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   SQL
@@ -161,21 +161,20 @@ class DataManager
     DB.execute("DELETE FROM items WHERE id = ?", [item_id])
   end
 
-def self.get_topic_name(g_id, t_id)
-  return "Personale" if g_id.to_i == 0
-  return "Generale" if t_id.to_i == 0
+  def self.get_topic_name(g_id, t_id)
+    return "Personale" if g_id.to_i == 0
+    return "Generale" if t_id.to_i == 0
 
-  # Dobbiamo usare l'ID database per trovare il chat_id reale
-  real_chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [g_id])
-  
-  if real_chat_id
-    row = DB.get_first_row("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [real_chat_id, t_id])
-    return row['nome'].to_s if row && row['nome'] && !row['nome'].to_s.strip.empty?
+    # Dobbiamo usare l'ID database per trovare il chat_id reale
+    real_chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [g_id])
+
+    if real_chat_id
+      row = DB.get_first_row("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [real_chat_id, t_id])
+      return row["nome"].to_s if row && row["nome"] && !row["nome"].to_s.strip.empty?
+    end
+
+    "#{t_id}" # Torna 'sperimentale' se lo trova, altrimenti '2'
   end
-
-  "#{t_id}" # Torna 'sperimentale' se lo trova, altrimenti '2'
-end
-
 
   # ----------------------------------------------------------------------------
   # LA SCOPETTA (Cleanup & Storico)
@@ -284,26 +283,71 @@ end
     puts "❌ [DATA_ERROR] Errore in aggiungi_articoli: #{e.message}"
     raise e
   end
-  # In db.rb, dentro la classe DataManager
-  
-# db.rb (DataManager)
 
-def self.aggiorna_membership(u_id, g_id)
-  # Usiamo 'last_seen' come definito nel tuo CREATE TABLE
-  query = <<-SQL
+  def self.genera_header_contesto(g_id, t_id)
+    if g_id == 0
+      "🏠 Lista Personale"
+    else
+      # Recupera il nome del gruppo
+      g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo #{g_id}"
+      # Usa il tuo metodo get_topic_name per risolvere "Generale" o "sperimentale"
+      nome_t = self.get_topic_name(g_id, t_id)
+      "🎯 #{g_nome}: Lista #{nome_t}"
+    end
+  end
+
+  def self.prendi_per_contesto(g_id, t_id)
+    # Usiamo solo items e gruppi (che esiste sicuramente come FK)
+    query = <<-SQL
+    SELECT i.*, g.nome as nome_gruppo
+    FROM items i
+    LEFT JOIN gruppi g ON i.gruppo_id = g.id
+    WHERE i.gruppo_id = ? AND i.topic_id = ?
+    ORDER BY i.creato_il DESC
+  SQL
+    DB.execute(query, [g_id, t_id])
+  end
+
+  def self.prendi_miei_ovunque(u_id)
+    query = <<-SQL
+    SELECT i.*, g.nome as nome_gruppo
+    FROM items i
+    LEFT JOIN gruppi g ON i.gruppo_id = g.id
+    WHERE i.creato_da = ? 
+    AND (i.gruppo_id = 0 OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?))
+    ORDER BY i.gruppo_id, i.creato_il DESC
+  SQL
+    DB.execute(query, [u_id, u_id])
+  end
+
+  def self.prendi_tutto_ovunque(u_id)
+    query = <<-SQL
+    SELECT i.*, g.nome as nome_gruppo
+    FROM items i
+    LEFT JOIN gruppi g ON i.gruppo_id = g.id
+    WHERE i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
+       OR (i.gruppo_id = 0 AND i.creato_da = ?)
+    ORDER BY i.gruppo_id, i.creato_il DESC
+  SQL
+    DB.execute(query, [u_id, u_id])
+  end
+
+  def self.aggiorna_membership(u_id, g_id)
+    # Usiamo 'last_seen' come definito nel tuo CREATE TABLE
+    query = <<-SQL
     INSERT INTO memberships (user_id, gruppo_id, last_seen)
     VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(user_id, gruppo_id) DO UPDATE SET
     last_seen = CURRENT_TIMESTAMP
   SQL
-  
-  begin
-    DB.execute(query, [u_id, g_id])
-    # puts "[DB] Membership aggiornata: U:#{u_id} G:#{g_id}" 
-  rescue SQLite3::Exception => e
-    puts "❌ [DB ERROR] Errore aggiorna_membership: #{e.message}"
+
+    begin
+      DB.execute(query, [u_id, g_id])
+      # puts "[DB] Membership aggiornata: U:#{u_id} G:#{g_id}"
+    rescue SQLite3::Exception => e
+      puts "❌ [DB ERROR] Errore aggiorna_membership: #{e.message}"
+    end
   end
-end
   def self.prendi_destinazioni_censite(user_id)
     # Usiamo 'g_nome' anche qui per coerenza
     destinazioni = [{ "chat_id" => 0, "topic_id" => 0, "nome" => "👤 Lista Personale", "g_nome" => "Privata" }]
@@ -398,5 +442,27 @@ end
   def self.clear_pending(chat_id:, topic_id: 0)
     DB.execute("DELETE FROM pending_actions WHERE chat_id = ? AND topic_id = ?", [chat_id, topic_id])
     puts "[DATA_MONITOR] 🧹 Pending rimosse per Chat:#{chat_id} Topic:#{topic_id}"
+  end
+
+  def self.salva_nuova_carta(u_id, nome, codice, formato, img_path)
+    DB.execute(
+      "INSERT INTO carte_fedelta (user_id, nome, codice, formato, immagine_path) VALUES (?, ?, ?, ?, ?)",
+      [u_id, nome, codice, formato.to_s, img_path]
+    )
+  end
+
+  # Recupero dettaglio: la colonna restituita sarà 'tipo'
+  def self.prendi_dettaglio_carta(carta_id, u_id)
+    DB.get_first_row("SELECT * FROM carte_fedelta WHERE id = ? AND user_id = ?", [carta_id, u_id])
+  end
+
+  # Recupero lista
+  def self.prendi_carte_utente(u_id)
+    DB.execute("SELECT id, nome FROM carte_fedelta WHERE user_id = ? ORDER BY LOWER(nome) ASC", [u_id])
+  end
+
+  # In db.rb (DataManager)
+  def self.elimina_carta(carta_id, u_id)
+    DB.execute("DELETE FROM carte_fedelta WHERE id = ? AND user_id = ?", [carta_id, u_id])
   end
 end

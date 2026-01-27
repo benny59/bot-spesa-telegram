@@ -2,16 +2,18 @@
 # In alto al file aggiungi:
 require_relative "../utils/keyboard_generator"
 require_relative "../models/context"
+require_relative "../models/carte_fedelta"
+
 require_relative "../db"
 
 class MessageHandler
   # ==============================================================================
   # ROUTER PRINCIPALE (DISPATCHER)
-def self.route(bot, msg, context)
+  def self.route(bot, msg, context)
     u_id = msg.from.id
     g_chat_id = msg.chat.id
     scope = context.scope
-    
+
     # 1. Censimento
     unless context.private_chat?
       puts "[ROUTING] 👥 Gruppo rilevato. Aggiorno membership per U:#{u_id} in G:#{g_chat_id}"
@@ -19,7 +21,7 @@ def self.route(bot, msg, context)
     end
 
     # 2. Scambio di Contesto (Cruciale per i target)
-if context.private_chat?
+    if context.private_chat?
       puts "[ROUTING] 🏠 Chat Privata: Carico config target..."
       config_salvata = DataManager.carica_config_utente(u_id)
       if config_salvata && config_salvata["target_g"]
@@ -32,14 +34,14 @@ if context.private_chat?
         puts "[ROUTING] 👤 Nessun target: uso Lista Personale"
       end
     else
-# --- AGGIUNTA PER I GRUPPI ---
+      # --- AGGIUNTA PER I GRUPPI ---
       # Se siamo in un gruppo, dobbiamo usare l'id del database associato a questo chat_id
       # e il topic_id reale del messaggio corrente.
       g_db_id = DB.get_first_value("SELECT id FROM gruppi WHERE chat_id = ?", [g_chat_id]) || 0
       context.config["db_id"] = g_db_id
       context.config["topic_id"] = (msg.message_thread_id || 0).to_i
       puts "[ROUTING] 🏢 Chat di Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
-          end
+    end
 
     # Gestione Foto
     if msg.photo && msg.photo.any?
@@ -51,6 +53,28 @@ if context.private_chat?
     puts "[ROUTING] 🚦 Smistamento: '#{text[0..20]}...' (Scope: #{scope})"
 
     case text
+
+    when "/carte", "🎟️ LE MIE CARTE"
+      CarteFedelta.show_user_cards(bot, u_id)
+    when "/addcarta"
+      bot.api.send_message(chat_id: u_id, text: "✍️ Invia la foto della carta con il nome nella didascalia (caption).")
+    when "/delcarta"
+      CarteFedelta.show_delete_interface(bot, u_id)
+    when /^\?(.*)/
+      # Caso 1: Dati del contesto attuale (Gruppo o Privata targettizzata)
+      items = DataManager.prendi_per_contesto(context.config["db_id"], context.config["topic_id"])
+      header = DataManager.genera_header_contesto(context.config["db_id"], context.config["topic_id"])
+      self.core_mostra_lista(bot, context, items, header)
+    when "/miei"
+      # Caso 2: I miei ovunque
+      items = DataManager.prendi_miei_ovunque(u_id)
+      header = "👤 I Miei Articoli (Ovunque)"
+      self.core_mostra_lista(bot, context, items, header)
+    when "/tutti"
+      # Caso 3: Tutto il mio "universo" (tutti i miei gruppi)
+      items = DataManager.prendi_tutto_ovunque(u_id)
+      header = "🌐 Riepilogo Globale"
+      self.core_mostra_lista(bot, context, items, header)
     when /^\/(start|help)/
       puts "[ROUTING] ✅ Comando Start/Help rilevato"
       self.core_start(bot, context)
@@ -58,9 +82,6 @@ if context.private_chat?
       payload = $1.to_s.strip
       puts "[ROUTING] ✅ Comando '+' rilevato. Payload: '#{payload}'"
       self.core_aggiunta(bot, context, payload)
-    when /^\?(.*)/
-      puts "[ROUTING] ✅ Comando '?' rilevato. Mostro lista"
-      self.core_mostra_lista(bot, context)
     when /^\*(.*)/
       payload = $1.to_s.strip
       puts "[ROUTING] ✅ Comando '*' rilevato. Aggiunta personale: '#{payload}'"
@@ -79,9 +100,8 @@ if context.private_chat?
       self.handle_pending_responses(bot, msg, context)
     end
   end
-  
-  
-   # ==============================================================================
+
+  # ==============================================================================
   # FUNZIONI CORE (I PILASTRI)
   # ==============================================================================
   # In message_handler.rb, modifica core_mostra_lista
@@ -103,49 +123,40 @@ if context.private_chat?
     end
   end
 
-def self.core_mostra_lista(bot, context, page = 0)
-    # 1. Recuperiamo gli ID corretti dal contesto (già popolati dal route)
+  def self.core_mostra_lista(bot, context, items, header, page = 0)
     g_db_id = context.config["db_id"] || 0
     t_id = context.config["topic_id"] || 0
-    
-    puts "[CORE] 📋 Preparazione lista per G:#{g_db_id} T:#{t_id} (Page: #{page})"
 
-    # 2. Gestione Header (Standardizzato e pulito)
-    if g_db_id == 0
-      header = "🏠 Lista Personale"
-    else
-      # Usiamo il DataManager per risolvere il nome "sperimentale" o "Generale"
-      nome_t = DataManager.get_topic_name(g_db_id, t_id)
-      g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_db_id]) || "Gruppo"
-      header = "🎯 #{g_nome}: Lista #{nome_t}"
-    end
+    puts "[CORE] 📋 Rendering: #{header}"
+    puts "[CORE] 🧩 Context: Chat:#{context.chat_id} | Scope:#{context.scope} | Topic:#{t_id}"
 
-    # 3. Recupero Articoli e Generazione UI
-    items = DataManager.prendi_articoli_ordinati(g_db_id, t_id)
     ui = KeyboardGenerator.genera_lista(items, g_db_id, t_id, page, header)
 
-    # 4. Invio Unificato (Gestendo il thread_id per i gruppi)
+    params = {
+      chat_id: context.chat_id,
+      text: ui[:text],
+      reply_markup: ui[:markup],
+      parse_mode: "Markdown",
+    }
+
+    # Logica thread_id corretta: solo in gruppo
+    if context.scope == "group" && t_id > 0
+      params[:message_thread_id] = t_id
+      puts "[CORE] 🧵 Thread attivo: #{t_id}"
+    end
+
     begin
-      params = {
-        chat_id: context.chat_id,
-        text: ui[:text],
-        reply_markup: ui[:markup],
-        parse_mode: "Markdown"
-      }
-
-      # Se siamo in un gruppo e il topic non è quello generale (0), serve il thread_id
-      if !context.private_chat? && t_id > 0
-        params[:message_thread_id] = t_id
-        puts "[CORE] 🧵 Invio nel Topic ID: #{t_id}"
-      end
-
+      puts "[CORE] 📤 Invio API in corso..."
+      # La gemma restituisce l'oggetto Message se va bene, altrimenti solleva eccezione
       bot.api.send_message(params)
-      puts "[CORE] ✅ Lista inviata con successo"
+      puts "[CORE] ✅ Successo: Messaggio inviato a Telegram"
     rescue => e
-      puts "❌ [CORE ERROR] Fallimento invio: #{e.message}"
+      puts "❌ [CORE ERROR] Errore API: #{e.message}"
+      # Log dettagliato per capire se il problema è nei parametri
+      puts "[DEBUG] Params inviati: #{params.inspect}"
     end
   end
-  
+
   def self.show_private_keyboard(bot, chat_id)
     puts "📟 [DEBUG] Visualizzazione tastiera privata per: #{chat_id}"
 
@@ -223,9 +234,39 @@ def self.core_mostra_lista(bot, context, page = 0)
   end
 
   def self.handle_photo_bridge(bot, msg, context)
-    puts "[BRIDGE] 📸 Delega gestione foto a legacy handler"
-    # Qui chiameremo il vecchio handle_photo_message o handle_private_photo
-    # Per ora logghiamo solo per non crashare
+    u_id = msg.from.id
+    caption = msg.caption.to_s.strip
+
+    if context.private_chat?
+      if caption.empty?
+        return bot.api.send_message(chat_id: u_id, text: "📸 Per salvare una carta, invia la foto scrivendo il *nome* nella didascalia.")
+      end
+
+      # 1. Recupero file
+      file_id = msg.photo.last.file_id
+      file_info = bot.api.get_file(file_id: file_id)
+      # Accediamo direttamente al metodo file_path dell'oggetto restituito
+      url = "https://api.telegram.org/file/bot#{bot.api.token}/#{file_info.file_path}"
+      local_path = "data/carte/temp_#{u_id}.png"
+      # Assicuriamoci che la directory esista per evitare altri NoMethodError/Errno
+      FileUtils.mkdir_p("data/carte") unless Dir.exist?("data/carte")
+
+      File.open(local_path, "wb") do |f|
+        f.write(Faraday.get(url).body)
+      end
+
+      # 2. Scansione con BarcodeScanner
+      barcode = BarcodeScanner.scan_image(local_path)
+
+      if barcode
+        # 3. Creazione carta (usa il metodo che hai già in carte_fedelta.rb)
+        CarteFedelta.add_card_from_photo(bot, u_id, caption, barcode[:data], local_path, barcode[:format])
+      else
+        bot.api.send_message(chat_id: u_id, text: "❌ Nessun codice a barre trovato. Prova una foto più vicina e nitida.")
+      end
+
+      File.delete(local_path) if File.exist?(local_path)
+    end
   end
 
   def self.core_start(bot, context)
