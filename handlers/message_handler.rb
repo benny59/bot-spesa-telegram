@@ -13,23 +13,36 @@ class MessageHandler
 def self.route(bot, msg, context)
   u_id = msg.from.id
   g_chat_id = msg.chat.id
-
-  # 1. ALLINEAMENTO CONTESTO
+# 1. LOGICA PER GRUPPI (REALE)
   unless context.private_chat?
     gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
-    if gruppo
-      context.config["db_id"] = gruppo["id"].to_i
-      context.config["topic_id"] = (msg.respond_to?(:message_thread_id) ? (msg.message_thread_id || 0) : 0).to_i
-      puts "[DEBUG-ROUTING] 🛠️ Setto config per core_aggiunta: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
-    end
+    context.config["db_id"] = gruppo ? gruppo["id"].to_i : 0
+    
+    # Gestione Topic
+    t_id_msg = msg.respond_to?(:message_thread_id) ? msg.message_thread_id : nil
+    context.config["topic_id"] = t_id_msg ? t_id_msg.to_i : 0
+    
+    puts "[ROUTING] 🏢 Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
+  
+# 2. LOGICA PER PRIVATA (TELECOMANDO)
   else
+    puts "[ROUTING] 🏠 Chat Privata: Carico target dal DB..."
     config_salvata = DataManager.carica_config_utente(u_id)
-    if config_salvata && config_salvata["target_g"]
-      context.config["db_id"] = config_salvata["target_g"].to_i
-      context.config["topic_id"] = (config_salvata["target_t"] || 0).to_i
+    
+    config_salvata ||= {}
+
+    # ALLINEAMENTO CHIAVI: Il selettore salva "db_id" e "topic_id"
+    g_id = config_salvata["db_id"]
+    t_id = config_salvata["topic_id"]
+
+    if g_id && g_id.to_i != 0
+      context.config["db_id"] = g_id.to_i
+      context.config["topic_id"] = (t_id || 0).to_i
+      puts "[ROUTING] 🎯 Target recuperato: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
     else
       context.config["db_id"] = 0
       context.config["topic_id"] = 0
+      puts "[ROUTING] 👤 Default: Lista Personale"
     end
   end
   
@@ -117,21 +130,29 @@ when '/setup_pin'
       self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, true)
     when "/miei", "📋 I MIEI ARTICOLI"
       self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, false)
-    when "🛒 LISTA"
-      # 1. FORZA il ricaricamento della configurazione dal DB per evitare dati vecchi
-      conf_aggiornata = DataManager.carica_config_utente(u_id)
+when "🛒 LISTA"
+      # 1. Ricarica la config
+      conf = DataManager.carica_config_utente(u_id)
+      
+      # DEBUG TEMPORANEO: Vediamo cosa c'è davvero nel DB
+      # puts "[DEBUG-DB] Contenuto config: #{conf.inspect}"
 
-      # 2. Usa i dati appena letti invece di quelli nel 'context'
-      g_id = conf_aggiornata ? conf_aggiornata["db_id"].to_i : 0
-      t_id = conf_aggiornata ? conf_aggiornata["topic_id"].to_i : 0
+      # 2. PROVA ENTRAMBE LE CHIAVI (per sicurezza tra target_g e db_id)
+      g_id = (conf["target_g"] || conf["db_id"] || 0).to_i
+      t_id = (conf["target_t"] || conf["topic_id"] || 0).to_i
 
       puts "[ROUTING] 🔄 Refresh dati per LISTA: G:#{g_id} T:#{t_id}"
+
+      # 3. Aggiorna il contesto in memoria così core_mostra_lista non si confonde
+      context.config["db_id"] = g_id
+      context.config["topic_id"] = t_id
 
       items = DataManager.prendi_per_contesto(g_id, t_id)
       header = DataManager.genera_header_contesto(g_id, t_id)
 
       self.core_mostra_lista(bot, context, items, header, g_id, t_id)
-    when "/private", "⚙️ IMPOSTA GRUPPO"
+      
+          when "/private", "⚙️ IMPOSTA GRUPPO"
       puts "[ROUTING] ✅ Attivazione Menu Privato e Selettore"
       # 1. Mostra la tastiera fisica (🛒 LISTA, ecc.)
       #KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
