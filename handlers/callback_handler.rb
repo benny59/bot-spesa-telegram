@@ -39,15 +39,6 @@ class CallbackHandler
       bot.api.answer_callback_query(callback_query_id: callback.id)
       bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id) rescue nil
 
-      # FIX: Gestione della chiusura UI che invia gruppo_id e topic_id (es: ui_close:50:2)
-    when /^ui_close:(-?\d+):(\d+)$/
-      bot.api.answer_callback_query(callback_query_id: callback.id)
-      begin
-        bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id)
-      rescue
-        # Se non ha i permessi per eliminare, pulisce almeno i bottoni
-        bot.api.edit_message_reply_markup(chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: nil)
-      end
 
       # FIX: Aggiunto alias per la chiusura specifica delle carte se usata
     when /^carte_chiudi:(-?\d+):(\d+)$/
@@ -65,43 +56,35 @@ class CallbackHandler
       # Chiamiamo il metodo che ora userà DataManager.carte_disponibili_nel_gruppo(g_id)
       # Passiamo g_id esplicito per non farlo cercare a caso nel context
       CarteFedeltaGruppo.show_group_cards(bot, g_id, context.chat_id, user_id, t_id)
-    when /^ui_page:(\d+):(\d+):(\d+)$/
-      g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i
-      puts "[DEBUG] 📄 Cambio Pagina -> G:#{g_id} T:#{t_id} P:#{page}" # LOG 1
-
-      # 1. Recupero dati e nome (usando il metodo che abbiamo stabilito)
-      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-      nome_t = DataManager.get_topic_name(g_id, t_id)
-      puts "[DEBUG] 🏷️ Nome Topic per Header: #{nome_t}" # LOG 2
-
-      # 2. Costruzione Header (uniforme a quello che volevi)
-      g_nome = (g_id == 0) ? "Privata" : (DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo")
-      header = (g_id == 0) ? "Lista #{nome_t}" : "#{g_nome}: Lista #{nome_t}"
-
-      # 3. Generazione UI
-      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
-
-      # 4. SOSTITUZIONE del messaggio esistente
-      begin
-        bot.api.edit_message_text(
-          chat_id: callback.message.chat.id,
-          message_id: callback.message.message_id,
-          text: ui[:text],
-          reply_markup: ui[:markup],
-          parse_mode: "Markdown",
-        )
-        puts "[DEBUG] ✅ Messaggio sostituito con successo"
-      rescue => e
-        puts "[DEBUG] ❌ Errore Edit: #{e.message}"
-        # Fallback se l'edit fallisce
-        bot.api.send_message(chat_id: callback.message.chat.id, text: ui[:text], reply_markup: ui[:markup], parse_mode: "Markdown")
-      end
-
-      bot.api.answer_callback_query(callback_query_id: callback.id)
-
-      # --------------------------------------------------------------------------
+when /^ui_page:(\d+):(\d+):(\d+)$/
+  g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i
+  bot.api.answer_callback_query(callback_query_id: callback.id)
+  
+  # Questo metodo fa già tutto (DB query + Keyboard + API Edit)
+  self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
+    
+        # --------------------------------------------------------------------------
       # GESTIONE RITORNO ALLA LISTA (Fix per il tasto Indietro)
       # --------------------------------------------------------------------------
+      # In handlers/callback_handler.rb
+
+when /^trigger_list:(-?\d+):(\d+)$/
+  g_id, t_id = $1.to_i, $2.to_i
+  items = DataManager.prendi_per_contesto(g_id, t_id) #
+  header = DataManager.genera_header_contesto(g_id, t_id) #
+  ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, header)
+  
+  bot.api.send_message(
+    chat_id: callback.message.chat.id,
+    message_thread_id: (t_id > 0 ? t_id : nil),
+    text: ui[:text],
+    reply_markup: ui[:markup],
+    parse_mode: "HTML"
+  )
+  bot.api.answer_callback_query(callback_query_id: callback.id)
+  
+        
+      
     when /^ui_back_to_list:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
       bot.api.answer_callback_query(callback_query_id: callback.id)
@@ -110,26 +93,27 @@ class CallbackHandler
 
       # Toggle "Comprato" (Mette nel carrello o toglie)
       # Esempio di gestione del click (Callback)
-    when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
-      item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
+when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
+  item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
+  
+  # Usa gli oggetti corretti estratti dal callback
+  c_id = callback.message.chat.id
+  m_id = callback.message.message_id
 
-      # 1. Esegui l'azione
-      DataManager.spunta_articolo(item_id, user_id)
+  DataManager.spunta_articolo(item_id, user_id) # Spunta con ID utente per le iniziali
+  
+  # Refresh con i dati corretti
+  items = DataManager.prendi_per_contesto(g_id, t_id)
+  header = DataManager.genera_header_contesto(g_id, t_id)
+  ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
-      # 2. REFRESH: Non chiedere al context, usa g_id e t_id che vengono dal bottone!
-      # Questo è il segreto per non tornare mai più a G:0 se eri in G:50
-      items = DataManager.prendi_per_contesto(g_id, t_id) # Query con ORDER BY corretta
-      header = DataManager.genera_header_contesto(g_id, t_id)
-      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
-
-      bot.api.edit_message_text(
-        chat_id: chat_id,
-        message_id: msg_id,
-        text: ui[:text],
-        reply_markup: ui[:markup],
-        parse_mode: "HTML",
-      )
-
+  bot.api.edit_message_text(
+    chat_id: c_id,
+    message_id: m_id,
+    text: ui[:text],
+    reply_markup: ui[:markup],
+    parse_mode: "HTML"
+  )
       # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
       # --------------------------------------------------------------------------
@@ -276,22 +260,27 @@ class CallbackHandler
 
       # In callback_handler.rb all'interno del metodo self.route
 
-    when "ui_close", "close_barcode", /^carte_chiudi/
-      puts "[CALLBACK] 🗑️ Chiusura interfaccia richiesta"
+# VERSIONE UNIFICATA E DEFINITIVA
+when "ui_close", "close_barcode", /^ui_close:/, /^carte_chiudi/, /^checklist_close/
+  puts "[CALLBACK] 🗑️ Chiusura interfaccia richiesta (Data: #{data})"
+  
+  begin
+    target_chat_id = callback.message.chat.id
+    target_msg_id  = callback.message.message_id
 
-      # 'callback' è l'oggetto Telegram::Bot::Types::CallbackQuery
-      # 'callback.message' è il messaggio che contiene i bottoni da eliminare
-      begin
-        target_chat_id = callback.message.chat.id
-        target_msg_id = callback.message.message_id
-
-        bot.api.delete_message(chat_id: target_chat_id, message_id: target_msg_id)
-      rescue => e
-        puts "⚠️ [CALLBACK] Errore eliminazione: #{e.message}"
-        # Fallback se il messaggio è troppo vecchio per essere eliminato
-        bot.api.edit_message_reply_markup(chat_id: target_chat_id, message_id: target_msg_id, reply_markup: nil)
-      end
-
+    bot.api.delete_message(chat_id: target_chat_id, message_id: target_msg_id)
+  rescue => e
+    puts "⚠️ [CALLBACK] Errore eliminazione: #{e.message}"
+    # Se il messaggio è troppo vecchio (>48h) o mancano permessi, togliamo solo i bottoni
+    begin
+      bot.api.edit_message_reply_markup(chat_id: target_chat_id, message_id: target_msg_id, reply_markup: nil)
+    rescue => e_markup
+      puts "❌ [CALLBACK] Impossibile anche modificare il markup: #{e_markup.message}"
+    end
+  end
+  # Rispondiamo sempre alla query per togliere l'icona del caricamento dal bottone
+  bot.api.answer_callback_query(callback_query_id: callback.id)
+  
       # --- NUOVA GESTIONE CAMBIO GRUPPO DA PRIVATA ---
     when /^private_set:(\d+):(\d+):(\d+)$/
       g_id, u_id, t_id = $1.to_i, $2.to_i, $3.to_i
@@ -327,43 +316,23 @@ class CallbackHandler
 
   # handlers/callback_handler.rb
 
-  def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
-    puts "[REFRESH] 🔄 Avvio refresh: G:#{g_id} T:#{t_id} P:#{page}" # LOG 1
+# In handlers/callback_handler.rb
+def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
+  # Usa il metodo che ha i JOIN per le iniziali MB/ER
+  items = DataManager.prendi_per_contesto(g_id, t_id)
+  header = DataManager.genera_header_contesto(g_id, t_id) #
 
-    # 1. Recupero nome e dati
-    nome_topic = DataManager.get_topic_name(g_id, t_id)
-    puts "[REFRESH] 🏷️ Nome recuperato: '#{nome_topic}'" # LOG 2
+  ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
-    items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-
-    # 2. Costruzione Header
-    g_nome = (g_id == 0) ? "Privata" : (DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo")
-    header = (g_id == 0) ? "Lista #{nome_topic}" : "#{g_nome}: Lista #{nome_topic}"
-
-    # 3. Generazione UI
-    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
-
-    # 4. Tentativo di EDIT
-    begin
-      puts "[REFRESH] 📤 Invio edit_message_text al msg_id: #{callback.message.message_id}" # LOG 3
-      bot.api.edit_message_text(
-        chat_id: callback.message.chat.id,
-        message_id: callback.message.message_id,
-        text: ui[:text],
-        reply_markup: ui[:markup],
-        parse_mode: "Markdown",
-      )
-      puts "[REFRESH] ✅ Edit completato con successo" # LOG 4
-    rescue Telegram::Bot::Exceptions::ResponseError => e
-      if e.message.include?("message is not modified")
-        puts "[REFRESH] ℹ️ Nessuna modifica necessaria (stesso contenuto)"
-      else
-        puts "[REFRESH] ❌ ERRORE TELEGRAM: #{e.message}"
-        # Se l'edit fallisce, proviamo a rimandarlo per non lasciare l'utente a piedi
-        bot.api.send_message(chat_id: callback.message.chat.id, text: ui[:text], reply_markup: ui[:markup], parse_mode: "Markdown")
-      end
-    rescue => e
-      puts "[REFRESH] 💥 ERRORE GENERICO: #{e.message}\n#{e.backtrace.first}"
-    end
-  end
+  bot.api.edit_message_text(
+    chat_id: callback.message.chat.id,
+    message_id: callback.message.message_id,
+    text: ui[:text],
+    reply_markup: ui[:markup],
+    parse_mode: "HTML" # Risolve il problema estetico dei tag visibili
+  )
+rescue => e
+  puts "[REFRESH ERROR] #{e.message}"
 end
+    
+  end

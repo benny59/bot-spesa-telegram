@@ -48,17 +48,33 @@ class KeyboardGenerator
 
     keyboard = []
 
-    # Articoli: ogni click deve sapere dove si trova
-    page_items.each do |item|
-      icon = (item["comprato"] && !item["comprato"].empty?) ? "✅" : "⚪"
-      cb_data = "mycomprato:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}:0"
-      cb_del = "delete_item:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}"
+page_items.each do |item|
+  # Determina se è comprato
+  is_comprato = item["comprato"] && !item["comprato"].to_s.empty?
+  
+  # Recupera iniziali
+  autore = item["autore_init"] || "??"
+  buyer  = item["buyer_init"]
+  
+  # 1. Testo dell'item (Pulito, senza ✅/⚪)
+  # Se vuoi un tocco di classe, se è comprato lo mostriamo sbarrato
+  item_text = is_comprato ? "<s>#{item['nome']}</s>" : item['nome']
+  # Nota: InlineButtons non supportano sempre HTML nel testo del tasto, 
+  # quindi se il barrato non appare, usa solo item['nome']
+  
+  # 2. Etichetta del Cestino
+  # Layout: 🗑️ [Autore] oppure 🗑️ [Autore] ✅ [Buyer]
+  del_label = "🗑️ #{autore}"
+  del_label += " ✅ #{buyer}" if is_comprato
 
-      keyboard << [
-        Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{icon} #{item["nome"]}", callback_data: cb_data),
-        Telegram::Bot::Types::InlineKeyboardButton.new(text: "🗑️", callback_data: cb_del),
-      ]
-    end
+  cb_data = "mycomprato:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}:0"
+  cb_del = "delete_item:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}"
+
+  keyboard << [
+    Telegram::Bot::Types::InlineKeyboardButton.new(text: item['nome'], callback_data: cb_data),
+    Telegram::Bot::Types::InlineKeyboardButton.new(text: del_label, callback_data: cb_del),
+  ]
+end
 
     # Navigazione: Iniettiamo g_id e t_id per non perdere il contesto al cambio pagina
     if total_pages > 1

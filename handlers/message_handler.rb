@@ -10,52 +10,38 @@ require_relative "../db"
 class MessageHandler
   # ==============================================================================
   # ROUTER PRINCIPALE (DISPATCHER)
-  def self.route(bot, msg, context)
-    u_id = msg.from.id
-    g_chat_id = msg.chat.id
-    scope = context.scope
+def self.route(bot, msg, context)
+  u_id = msg.from.id
+  g_chat_id = msg.chat.id
 
-    # 1. LOGICA DI ROUTING/TOPIC PER GRUPPI
-    unless context.private_chat?
-      gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
-      context.config["db_id"] = gruppo ? gruppo["id"] : 0
-
-      # Priorità al thread reale del messaggio per evitare il "paciugo" del Topic 0
-      t_id_msg = msg.respond_to?(:message_thread_id) ? msg.message_thread_id : nil
-
-      if t_id_msg
-        context.config["topic_id"] = t_id_msg.to_i
-      elsif context.config["topic_id"].to_i > 0
-        puts "[ROUTING] 🧠 Topic nil nel msg, mantengo Context: #{context.config["topic_id"]}"
-      else
-        context.config["topic_id"] = 0
-      end
-
-      puts "[ROUTING] 🏢 Chat di Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
+  # 1. ALLINEAMENTO CONTESTO
+  unless context.private_chat?
+    gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
+    if gruppo
+      context.config["db_id"] = gruppo["id"].to_i
+      context.config["topic_id"] = (msg.respond_to?(:message_thread_id) ? (msg.message_thread_id || 0) : 0).to_i
+      puts "[DEBUG-ROUTING] 🛠️ Setto config per core_aggiunta: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
     end
-
-    # 2. LOGICA TARGET PER CHAT PRIVATA
-    if context.private_chat?
-      puts "[ROUTING] 🏠 Chat Privata: Carico config target..."
-      config_salvata = DataManager.carica_config_utente(u_id)
-      if config_salvata && config_salvata["target_g"]
-        context.config["db_id"] = config_salvata["target_g"].to_i
-        context.config["topic_id"] = (config_salvata["target_t"] || 0).to_i
-        puts "[ROUTING] 🎯 Target impostato: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
-      else
-        context.config["db_id"] = 0
-        context.config["topic_id"] = 0
-      end
+  else
+    config_salvata = DataManager.carica_config_utente(u_id)
+    if config_salvata && config_salvata["target_g"]
+      context.config["db_id"] = config_salvata["target_g"].to_i
+      context.config["topic_id"] = (config_salvata["target_t"] || 0).to_i
+    else
+      context.config["db_id"] = 0
+      context.config["topic_id"] = 0
     end
-
-    # 3. GESTIONE FOTO
-    if msg.photo && msg.photo.any?
-      return self.handle_photo_bridge(bot, msg, context)
-    end
-
-    text = msg.text.to_s.strip
+  end
+  
+  # 3. GESTIONE FOTO (Blindata contro i nil)
+  if msg.photo && !msg.photo.empty?
+    return self.handle_photo_bridge(bot, msg, context)
+  end
+DataManager.salva_config_utente(u_id, context.config)
+  text = msg.text.to_s.strip
+  return if text.empty? # Esci se non c'è testo (evita crash su messaggi di sistema)
     cmd = text.split("@").first.strip.downcase rescue ""
-    puts "[ROUTING] 🚦 Smistamento: '#{text[0..20]}...' (Scope: #{scope})"
+    puts "[ROUTING] 🚦 Smistamento: '#{text[0..20]}...' (Scope: #{context.scope})"
 
     case text # Usiamo text per matchare anche le etichette dei bottoni
     when /^\/(start|help)/
@@ -64,6 +50,40 @@ class MessageHandler
       if context.private_chat?
         KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
       end
+      
+# In handlers/message_handler.rb
+
+when '/setup_pin'
+    g_id = context.config["db_id"].to_i
+    t_id = context.config["topic_id"].to_i
+    
+    kb = [[Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "🛒 MOSTRA LISTA AGGIORNATA", 
+      callback_data: "trigger_list:#{g_id}:#{t_id}"
+    )]]
+    
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb)
+    
+    # 'sent' è l'oggetto Message (guarda il tuo log, c'è già tutto dentro)
+    sent = bot.api.send_message(
+      chat_id: msg.chat.id,
+      message_thread_id: (t_id > 0 ? t_id : nil),
+      text: "📌 <b>Pannello Spesa - Topic #{t_id}</b>\nUsa questo tasto per richiamare la lista in questo thread.",
+      reply_markup: markup,
+      parse_mode: "HTML"
+    )
+    
+    begin
+      # ACCESSO DIRETTO: sent.message_id, senza .result!
+      bot.api.pin_chat_message(
+        chat_id: msg.chat.id, 
+        message_id: sent.message_id
+      )
+      puts "[DEBUG] ✅ Pannello pinnato: ID #{sent.message_id} nel Topic #{t_id}"
+    rescue => e
+      puts "[ERROR] Impossibile pinnare: #{e.message}"
+    end        
+          
     when "/addcartagruppo"
       if g_chat_id < 0
         gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
@@ -155,7 +175,7 @@ class MessageHandler
   # message_handler.rb
 
   # handlers/message_handler.rb
-
+# In handlers/message_handler.rb
   def self.carica_contesto_privato(user_id, context)
     # Usiamo il tuo metodo esistente a riga 331 di db.rb
     config = DataManager.carica_config_utente(user_id)
@@ -217,31 +237,30 @@ class MessageHandler
   end
 
   # CORE AGGIUNTA (+)
-  def self.core_aggiunta(bot, context, contenuto)
+def self.core_aggiunta(bot, context, contenuto)
     return if contenuto.empty?
 
-    # 1. Recupero target REALE dal DB (Fonte della Verità)
-    conf = DataManager.carica_config_utente(context.user_id)
-    g_id = conf ? conf["target_g"].to_i : 0
-    t_id = conf ? conf["target_t"].to_i : 0
+    # FIX: Non ricaricare dal DB, usa il contesto che abbiamo faticosamente allineato!
+    # context.config è quello che abbiamo settato a G:50 T:2 nel MessageHandler
+    g_id = context.config["db_id"].to_i
+    t_id = context.config["topic_id"].to_i
 
     # 2. Salvataggio articoli sul target corretto
     DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: context.user_id, items_text: contenuto, topic_id: t_id)
     puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{g_id} | T:#{t_id}"
 
-    # 3. Preparazione UI
+    # 3. Preparazione UI con JOIN per iniziali
     items = DataManager.prendi_per_contesto(g_id, t_id)
     header = DataManager.genera_header_contesto(g_id, t_id)
 
-    # 4. Chiamata corretta a core_mostra_lista (6 argomenti come da nuova firma)
-    # bot, context, items, header, g_id, t_id, page
+    # 4. Mostra lista (assicurati che core_mostra_lista usi parse_mode: "HTML")
     self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
 
     # Pulizia
-    DataManager.clear_pending(chat_id: context.chat_id, topic_id: 0)
+    DataManager.clear_pending(chat_id: context.chat_id, topic_id: t_id)
   end
-
-  # CORE STORICO (?)
+  
+    # CORE STORICO (?)
   def self.core_storico(bot, context, query)
     puts "[CORE] 🔍 Esecuzione Ricerca (?)"
     g_id = context.lista_personale? ? 0 : (context.config["db_id"] || 0)
