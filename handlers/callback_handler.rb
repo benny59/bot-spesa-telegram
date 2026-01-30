@@ -14,23 +14,57 @@ class CallbackHandler
     puts "[CALLBACK] 🖱️ Ricevuto: '#{data}' da #{user_name}"
 
     case data
+    when /^mostra_carte:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
+      # Chiama il metodo che genera la tastiera con le tessere del gruppo
+      CarteFedeltaGruppo.show_group_cards(bot, gruppo_id, callback.message.chat.id, callback.from.id, topic_id)
+      # Rispondi al callback per togliere l'orologio dal bottone
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+    when /^carte_gruppo_/
+      # Delega tutto a CarteFedeltaGruppo che ha già la logica pronta
+      CarteFedeltaGruppo.handle_callback(bot, callback)
+    when /^carte:(\d+):(\d+)$/
+      owner_id, card_id = $1.to_i, $2.to_i
+      # PRENDIAMO IL TOPIC DAL MESSAGGIO DEL CALLBACK
+      t_id = (callback.message.message_thread_id || 0).to_i
+      g_id = context.config["db_id"]
 
-    when /^carte:/, "close_barcode"
-      CarteFedelta.handle_callback(bot, callback)
+      puts "[DEBUG-CALLBACK] Cliccata carta #{card_id} | Topic rilevato: #{t_id}"
+      CarteFedeltaGruppo.mostra_carta_gruppo(bot, callback.message.chat.id, g_id, card_id, t_id)
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+
+      # 2. Chiusura tastiera carte
+    when "close_barcode"
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+      bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id) rescue nil
+
+      # FIX: Gestione della chiusura UI che invia gruppo_id e topic_id (es: ui_close:50:2)
+    when /^ui_close:(-?\d+):(\d+)$/
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+      begin
+        bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id)
+      rescue
+        # Se non ha i permessi per eliminare, pulisce almeno i bottoni
+        bot.api.edit_message_reply_markup(chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: nil)
+      end
+
+      # FIX: Aggiunto alias per la chiusura specifica delle carte se usata
+    when /^carte_chiudi:(-?\d+):(\d+)$/
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+      bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id) rescue nil
     when /^carte_confirm_delete:(\d+)$/
       CarteFedelta.delete_card(bot, context.user_id, $1.to_i)
     when "carte_cancel_delete"
       bot.api.delete_message(chat_id: context.chat_id, message_id: callback.message.message_id)
+      # Nel blocco 'when' che gestisce i callback
+    when /^ui_cards:(\d+):(\d+)$/
+      g_id = $1.to_i
+      t_id = $2.to_i
 
-      # --------------------------------------------------------------------------
-      # GESTIONE CARRELLO (Soluzione B: Spunta/Despunta)
-      # --------------------------------------------------------------------------
-      # handlers/callback_handler.rb -> dentro il case update.data
-
-      # --------------------------------------------------------------------------
-      # GESTIONE PAGINAZIONE
-      # --------------------------------------------------------------------------
-      # In handlers/callback_handler.rb (dentro la gestione ui_page)
+      # Chiamiamo il metodo che ora userà DataManager.carte_disponibili_nel_gruppo(g_id)
+      # Passiamo g_id esplicito per non farlo cercare a caso nel context
+      CarteFedeltaGruppo.show_group_cards(bot, g_id, context.chat_id, user_id, t_id)
     when /^ui_page:(\d+):(\d+):(\d+)$/
       g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i
       puts "[DEBUG] 📄 Cambio Pagina -> G:#{g_id} T:#{t_id} P:#{page}" # LOG 1
@@ -75,22 +109,26 @@ class CallbackHandler
       self.refresh_ui(bot, callback, context, g_id, t_id, 0, 0)
 
       # Toggle "Comprato" (Mette nel carrello o toglie)
+      # Esempio di gestione del click (Callback)
     when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
 
-      # Verifichiamo lo stato attuale per decidere se spuntare o despuntare
-      item = DB.get_first_row("SELECT comprato FROM items WHERE id = ?", [item_id])
+      # 1. Esegui l'azione
+      DataManager.spunta_articolo(item_id, user_id)
 
-      if item && (item["comprato"].nil? || item["comprato"].empty?)
-        DataManager.spunta_articolo(item_id, user_name)
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "🛒 Messo nel carrello")
-      else
-        DataManager.despunta_articolo(item_id)
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "🔄 Riportato in lista")
-      end
+      # 2. REFRESH: Non chiedere al context, usa g_id e t_id che vengono dal bottone!
+      # Questo è il segreto per non tornare mai più a G:0 se eri in G:50
+      items = DataManager.prendi_per_contesto(g_id, t_id) # Query con ORDER BY corretta
+      header = DataManager.genera_header_contesto(g_id, t_id)
+      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
-      # Rinfresco della UI (Metodo da implementare nel MessageHandler o UI Manager)
-      self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
+      bot.api.edit_message_text(
+        chat_id: chat_id,
+        message_id: msg_id,
+        text: ui[:text],
+        reply_markup: ui[:markup],
+        parse_mode: "HTML",
+      )
 
       # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
@@ -230,12 +268,50 @@ class CallbackHandler
       # --------------------------------------------------------------------------
       # CHIUSURA INTERFACCIA
       # --------------------------------------------------------------------------
-    when /^ui_close:(-?\d+):(\d+)$/
+
+    when /^myitems_page:(\d+):(\d+):(\d)$/
+      u_id, target_page, s_all = $1.to_i, $2.to_i, ($3.to_i == 1)
+      MessageHandler.handle_myitems(bot, callback.message.chat.id, u_id, callback, target_page, s_all)
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+
+      # In callback_handler.rb all'interno del metodo self.route
+
+    when "ui_close", "close_barcode", /^carte_chiudi/
+      puts "[CALLBACK] 🗑️ Chiusura interfaccia richiesta"
+
+      # 'callback' è l'oggetto Telegram::Bot::Types::CallbackQuery
+      # 'callback.message' è il messaggio che contiene i bottoni da eliminare
       begin
-        bot.api.delete_message(chat_id: context.chat_id, message_id: callback.message.message_id)
+        target_chat_id = callback.message.chat.id
+        target_msg_id = callback.message.message_id
+
+        bot.api.delete_message(chat_id: target_chat_id, message_id: target_msg_id)
       rescue => e
-        puts "[CALLBACK] ⚠️ Errore chiusura UI: #{e.message}"
+        puts "⚠️ [CALLBACK] Errore eliminazione: #{e.message}"
+        # Fallback se il messaggio è troppo vecchio per essere eliminato
+        bot.api.edit_message_reply_markup(chat_id: target_chat_id, message_id: target_msg_id, reply_markup: nil)
       end
+
+      # --- NUOVA GESTIONE CAMBIO GRUPPO DA PRIVATA ---
+    when /^private_set:(\d+):(\d+):(\d+)$/
+      g_id, u_id, t_id = $1.to_i, $2.to_i, $3.to_i
+
+      # 1. Recuperiamo il nome del topic per la configurazione
+      t_name = DataManager.get_topic_name(g_id, t_id)
+
+      # 2. Salviamo la configurazione tramite DataManager
+      nuova_conf = {
+        "db_id" => g_id,
+        "topic_id" => t_id,
+        "topic_name" => t_name,
+      }
+      DataManager.salva_config_utente(u_id, nuova_conf)
+
+      puts "[CALLBACK] 🎯 Context Privato impostato: G:#{g_id} T:#{t_id} (#{t_name})"
+
+      # 3. Feedback all'utente e AGGIORNAMENTO tastiera (per il ✅)
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🎯 Target: #{t_name}")
+      KeyboardGenerator.show_group_selector(bot, u_id, callback.message.message_id)
     else
       puts "[CALLBACK] ❓ Azione non gestita: #{data}"
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "Funzione in fase di refactoring")

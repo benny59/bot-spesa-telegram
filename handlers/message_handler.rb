@@ -3,6 +3,7 @@
 require_relative "../utils/keyboard_generator"
 require_relative "../models/context"
 require_relative "../models/carte_fedelta"
+require_relative "../models/carte_fedelta_gruppo"
 
 require_relative "../db"
 
@@ -14,13 +15,26 @@ class MessageHandler
     g_chat_id = msg.chat.id
     scope = context.scope
 
-    # 1. Censimento
+    # 1. LOGICA DI ROUTING/TOPIC PER GRUPPI
     unless context.private_chat?
-      puts "[ROUTING] 👥 Gruppo rilevato. Aggiorno membership per U:#{u_id} in G:#{g_chat_id}"
-      DataManager.aggiorna_membership(u_id, g_chat_id)
+      gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
+      context.config["db_id"] = gruppo ? gruppo["id"] : 0
+
+      # Priorità al thread reale del messaggio per evitare il "paciugo" del Topic 0
+      t_id_msg = msg.respond_to?(:message_thread_id) ? msg.message_thread_id : nil
+
+      if t_id_msg
+        context.config["topic_id"] = t_id_msg.to_i
+      elsif context.config["topic_id"].to_i > 0
+        puts "[ROUTING] 🧠 Topic nil nel msg, mantengo Context: #{context.config["topic_id"]}"
+      else
+        context.config["topic_id"] = 0
+      end
+
+      puts "[ROUTING] 🏢 Chat di Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
     end
 
-    # 2. Scambio di Contesto (Cruciale per i target)
+    # 2. LOGICA TARGET PER CHAT PRIVATA
     if context.private_chat?
       puts "[ROUTING] 🏠 Chat Privata: Carico config target..."
       config_salvata = DataManager.carica_config_utente(u_id)
@@ -31,76 +45,109 @@ class MessageHandler
       else
         context.config["db_id"] = 0
         context.config["topic_id"] = 0
-        puts "[ROUTING] 👤 Nessun target: uso Lista Personale"
       end
-    else
-      # --- AGGIUNTA PER I GRUPPI ---
-      # Se siamo in un gruppo, dobbiamo usare l'id del database associato a questo chat_id
-      # e il topic_id reale del messaggio corrente.
-      g_db_id = DB.get_first_value("SELECT id FROM gruppi WHERE chat_id = ?", [g_chat_id]) || 0
-      context.config["db_id"] = g_db_id
-      context.config["topic_id"] = (msg.message_thread_id || 0).to_i
-      puts "[ROUTING] 🏢 Chat di Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
     end
 
-    # Gestione Foto
+    # 3. GESTIONE FOTO
     if msg.photo && msg.photo.any?
-      puts "[ROUTING] 📸 Ricevuta Foto. Smisto a handle_photo_bridge"
       return self.handle_photo_bridge(bot, msg, context)
     end
 
     text = msg.text.to_s.strip
+    cmd = text.split("@").first.strip.downcase rescue ""
     puts "[ROUTING] 🚦 Smistamento: '#{text[0..20]}...' (Scope: #{scope})"
 
-    case text
-
-    when "/carte", "🎟️ LE MIE CARTE"
-      CarteFedelta.show_user_cards(bot, u_id)
+    case text # Usiamo text per matchare anche le etichette dei bottoni
+    when /^\/(start|help)/
+      self.core_start(bot, context)
+      # Se siamo in privata, forziamo la comparsa del menu
+      if context.private_chat?
+        KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
+      end
+    when "/addcartagruppo"
+      if g_chat_id < 0
+        gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
+        if gruppo
+          CarteFedeltaGruppo.show_add_to_group_interface(bot, u_id, gruppo["id"], nil)
+          bot.api.send_message(chat_id: g_chat_id, message_thread_id: msg.message_thread_id, text: "✉️ @#{msg.from.username}, ti ho inviato la gestione delle carte in privato.")
+        end
+      end
+    when "/carte", "/cartegruppo"
+      CarteFedeltaGruppo.show_group_cards(bot, context.config["db_id"], g_chat_id, u_id, context.config["topic_id"])
+    when "💳 LE MIE CARTE"
+      CarteFedeltaGruppo.show_user_shared_cards_report(bot, u_id)
     when "/addcarta"
       bot.api.send_message(chat_id: u_id, text: "✍️ Invia la foto della carta con il nome nella didascalia (caption).")
     when "/delcarta"
       CarteFedelta.show_delete_interface(bot, u_id)
     when /^\?(.*)/
-      # Caso 1: Dati del contesto attuale (Gruppo o Privata targettizzata)
-      items = DataManager.prendi_per_contesto(context.config["db_id"], context.config["topic_id"])
-      header = DataManager.genera_header_contesto(context.config["db_id"], context.config["topic_id"])
-      self.core_mostra_lista(bot, context, items, header)
-    when "/miei"
-      # Caso 2: I miei ovunque
-      items = DataManager.prendi_miei_ovunque(u_id)
-      header = "👤 I Miei Articoli (Ovunque)"
-      self.core_mostra_lista(bot, context, items, header)
-    when "/tutti"
-      # Caso 3: Tutto il mio "universo" (tutti i miei gruppi)
-      items = DataManager.prendi_tutto_ovunque(u_id)
-      header = "🌐 Riepilogo Globale"
-      self.core_mostra_lista(bot, context, items, header)
+      # 1. Recupero ID Gruppo dal DB (config) e Topic dal messaggio
+      g_id = context.config["db_id"].to_i
+      t_id = (msg.message_thread_id || 0).to_i
+
+      # 2. Recupero Dati
+      items = DataManager.prendi_per_contesto(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
+
+      # 3. CHIAMATA CORRETTA: devi passare TUTTI i parametri nell'ordine giusto
+      # bot, context, items, header, g_id, t_id, page
+      self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
+    when "/tutti", "📦 TUTTI GLI ARTICOLI"
+      # Passiamo chat_id e user_id estratti dal context, non l'intero oggetto
+      self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, true)
+    when "/miei", "📋 I MIEI ARTICOLI"
+      self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, false)
+    when "🛒 LISTA"
+      # 1. FORZA il ricaricamento della configurazione dal DB per evitare dati vecchi
+      conf_aggiornata = DataManager.carica_config_utente(u_id)
+
+      # 2. Usa i dati appena letti invece di quelli nel 'context'
+      g_id = conf_aggiornata ? conf_aggiornata["db_id"].to_i : 0
+      t_id = conf_aggiornata ? conf_aggiornata["topic_id"].to_i : 0
+
+      puts "[ROUTING] 🔄 Refresh dati per LISTA: G:#{g_id} T:#{t_id}"
+
+      items = DataManager.prendi_per_contesto(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
+
+      self.core_mostra_lista(bot, context, items, header, g_id, t_id)
+    when "/private", "⚙️ IMPOSTA GRUPPO"
+      puts "[ROUTING] ✅ Attivazione Menu Privato e Selettore"
+      # 1. Mostra la tastiera fisica (🛒 LISTA, ecc.)
+      #KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
+
+      # 2. Mostra i bottoni inline per scegliere il gruppo target
+      # Ripristiniamo la chiamata che avevi in produzione:
+      KeyboardGenerator.show_group_selector(bot, u_id)
+    when "➕ AGGIUNGI PRODOTTO"
+      # 1. Chiedi al DB, non al context!
+      conf = DataManager.carica_config_utente(u_id)
+      g_id = conf ? conf["target_g"].to_i : 0
+      t_id = conf ? conf["target_t"].to_i : 0
+
+      # 2. Imposta il pending sul target reale (fondamentale per core_aggiunta)
+      DataManager.set_pending(chat_id: context.chat_id, topic_id: 0, action: "add:#{msg.from.first_name}", gruppo_id: g_id)
+
+      # 3. Genera l'intestazione corretta
+      destinazione = DataManager.genera_header_contesto(g_id, t_id)
+
+      bot.api.send_message(
+        chat_id: context.chat_id,
+        text: "✍️ <b>#{msg.from.first_name}</b>, scrivi gli articoli per:\n#{destinazione}",
+        parse_mode: "HTML",
+      )
     when /^\/(start|help)/
-      puts "[ROUTING] ✅ Comando Start/Help rilevato"
       self.core_start(bot, context)
     when /^\+(.*)/
-      payload = $1.to_s.strip
-      puts "[ROUTING] ✅ Comando '+' rilevato. Payload: '#{payload}'"
-      self.core_aggiunta(bot, context, payload)
+      self.core_aggiunta(bot, context, $1.to_s.strip)
     when /^\*(.*)/
-      payload = $1.to_s.strip
-      puts "[ROUTING] ✅ Comando '*' rilevato. Aggiunta personale: '#{payload}'"
-      self.core_aggiunta_personale(bot, context, payload)
-    when "/private", "📋 MODALITÀ PRIVATA"
-      puts "[ROUTING] ✅ Cambio modalità privata rilevato"
-      self.core_cambio_modalita(bot, context)
-    when "/miei", "📋 I MIEI ARTICOLI"
-      puts "[ROUTING] ✅ Richiesta storico rilevata"
-      self.handle_myitems(bot, context, false)
+      self.core_aggiunta_personale(bot, context, $1.to_s.strip)
     when "/cleanup"
-      puts "[ROUTING] ✅ Comando cleanup rilevato"
       self.core_cleanup(bot, context)
     else
-      puts "[ROUTING] 🔍 Nessun comando pattern trovato. Controllo pending actions..."
       self.handle_pending_responses(bot, msg, context)
     end
   end
-
   # ==============================================================================
   # FUNZIONI CORE (I PILASTRI)
   # ==============================================================================
@@ -123,37 +170,23 @@ class MessageHandler
     end
   end
 
-  def self.core_mostra_lista(bot, context, items, header, page = 0)
-    g_db_id = context.config["db_id"] || 0
-    t_id = context.config["topic_id"] || 0
+  def self.core_mostra_lista(bot, context, items, header, g_id, t_id, page = 0)
+    # Rimuovi il caricamento dal DB qui dentro, usa quelli passati come argomenti
+    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
-    puts "[CORE] 📋 Rendering: #{header}"
-    puts "[CORE] 🧩 Context: Chat:#{context.chat_id} | Scope:#{context.scope} | Topic:#{t_id}"
-
-    ui = KeyboardGenerator.genera_lista(items, g_db_id, t_id, page, header)
-
-    params = {
-      chat_id: context.chat_id,
-      text: ui[:text],
-      reply_markup: ui[:markup],
-      parse_mode: "Markdown",
-    }
-
-    # Logica thread_id corretta: solo in gruppo
-    if context.scope == "group" && t_id > 0
-      params[:message_thread_id] = t_id
-      puts "[CORE] 🧵 Thread attivo: #{t_id}"
-    end
+    target_thread = context.private_chat? ? nil : (t_id.to_i > 0 ? t_id.to_i : nil)
 
     begin
-      puts "[CORE] 📤 Invio API in corso..."
-      # La gemma restituisce l'oggetto Message se va bene, altrimenti solleva eccezione
-      bot.api.send_message(params)
-      puts "[CORE] ✅ Successo: Messaggio inviato a Telegram"
+      puts "[CORE] 📤 INVIO - Chat: #{context.chat_id}, G:#{g_id}, T:#{t_id}"
+      bot.api.send_message(
+        chat_id: context.chat_id,
+        message_thread_id: target_thread,
+        text: ui[:text],
+        reply_markup: ui[:markup],
+        parse_mode: "HTML",
+      )
     rescue => e
-      puts "❌ [CORE ERROR] Errore API: #{e.message}"
-      # Log dettagliato per capire se il problema è nei parametri
-      puts "[DEBUG] Params inviati: #{params.inspect}"
+      puts "❌ [CORE ERROR] #{e.message}"
     end
   end
 
@@ -185,18 +218,27 @@ class MessageHandler
 
   # CORE AGGIUNTA (+)
   def self.core_aggiunta(bot, context, contenuto)
-    if contenuto.empty?
-      DataManager.set_pending(chat_id: context.chat_id, topic_id: context.topic_id, action: "add:veloce")
-      bot.api.send_message(chat_id: context.chat_id, text: "✍️ Cosa aggiungo?")
-    else
-      g_id = context.lista_personale? ? 0 : (context.config["db_id"] || 0)
-      t_id = context.lista_personale? ? 0 : (context.config["topic_id"] || 0)
+    return if contenuto.empty?
 
-      DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: context.user_id, items_text: contenuto, topic_id: t_id)
+    # 1. Recupero target REALE dal DB (Fonte della Verità)
+    conf = DataManager.carica_config_utente(context.user_id)
+    g_id = conf ? conf["target_g"].to_i : 0
+    t_id = conf ? conf["target_t"].to_i : 0
 
-      # Refresh automatico della lista dopo l'aggiunta
-      self.core_mostra_lista(bot, context)
-    end
+    # 2. Salvataggio articoli sul target corretto
+    DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: context.user_id, items_text: contenuto, topic_id: t_id)
+    puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{g_id} | T:#{t_id}"
+
+    # 3. Preparazione UI
+    items = DataManager.prendi_per_contesto(g_id, t_id)
+    header = DataManager.genera_header_contesto(g_id, t_id)
+
+    # 4. Chiamata corretta a core_mostra_lista (6 argomenti come da nuova firma)
+    # bot, context, items, header, g_id, t_id, page
+    self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
+
+    # Pulizia
+    DataManager.clear_pending(chat_id: context.chat_id, topic_id: 0)
   end
 
   # CORE STORICO (?)
@@ -277,5 +319,104 @@ class MessageHandler
     # Esempio di metodo protetto
     return unless context.user_id.to_s == "IL_TUO_ID_ADMIN"
     puts "[CORE] 🧹 Avvio Cleanup di sistema"
+  end
+
+  def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
+    is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
+    real_message = is_callback ? message.message : message
+
+    # 1. Recupero Dati (Metodo già inserito in DataManager)
+    groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
+    return if groups_and_topics.empty?
+
+    conf = DataManager.carica_config_utente(user_id) || {}
+
+    # 2. Configurazione Paginazione
+    per_page = 5
+    total_pages = (groups_and_topics.size.to_f / per_page).ceil
+    page = [[page, 0].max, total_pages - 1].min
+    slice = groups_and_topics.slice(page * per_page, per_page) || []
+
+    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I TUOI ARTICOLI"
+    text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
+    text << "<i>Clicca l'articolo per spuntare, il titolo per cambiare contesto.</i>\n\n"
+
+    item_buttons = []
+
+    # 3. Ciclo sui Gruppi/Topic
+    slice.each do |row|
+      g_id, t_id = row["gruppo_id"], row["topic_id"]
+      is_active = (g_id == conf["db_id"].to_i && t_id == conf["topic_id"].to_i)
+
+      t_label = t_id > 0 ? " (#{DataManager.get_topic_name(g_id, t_id)})" : ""
+      prefix = is_active ? "🎯 " : "📂 "
+
+      # Intestazione Gruppo
+      item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "#{prefix}#{row["gruppo_nome"]}#{t_label}".upcase,
+        callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}",
+      )]
+
+      # Articoli per questo specifico gruppo
+      articoli = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
+
+      articoli.each do |art|
+        status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
+
+        # Se mostro tutto, aggiungo le iniziali del creatore per capire di chi è l'articolo
+        autore_tag = ""
+        if show_all && g_id != 0
+          autore_tag = DB.get_first_value("SELECT initials FROM user_names WHERE user_id = ?", [art["creato_da"]]) || "?"
+          autore_tag = "[#{autore_tag}] "
+        end
+
+        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "#{status} #{autore_tag}#{art["nome"]}",
+          callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
+        )]
+      end
+    end
+
+    # 4. CREAZIONE PULSANTI DI NAVIGAZIONE
+    nav_row = []
+    if total_pages > 1
+      # Freccia Indietro
+      if page > 0
+        nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "◀️",
+          callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}",
+        )
+      end
+
+      # Indicatore di posizione
+      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
+
+      # Freccia Avanti
+      if page < total_pages - 1
+        nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "▶️",
+          callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}",
+        )
+      end
+    end
+
+    # Pulsanti di chiusura e refresh
+    footer_row = [
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"),
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0"),
+    ]
+
+    # Composizione finale tastiera
+    keyboard = item_buttons
+    keyboard << nav_row unless nav_row.empty?
+    keyboard << footer_row
+
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
+
+    if is_callback
+      bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, reply_markup: markup, parse_mode: "HTML")
+    else
+      bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
+    end
   end
 end

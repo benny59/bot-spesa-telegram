@@ -106,74 +106,56 @@ class CarteFedeltaGruppo < CarteFedelta
 
   # Mostra carte del gruppo
   def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
-    Logger.debug("show_group_cards called", gruppo_id: gruppo_id, chat_id: chat_id, user_id: user_id, topic_id: topic_id)
+    g_id = gruppo_id.to_i
+    t_id = topic_id.to_i
 
-    if gruppo_id.to_i == 0
-      puts "[DEBUG] Modalità Personale: Recupero carte private per user #{user_id}"
-      # Chiama il metodo che mostra le carte personali dell'utente
-      return CarteFedelta.show_user_cards(bot, user_id)
-    end
+    # Recupero dal nuovo metodo in DataManager
+    carte = DataManager.carte_disponibili_nel_gruppo(g_id)
 
-    carte = DB.execute("
-      SELECT c.id, c.nome, c.user_id
-      FROM #{CARDS_TABLE} c
-      JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id
-      WHERE gcl.gruppo_id = ?
-      ORDER BY LOWER(c.nome) ASC", [gruppo_id])
+    # LOGICA THREAD: Cruciale per evitare il NameError
+    # Se chat_id == user_id, siamo in una chat privata
+    is_private = (chat_id.to_i == user_id.to_i)
+    target_thread = is_private ? nil : (t_id > 0 ? t_id : nil)
 
-    thread_id = (topic_id.to_i > 0 ? topic_id.to_i : nil)
+    puts "[DEBUG-UI] Invio Carte -> Chat: #{chat_id}, Thread: #{target_thread.inspect}, G_ID: #{g_id}"
 
     if carte.empty?
-      begin
-        bot.api.send_message(chat_id: chat_id, message_thread_id: thread_id, text: "⚠️ Nessuna carta condivisa nel gruppo.")
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        if e.message&.include?("message thread not found")
-          Logger.warn("Thread non trovato, invio nel canale principale", chat_id: chat_id, thread_id: thread_id)
-          bot.api.send_message(chat_id: chat_id, text: "⚠️ Nessuna carta condivisa nel gruppo.")
-        else
-          Logger.error("Errore API show_group_cards", error: e.message)
-        end
-      end
+      bot.api.send_message(
+        chat_id: chat_id,
+        message_thread_id: target_thread, # Usiamo la variabile definita sopra
+        text: "⚠️ <b>Nessuna carta condivisa in questo gruppo.</b>",
+        parse_mode: "HTML",
+      )
       return
     end
 
+    # Costruzione tastiera
     inline_keyboard = []
-    current_row = []
-    carte.each_with_index do |row, index|
-      # Usa lo stesso callback usato in privato: 'carte:<owner_user_id>:<card_id>'
-      current_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: row["nome"],
-        callback_data: "carte:#{row["user_id"]}:#{row["id"]}",
-      )
-      if current_row.size == 3 || index == carte.size - 1
-        inline_keyboard << current_row
-        current_row = []
+    carte.each_slice(3) do |batch|
+      row = batch.map do |card|
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: card["nome"],
+          callback_data: "carte:#{card["user_id"]}:#{card["id"]}",
+        )
       end
+      inline_keyboard << row
     end
 
-    inline_keyboard << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "carte_chiudi:#{chat_id}:#{topic_id || 0}"),
-    ]
-
+    inline_keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close")]
     keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
 
-    begin
-      bot.api.send_message(
-        chat_id: chat_id,
-        message_thread_id: thread_id,
-        text: "💳 *Carte fedeltà del gruppo*",
-        parse_mode: "Markdown",
-        reply_markup: keyboard,
-      )
-    rescue Telegram::Bot::Exceptions::ResponseError => e
-      if e.message&.include?("message thread not found")
-        Logger.warn("Thread non trovato, invio senza thread", chat_id: chat_id, thread_id: thread_id)
-        bot.api.send_message(chat_id: chat_id, text: "💳 *Carte fedeltà del gruppo*", parse_mode: "Markdown", reply_markup: keyboard)
-      else
-        Logger.error("Errore API show_group_cards", error: e.message)
-      end
-    end
+    # INVIO FINALE: Usiamo target_thread
+    bot.api.send_message(
+      chat_id: chat_id,
+      message_thread_id: target_thread,
+      text: "💳 <b>Carte fedeltà disponibili nel gruppo</b>",
+      reply_markup: keyboard,
+      parse_mode: "HTML",
+    )
+  rescue => e
+    puts "❌ [CARTE ERROR] Errore critico: #{e.message}"
   end
+
   # Elimina carta del gruppo (solo chi l'ha aggiunta)
   def self.delete_group_card(bot, gruppo_id, user_id, carta_id, chat_id = nil, is_link_id = false)
     if is_link_id
@@ -558,22 +540,20 @@ class CarteFedeltaGruppo < CarteFedelta
         keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
 
         # 🔥 MODIFICA PRINCIPALE: Usa message_thread_id se topic_id > 0
-        if topic_id
-          bot.api.send_photo(
-            chat_id: chat_id,
-            message_thread_id: topic_id,
-            photo: Faraday::UploadIO.new(img_path, "image/png"),
-            caption: caption,
-            reply_markup: keyboard,
-          )
+        params = {
+          chat_id: chat_id,
+          photo: Faraday::UploadIO.new(img_path, "image/png"),
+          caption: caption,
+          reply_markup: keyboard,
+        }
+        if topic_id && topic_id.to_i > 0
+          params[:message_thread_id] = topic_id.to_i
+          puts "[DEBUG-API] Invio foto con THREAD: #{topic_id}"
         else
-          bot.api.send_photo(
-            chat_id: chat_id,
-            photo: Faraday::UploadIO.new(img_path, "image/png"),
-            caption: caption,
-            reply_markup: keyboard,
-          )
+          puts "[DEBUG-API] Invio foto senza THREAD (General)"
         end
+
+        bot.api.send_photo(params)
       else
         bot.api.send_message(chat_id: chat_id, text: "❌ Immagine non disponibile per #{row["nome"]}")
       end

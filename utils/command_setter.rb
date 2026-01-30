@@ -4,10 +4,10 @@ class CommandSetter
     tutti_cmds = [
       Telegram::Bot::Types::BotCommand.new(command: "start", description: "Avvia il bot"),
       Telegram::Bot::Types::BotCommand.new(command: "newgroup", description: "Registra nuovo gruppo"),
-      Telegram::Bot::Types::BotCommand.new(command: "carte", description: "Gestione carte personali"),
+      # Telegram::Bot::Types::BotCommand.new(command: "carte", description: "Gestione carte personali"),
       Telegram::Bot::Types::BotCommand.new(command: "addcarta", description: "Aggiungi carta: NOME CODICE"),
       Telegram::Bot::Types::BotCommand.new(command: "delcarta", description: "Elimina carte personali"), # 🔥 AGGIUNTO
-      Telegram::Bot::Types::BotCommand.new(command: "cartegruppo", description: "Carte condivise del gruppo"),
+      # Telegram::Bot::Types::BotCommand.new(command: "cartegruppo", description: "Carte condivise del gruppo"),
       Telegram::Bot::Types::BotCommand.new(command: "addcartagruppo", description: "Gestisci carte nel gruppo"),
       Telegram::Bot::Types::BotCommand.new(command: "delcartagruppo", description: "Rimuovi carta dal gruppo"),
       Telegram::Bot::Types::BotCommand.new(command: "lista", description: "Mostra lista della spesa"),

@@ -284,26 +284,61 @@ class DataManager
     raise e
   end
 
+  # 1. VISIONE UTILIZZO (Portafoglio di Gruppo)
+  # Da usare quando sei "dentro" una lista della spesa di un gruppo
+  def self.carte_disponibili_nel_gruppo(g_id)
+    query = <<-SQL
+    SELECT c.id, c.nome, c.user_id, u.first_name as proprietario
+    FROM carte_fedelta c
+    JOIN gruppo_carte_collegamenti l ON c.id = l.carta_id
+    LEFT JOIN user_names u ON c.user_id = u.user_id
+    WHERE l.gruppo_id = ?
+    ORDER BY LOWER(c.nome) ASC
+  SQL
+    DB.execute(query, [g_id])
+  end
+
+  # 2. VISIONE GESTIONE (Le mie condivisioni)
+  # Da usare nel menu "Impostazioni" o "Le mie carte"
+  def self.mie_carte_e_condivisioni(u_id)
+    query = <<-SQL
+    SELECT c.id, c.nome, GROUP_CONCAT(g.nome, ', ') as gruppi_nomi
+    FROM carte_fedelta c
+    LEFT JOIN gruppo_carte_collegamenti l ON c.id = l.carta_id
+    LEFT JOIN gruppi g ON l.gruppo_id = g.id
+    WHERE c.user_id = ?
+    GROUP BY c.id
+    ORDER BY LOWER(c.nome) ASC
+  SQL
+    DB.execute(query, [u_id])
+  end
+
   def self.genera_header_contesto(g_id, t_id)
     if g_id == 0
-      "🏠 Lista Personale"
+      "🏠 <b>Lista Personale</b>"
     else
-      # Recupera il nome del gruppo
-      g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo #{g_id}"
-      # Usa il tuo metodo get_topic_name per risolvere "Generale" o "sperimentale"
-      nome_t = self.get_topic_name(g_id, t_id)
-      "🎯 #{g_nome}: Lista #{nome_t}"
+      g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo Sconosciuto"
+      t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = (SELECT chat_id FROM gruppi WHERE id = ?) AND topic_id = ?", [g_id, t_id])
+      t_nome ? "🎯 <b>#{g_nome}</b>: <i>#{t_nome}</i>" : "👥 <b>#{g_nome}</b>"
     end
   end
 
-  def self.prendi_per_contesto(g_id, t_id)
-    # Usiamo solo items e gruppi (che esiste sicuramente come FK)
+  def self.prendi_carte_gruppo(g_id)
     query = <<-SQL
-    SELECT i.*, g.nome as nome_gruppo
-    FROM items i
-    LEFT JOIN gruppi g ON i.gruppo_id = g.id
-    WHERE i.gruppo_id = ? AND i.topic_id = ?
-    ORDER BY i.creato_il DESC
+    SELECT c.id, c.nome, c.user_id
+    FROM cards c
+    JOIN group_card_links gcl ON c.id = gcl.carta_id
+    WHERE gcl.gruppo_id = ?
+    ORDER BY LOWER(c.nome) ASC
+  SQL
+    DB.execute(query, [g_id])
+  end
+
+  def self.prendi_per_contesto(g_id, t_id)
+    query = <<-SQL
+    SELECT * FROM items 
+    WHERE gruppo_id = ? AND topic_id = ?
+    ORDER BY (comprato != '') ASC, creato_il DESC
   SQL
     DB.execute(query, [g_id, t_id])
   end
@@ -464,5 +499,64 @@ class DataManager
   # In db.rb (DataManager)
   def self.elimina_carta(carta_id, u_id)
     DB.execute("DELETE FROM carte_fedelta WHERE id = ? AND user_id = ?", [carta_id, u_id])
+  end
+
+  # In db.rb all'interno di class DataManager
+  # Aggiungi in class DataManager in db.rb
+  def self.prendi_gruppo_da_chat_id(chat_id_telegram)
+    DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id_telegram])
+  end
+
+  # In db.rb all'interno di class DataManager
+
+  # 1. Recupera i contesti (gruppi/topic) che contengono articoli rilevanti
+  def self.prendi_gruppi_con_articoli(user_id, show_all_authors = false)
+    if show_all_authors
+      # Modalità "📦 TUTTI": Ogni gruppo/topic che ha ALMENO un articolo di CHIUNQUE
+      query = <<-SQL
+      SELECT DISTINCT g.id AS gruppo_id, g.nome AS gruppo_nome, g.chat_id, 
+             COALESCE(i.topic_id, 0) AS topic_id, 0 AS ordine_lista
+      FROM gruppi g
+      JOIN memberships m ON g.id = m.gruppo_id
+      JOIN items i ON g.id = i.gruppo_id
+      UNION ALL
+      SELECT 0, '👤 Lista Personale', NULL, 0, 1
+      WHERE EXISTS (SELECT 1 FROM items WHERE gruppo_id = 0 AND creato_da = ?)
+      ORDER BY ordine_lista DESC, gruppo_nome ASC, topic_id ASC
+    SQL
+      DB.execute(query, [user_id])
+    else
+      # Modalità "📋 I MIEI": Solo gruppi/topic dove IO ho aggiunto qualcosa
+      query = <<-SQL
+      SELECT DISTINCT COALESCE(g.id, 0) AS gruppo_id, 
+             COALESCE(g.nome, '👤 Lista Personale') AS gruppo_nome,
+             g.chat_id, COALESCE(i.topic_id, 0) AS topic_id
+      FROM items i
+      LEFT JOIN gruppi g ON i.gruppo_id = g.id
+      WHERE i.creato_da = ?
+      ORDER BY gruppo_id = 0 DESC, g.nome ASC, topic_id ASC
+    SQL
+      DB.execute(query, [user_id])
+    end
+  end
+
+  # 2. Recupera gli articoli effettivi
+  def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all_authors)
+    if show_all_authors && g_id != 0
+      # Vedo tutto il contenuto del gruppo
+      DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND topic_id = ? ORDER BY (comprato != ''), nome", [g_id, t_id])
+    else
+      # Vedo solo le mie aggiunte (o la mia lista personale)
+      DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND creato_da = ? AND topic_id = ? ORDER BY (comprato != ''), nome", [g_id, user_id, t_id])
+    end
+  end
+
+  # 2. Recupera gli articoli specifici per quel contesto nel menu "I miei articoli"
+  def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
+    if show_all && g_id != 0
+      DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND topic_id = ? ORDER BY (comprato != ''), nome", [g_id, t_id])
+    else
+      DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND creato_da = ? AND topic_id = ? ORDER BY (comprato != ''), nome", [g_id, user_id, t_id])
+    end
   end
 end

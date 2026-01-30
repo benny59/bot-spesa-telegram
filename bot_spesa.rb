@@ -6,6 +6,7 @@ require_relative "db"
 require_relative "models/context"
 require_relative "handlers/message_handler"
 require_relative "handlers/callback_handler"
+require_relative "utils/command_setter"
 
 # 1. GESTIONE TOKEN SICURA (Priorità: ENV > DB)
 TOKEN = ENV["TELEGRAM_BOT_TOKEN"] || begin
@@ -34,6 +35,8 @@ end
 
 # 4. LOOP PRINCIPALE
 Telegram::Bot::Client.run(TOKEN) do |bot|
+  CommandSetter.aggiorna_comandi(bot)
+
   puts "🤖 [BOT] In ascolto..."
 
   bot.listen do |update|
