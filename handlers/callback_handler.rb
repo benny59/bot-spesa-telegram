@@ -24,17 +24,37 @@ class CallbackHandler
     when /^carte_gruppo_/
       # Delega tutto a CarteFedeltaGruppo che ha già la logica pronta
       CarteFedeltaGruppo.handle_callback(bot, callback)
-    when /^carte:(\d+):(\d+)$/
+when /^carte:(\d+):(\d+)$/
       owner_id, card_id = $1.to_i, $2.to_i
-      # PRENDIAMO IL TOPIC DAL MESSAGGIO DEL CALLBACK
-      t_id = (callback.message.message_thread_id || 0).to_i
-      g_id = context.config["db_id"]
+      
+      # 1. Recupero sicuro del Topic
+      t_id = (callback.message.respond_to?(:message_thread_id) ? callback.message.message_thread_id : 0).to_i
+      
+      # 2. RECUPERO SICURO del g_id (Evitiamo NoMethodError per nil)
+      # Se context.config è nil, usiamo DataManager per recuperare il g_id dal chat_id del messaggio
+      g_id = 0
+      if context && context.config
+        g_id = context.config["db_id"].to_i
+      else
+        # Fallback: recuperiamo il gruppo partendo dall'ID della chat di Telegram
+        gruppo = DataManager.prendi_gruppo_da_chat_id(callback.message.chat.id)
+        g_id = gruppo ? gruppo["id"].to_i : 0
+      end
 
-      puts "[DEBUG-CALLBACK] Cliccata carta #{card_id} | Topic rilevato: #{t_id}"
-      CarteFedeltaGruppo.mostra_carta_gruppo(bot, callback.message.chat.id, g_id, card_id, t_id)
-      bot.api.answer_callback_query(callback_query_id: callback.id)
+      puts "[DEBUG-CARTE] 👤 Erasma/User ID: #{callback.from.id} | Carta ID: #{card_id}"
+      puts "[DEBUG-CARTE] 📍 Info: Gruppo DB: #{g_id} | Chat TG: #{callback.message.chat.id} | Topic: #{t_id}"
 
-      # 2. Chiusura tastiera carte
+      # 3. Chiamata con controllo
+      begin
+        CarteFedeltaGruppo.mostra_carta_gruppo(bot, callback.message.chat.id, g_id, card_id, t_id)
+        bot.api.answer_callback_query(callback_query_id: callback.id)
+        puts "✅ [DEBUG-CARTE] Visualizzazione inviata con successo"
+      rescue => e
+        puts "❌ [RUNTIME ERROR CARTE] #{e.message}"
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "⚠️ Errore caricamento carta")
+      end
+      
+           # 2. Chiusura tastiera carte
     when "close_barcode"
       bot.api.answer_callback_query(callback_query_id: callback.id)
       bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id) rescue nil
