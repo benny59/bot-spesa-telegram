@@ -156,6 +156,13 @@ class DataManager
     DB.execute("UPDATE items SET comprato = '' WHERE id = ?", [item_id])
   end
 
+def self.comprato?(item_id)
+  res = DB.get_first_value("SELECT comprato FROM items WHERE id = ?", [item_id])
+  res && res != ''
+end
+
+
+
   def self.rimuovi_item_diretto(item_id)
     puts "[DATA_MONITOR] 🗑️ Rimozione forzata item ID: #{item_id} (nessuna modifica storico)"
     DB.execute("DELETE FROM items WHERE id = ?", [item_id])
@@ -334,8 +341,8 @@ class DataManager
     DB.execute(query, [g_id])
   end
 
-def self.prendi_per_contesto(g_id, t_id)
-  query = <<-SQL
+  def self.prendi_per_contesto(g_id, t_id)
+    query = <<-SQL
     SELECT 
       i.*, 
       u1.initials AS autore_init, 
@@ -346,8 +353,8 @@ def self.prendi_per_contesto(g_id, t_id)
     WHERE i.gruppo_id = ? AND i.topic_id = ?
     ORDER BY (i.comprato != ''), i.id DESC
   SQL
-  DB.execute(query, [g_id, t_id])
-end
+    DB.execute(query, [g_id, t_id])
+  end
 
   def self.prendi_miei_ovunque(u_id)
     query = <<-SQL

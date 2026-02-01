@@ -4,55 +4,58 @@ require_relative "../utils/keyboard_generator"
 require_relative "../models/context"
 require_relative "../models/carte_fedelta"
 require_relative "../models/carte_fedelta_gruppo"
+require_relative "./storico_manager"
 
 require_relative "../db"
 
 class MessageHandler
   # ==============================================================================
   # ROUTER PRINCIPALE (DISPATCHER)
-def self.route(bot, msg, context)
-  u_id = msg.from.id
-  g_chat_id = msg.chat.id
-# 1. LOGICA PER GRUPPI (REALE)
-  unless context.private_chat?
-    gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
-    context.config["db_id"] = gruppo ? gruppo["id"].to_i : 0
-    
-    # Gestione Topic
-    t_id_msg = msg.respond_to?(:message_thread_id) ? msg.message_thread_id : nil
-    context.config["topic_id"] = t_id_msg ? t_id_msg.to_i : 0
-    
-    puts "[ROUTING] 🏢 Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
-  
-# 2. LOGICA PER PRIVATA (TELECOMANDO)
+  def self.route(bot, msg, context)
+    u_id = msg.from.id
+    g_chat_id = msg.chat.id
+    # 1. LOGICA PER GRUPPI (REALE)
+    unless context.private_chat?
+      gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
+      context.config["db_id"] = gruppo ? gruppo["id"].to_i : 0
+
+      # Gestione Topic
+      t_id_msg = msg.respond_to?(:message_thread_id) ? msg.message_thread_id : nil
+      context.config["topic_id"] = t_id_msg ? t_id_msg.to_i : 0
+
+      puts "[ROUTING] 🏢 Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
+
+      # 2. LOGICA PER PRIVATA (TELECOMANDO)
+else
+  puts "[ROUTING] 🏠 Chat Privata: Carico target dal DB..."
+  config_salvata = DataManager.carica_config_utente(u_id) || {}
+
+  # ALLINEAMENTO CHIAVI: Usa le stesse chiavi ovunque
+  g_id = config_salvata["db_id"] || config_salvata["target_g"]
+  t_id = config_salvata["topic_id"] || config_salvata["target_t"]
+
+  if g_id && g_id.to_i != 0
+    context.config["db_id"] = g_id.to_i
+    context.config["topic_id"] = (t_id || 0).to_i
+    puts "[ROUTING] 🎯 Target recuperato: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
   else
-    puts "[ROUTING] 🏠 Chat Privata: Carico target dal DB..."
-    config_salvata = DataManager.carica_config_utente(u_id)
-    
-    config_salvata ||= {}
+    context.config["db_id"] = 0
+    context.config["topic_id"] = 0
+    puts "[ROUTING] 👤 Default: Lista Personale"
+  end
+end
 
-    # ALLINEAMENTO CHIAVI: Il selettore salva "db_id" e "topic_id"
-    g_id = config_salvata["db_id"]
-    t_id = config_salvata["topic_id"]
-
-    if g_id && g_id.to_i != 0
-      context.config["db_id"] = g_id.to_i
-      context.config["topic_id"] = (t_id || 0).to_i
-      puts "[ROUTING] 🎯 Target recuperato: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
-    else
-      context.config["db_id"] = 0
-      context.config["topic_id"] = 0
-      puts "[ROUTING] 👤 Default: Lista Personale"
+    # 3. GESTIONE FOTO (Blindata contro i nil)
+    if msg.photo && !msg.photo.empty?
+      return self.handle_photo_bridge(bot, msg, context)
     end
-  end
-  
-  # 3. GESTIONE FOTO (Blindata contro i nil)
-  if msg.photo && !msg.photo.empty?
-    return self.handle_photo_bridge(bot, msg, context)
-  end
-DataManager.salva_config_utente(u_id, context.config)
-  text = msg.text.to_s.strip
-  return if text.empty? # Esci se non c'è testo (evita crash su messaggi di sistema)
+    
+    
+    
+    
+    DataManager.salva_config_utente(u_id, context.config)
+    text = msg.text.to_s.strip
+    return if text.empty? # Esci se non c'è testo (evita crash su messaggi di sistema)
     cmd = text.split("@").first.strip.downcase rescue ""
     puts "[ROUTING] 🚦 Smistamento: '#{text[0..20]}...' (Scope: #{context.scope})"
 
@@ -63,40 +66,64 @@ DataManager.salva_config_utente(u_id, context.config)
       if context.private_chat?
         KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
       end
-      
-# In handlers/message_handler.rb
 
-when '/setup_pin'
-    g_id = context.config["db_id"].to_i
-    t_id = context.config["topic_id"].to_i
-    
-    kb = [[Telegram::Bot::Types::InlineKeyboardButton.new(
-      text: "🛒 MOSTRA LISTA AGGIORNATA", 
-      callback_data: "trigger_list:#{g_id}:#{t_id}"
-    )]]
-    
-    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb)
-    
-    # 'sent' è l'oggetto Message (guarda il tuo log, c'è già tutto dentro)
-    sent = bot.api.send_message(
-      chat_id: msg.chat.id,
-      message_thread_id: (t_id > 0 ? t_id : nil),
-      text: "📌 <b>Pannello Spesa - Topic #{t_id}</b>\nUsa questo tasto per richiamare la lista in questo thread.",
-      reply_markup: markup,
-      parse_mode: "HTML"
-    )
-    
-    begin
-      # ACCESSO DIRETTO: sent.message_id, senza .result!
-      bot.api.pin_chat_message(
-        chat_id: msg.chat.id, 
-        message_id: sent.message_id
+      # In handlers/message_handler.rb
+
+    when "/setup_pin"
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
+
+      kb = [[Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "🛒 MOSTRA LISTA AGGIORNATA",
+        callback_data: "trigger_list:#{g_id}:#{t_id}",
+      )]]
+
+      markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb)
+
+      # 'sent' è l'oggetto Message (guarda il tuo log, c'è già tutto dentro)
+      sent = bot.api.send_message(
+        chat_id: msg.chat.id,
+        message_thread_id: (t_id > 0 ? t_id : nil),
+        text: "📌 <b>Pannello Spesa - Topic #{t_id}</b>\nUsa questo tasto per richiamare la lista in questo thread.",
+        reply_markup: markup,
+        parse_mode: "HTML",
       )
-      puts "[DEBUG] ✅ Pannello pinnato: ID #{sent.message_id} nel Topic #{t_id}"
-    rescue => e
-      puts "[ERROR] Impossibile pinnare: #{e.message}"
-    end        
-          
+
+      begin
+        # ACCESSO DIRETTO: sent.message_id, senza .result!
+        bot.api.pin_chat_message(
+          chat_id: msg.chat.id,
+          message_id: sent.message_id,
+        )
+        puts "[DEBUG] ✅ Pannello pinnato: ID #{sent.message_id} nel Topic #{t_id}"
+      rescue => e
+        puts "[ERROR] Impossibile pinnare: #{e.message}"
+      end
+      
+ when /^\/checklist/
+  g_id = context.config["db_id"].to_i
+  t_id = context.config["topic_id"].to_i
+  
+  kb = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
+  
+  if kb
+    bot.api.send_message(
+      chat_id: context.chat_id,
+      message_thread_id: context.topic_id, # <--- AGGIUNGI QUESTO
+      text: "📋 *Checklist Intelligente*\nSeleziona gli articoli:",
+      reply_markup: kb,
+      parse_mode: 'Markdown'
+    )
+  else
+    bot.api.send_message(
+      chat_id: context.chat_id,
+      message_thread_id: context.topic_id, # <--- AGGIUNGI QUESTO
+      text: "Storico vuoto per questo contesto."
+    )
+  end
+  return
+  
+      
     when "/addcartagruppo"
       if g_chat_id < 0
         gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
@@ -131,28 +158,22 @@ when '/setup_pin'
     when "/miei", "📋 I MIEI ARTICOLI"
       self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, false)
 when "🛒 LISTA"
-      # 1. Ricarica la config
-      conf = DataManager.carica_config_utente(u_id)
-      
-      # DEBUG TEMPORANEO: Vediamo cosa c'è davvero nel DB
-      # puts "[DEBUG-DB] Contenuto config: #{conf.inspect}"
+  conf = DataManager.carica_config_utente(u_id) || {}
+  
+  # Usa la logica a doppia chiave per compatibilità
+  g_id = (conf["db_id"] || conf["target_g"] || 0).to_i
+  t_id = (conf["topic_id"] || conf["target_t"] || 0).to_i
 
-      # 2. PROVA ENTRAMBE LE CHIAVI (per sicurezza tra target_g e db_id)
-      g_id = (conf["target_g"] || conf["db_id"] || 0).to_i
-      t_id = (conf["target_t"] || conf["topic_id"] || 0).to_i
+  context.config["db_id"] = g_id
+  context.config["topic_id"] = t_id
 
-      puts "[ROUTING] 🔄 Refresh dati per LISTA: G:#{g_id} T:#{t_id}"
+  items = DataManager.prendi_per_contesto(g_id, t_id)
+  header = DataManager.genera_header_contesto(g_id, t_id)
 
-      # 3. Aggiorna il contesto in memoria così core_mostra_lista non si confonde
-      context.config["db_id"] = g_id
-      context.config["topic_id"] = t_id
-
-      items = DataManager.prendi_per_contesto(g_id, t_id)
-      header = DataManager.genera_header_contesto(g_id, t_id)
-
-      self.core_mostra_lista(bot, context, items, header, g_id, t_id)
-      
-          when "/private", "⚙️ IMPOSTA GRUPPO"
+  self.core_mostra_lista(bot, context, items, header, g_id, t_id)
+  
+  
+      when "/private", "⚙️ IMPOSTA GRUPPO"
       puts "[ROUTING] ✅ Attivazione Menu Privato e Selettore"
       # 1. Mostra la tastiera fisica (🛒 LISTA, ecc.)
       #KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
@@ -196,7 +217,7 @@ when "🛒 LISTA"
   # message_handler.rb
 
   # handlers/message_handler.rb
-# In handlers/message_handler.rb
+  # In handlers/message_handler.rb
   def self.carica_contesto_privato(user_id, context)
     # Usiamo il tuo metodo esistente a riga 331 di db.rb
     config = DataManager.carica_config_utente(user_id)
@@ -258,7 +279,7 @@ when "🛒 LISTA"
   end
 
   # CORE AGGIUNTA (+)
-def self.core_aggiunta(bot, context, contenuto)
+  def self.core_aggiunta(bot, context, contenuto)
     return if contenuto.empty?
 
     # FIX: Non ricaricare dal DB, usa il contesto che abbiamo faticosamente allineato!
@@ -280,8 +301,8 @@ def self.core_aggiunta(bot, context, contenuto)
     # Pulizia
     DataManager.clear_pending(chat_id: context.chat_id, topic_id: t_id)
   end
-  
-    # CORE STORICO (?)
+
+  # CORE STORICO (?)
   def self.core_storico(bot, context, query)
     puts "[CORE] 🔍 Esecuzione Ricerca (?)"
     g_id = context.lista_personale? ? 0 : (context.config["db_id"] || 0)

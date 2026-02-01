@@ -24,12 +24,12 @@ class CallbackHandler
     when /^carte_gruppo_/
       # Delega tutto a CarteFedeltaGruppo che ha già la logica pronta
       CarteFedeltaGruppo.handle_callback(bot, callback)
-when /^carte:(\d+):(\d+)$/
+    when /^carte:(\d+):(\d+)$/
       owner_id, card_id = $1.to_i, $2.to_i
-      
+
       # 1. Recupero sicuro del Topic
       t_id = (callback.message.respond_to?(:message_thread_id) ? callback.message.message_thread_id : 0).to_i
-      
+
       # 2. RECUPERO SICURO del g_id (Evitiamo NoMethodError per nil)
       # Se context.config è nil, usiamo DataManager per recuperare il g_id dal chat_id del messaggio
       g_id = 0
@@ -53,12 +53,11 @@ when /^carte:(\d+):(\d+)$/
         puts "❌ [RUNTIME ERROR CARTE] #{e.message}"
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "⚠️ Errore caricamento carta")
       end
-      
-           # 2. Chiusura tastiera carte
+
+      # 2. Chiusura tastiera carte
     when "close_barcode"
       bot.api.answer_callback_query(callback_query_id: callback.id)
       bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id) rescue nil
-
 
       # FIX: Aggiunto alias per la chiusura specifica delle carte se usata
     when /^carte_chiudi:(-?\d+):(\d+)$/
@@ -76,35 +75,32 @@ when /^carte:(\d+):(\d+)$/
       # Chiamiamo il metodo che ora userà DataManager.carte_disponibili_nel_gruppo(g_id)
       # Passiamo g_id esplicito per non farlo cercare a caso nel context
       CarteFedeltaGruppo.show_group_cards(bot, g_id, context.chat_id, user_id, t_id)
-when /^ui_page:(\d+):(\d+):(\d+)$/
-  g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i
-  bot.api.answer_callback_query(callback_query_id: callback.id)
-  
-  # Questo metodo fa già tutto (DB query + Keyboard + API Edit)
-  self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
-    
-        # --------------------------------------------------------------------------
+    when /^ui_page:(\d+):(\d+):(\d+)$/
+      g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+
+      # Questo metodo fa già tutto (DB query + Keyboard + API Edit)
+      self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
+
+      # --------------------------------------------------------------------------
       # GESTIONE RITORNO ALLA LISTA (Fix per il tasto Indietro)
       # --------------------------------------------------------------------------
       # In handlers/callback_handler.rb
 
-when /^trigger_list:(-?\d+):(\d+)$/
-  g_id, t_id = $1.to_i, $2.to_i
-  items = DataManager.prendi_per_contesto(g_id, t_id) #
-  header = DataManager.genera_header_contesto(g_id, t_id) #
-  ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, header)
-  
-  bot.api.send_message(
-    chat_id: callback.message.chat.id,
-    message_thread_id: (t_id > 0 ? t_id : nil),
-    text: ui[:text],
-    reply_markup: ui[:markup],
-    parse_mode: "HTML"
-  )
-  bot.api.answer_callback_query(callback_query_id: callback.id)
-  
-        
-      
+    when /^trigger_list:(-?\d+):(\d+)$/
+      g_id, t_id = $1.to_i, $2.to_i
+      items = DataManager.prendi_per_contesto(g_id, t_id) #
+      header = DataManager.genera_header_contesto(g_id, t_id) #
+      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, header)
+
+      bot.api.send_message(
+        chat_id: callback.message.chat.id,
+        message_thread_id: (t_id > 0 ? t_id : nil),
+        text: ui[:text],
+        reply_markup: ui[:markup],
+        parse_mode: "HTML",
+      )
+      bot.api.answer_callback_query(callback_query_id: callback.id)
     when /^ui_back_to_list:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
       bot.api.answer_callback_query(callback_query_id: callback.id)
@@ -115,25 +111,46 @@ when /^trigger_list:(-?\d+):(\d+)$/
       # Esempio di gestione del click (Callback)
 when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
   item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
-  
-  # Usa gli oggetti corretti estratti dal callback
-  c_id = callback.message.chat.id
-  m_id = callback.message.message_id
 
-  DataManager.spunta_articolo(item_id, user_id) # Spunta con ID utente per le iniziali
-  
-  # Refresh con i dati corretti
+  # Usa il nuovo metodo del DataManager per il controllo
+  if DataManager.comprato?(item_id)
+    DataManager.despunta_articolo(item_id)
+  else
+    DataManager.spunta_articolo(item_id, user_id)
+  end
+
+  # Refresh UI
   items = DataManager.prendi_per_contesto(g_id, t_id)
   header = DataManager.genera_header_contesto(g_id, t_id)
   ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
-  bot.api.edit_message_text(
-    chat_id: c_id,
-    message_id: m_id,
-    text: ui[:text],
-    reply_markup: ui[:markup],
-    parse_mode: "HTML"
-  )
+  begin
+    bot.api.edit_message_text(
+      chat_id: callback.message.chat.id,
+      message_id: callback.message.message_id,
+      text: ui[:text],
+      reply_markup: ui[:markup],
+      parse_mode: "HTML"
+    )
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    raise e unless e.message.include?("message is not modified")
+  end
+  
+ # 3. Invio con protezione dai crash di Telegram
+  begin
+    bot.api.edit_message_text(
+      chat_id: c_id,
+      message_id: m_id,
+      text: ui[:text],
+      reply_markup: ui[:markup],
+      parse_mode: "HTML",
+    )
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    # Se l'errore è "message is not modified", lo ignoriamo e il bot continua a vivere
+    raise e unless e.message.include?("message is not modified")
+    puts "[CALLBACK] ℹ️ Refresh ignorato: nessuna modifica rilevata per item #{item_id}"
+  end
+  
       # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
       # --------------------------------------------------------------------------
@@ -280,27 +297,27 @@ when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
 
       # In callback_handler.rb all'interno del metodo self.route
 
-# VERSIONE UNIFICATA E DEFINITIVA
-when "ui_close", "close_barcode", /^ui_close:/, /^carte_chiudi/, /^checklist_close/
-  puts "[CALLBACK] 🗑️ Chiusura interfaccia richiesta (Data: #{data})"
-  
-  begin
-    target_chat_id = callback.message.chat.id
-    target_msg_id  = callback.message.message_id
+      # VERSIONE UNIFICATA E DEFINITIVA
+    when "ui_close", "close_barcode", /^ui_close:/, /^carte_chiudi/, /^checklist_close/
+      puts "[CALLBACK] 🗑️ Chiusura interfaccia richiesta (Data: #{data})"
 
-    bot.api.delete_message(chat_id: target_chat_id, message_id: target_msg_id)
-  rescue => e
-    puts "⚠️ [CALLBACK] Errore eliminazione: #{e.message}"
-    # Se il messaggio è troppo vecchio (>48h) o mancano permessi, togliamo solo i bottoni
-    begin
-      bot.api.edit_message_reply_markup(chat_id: target_chat_id, message_id: target_msg_id, reply_markup: nil)
-    rescue => e_markup
-      puts "❌ [CALLBACK] Impossibile anche modificare il markup: #{e_markup.message}"
-    end
-  end
-  # Rispondiamo sempre alla query per togliere l'icona del caricamento dal bottone
-  bot.api.answer_callback_query(callback_query_id: callback.id)
-  
+      begin
+        target_chat_id = callback.message.chat.id
+        target_msg_id = callback.message.message_id
+
+        bot.api.delete_message(chat_id: target_chat_id, message_id: target_msg_id)
+      rescue => e
+        puts "⚠️ [CALLBACK] Errore eliminazione: #{e.message}"
+        # Se il messaggio è troppo vecchio (>48h) o mancano permessi, togliamo solo i bottoni
+        begin
+          bot.api.edit_message_reply_markup(chat_id: target_chat_id, message_id: target_msg_id, reply_markup: nil)
+        rescue => e_markup
+          puts "❌ [CALLBACK] Impossibile anche modificare il markup: #{e_markup.message}"
+        end
+      end
+      # Rispondiamo sempre alla query per togliere l'icona del caricamento dal bottone
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+
       # --- NUOVA GESTIONE CAMBIO GRUPPO DA PRIVATA ---
     when /^private_set:(\d+):(\d+):(\d+)$/
       g_id, u_id, t_id = $1.to_i, $2.to_i, $3.to_i
@@ -336,23 +353,22 @@ when "ui_close", "close_barcode", /^ui_close:/, /^carte_chiudi/, /^checklist_clo
 
   # handlers/callback_handler.rb
 
-# In handlers/callback_handler.rb
-def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
-  # Usa il metodo che ha i JOIN per le iniziali MB/ER
-  items = DataManager.prendi_per_contesto(g_id, t_id)
-  header = DataManager.genera_header_contesto(g_id, t_id) #
+  # In handlers/callback_handler.rb
+  def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
+    # Usa il metodo che ha i JOIN per le iniziali MB/ER
+    items = DataManager.prendi_per_contesto(g_id, t_id)
+    header = DataManager.genera_header_contesto(g_id, t_id) #
 
-  ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
+    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
-  bot.api.edit_message_text(
-    chat_id: callback.message.chat.id,
-    message_id: callback.message.message_id,
-    text: ui[:text],
-    reply_markup: ui[:markup],
-    parse_mode: "HTML" # Risolve il problema estetico dei tag visibili
-  )
-rescue => e
-  puts "[REFRESH ERROR] #{e.message}"
-end
-    
+    bot.api.edit_message_text(
+      chat_id: callback.message.chat.id,
+      message_id: callback.message.message_id,
+      text: ui[:text],
+      reply_markup: ui[:markup],
+      parse_mode: "HTML", # Risolve il problema estetico dei tag visibili
+    )
+  rescue => e
+    puts "[REFRESH ERROR] #{e.message}"
   end
+end

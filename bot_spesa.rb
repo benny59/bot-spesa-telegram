@@ -42,13 +42,12 @@ Telegram::Bot::Client.run(TOKEN) do |bot|
   bot.listen do |update|
     begin
       case update
- when Telegram::Bot::Types::Message
+      when Telegram::Bot::Types::Message
         # FIX: Evitiamo il crash se photo è nil usando l'operatore & o to_a
         next if update.text.nil? && (update.photo.nil? || update.photo.empty?)
-        
+
         context = Context.from_message(update)
         MessageHandler.route(bot, update, context)
-        
       when Telegram::Bot::Types::CallbackQuery
         # 🟢 QUESTO È IL PEZZO MANCANTE
         context = Context.from_callback(update)
