@@ -81,22 +81,25 @@ class Context
   end
 
 # In context.rb
+# In context.rb
+def nome_contesto_hash
+  g_id = @config ? @config["db_id"].to_i : 0
+  t_id = @config ? @config["topic_id"].to_i : 0
+  
+  # Delega la query al DataManager
+  DataManager.recupera_nomi_contesto(g_id, t_id)
+end
+
 def nome_contesto_pulito
-  # Se non c'è config, siamo nella lista personale
-  return "Lista Personale" if @config.nil? || @config["db_id"].to_i == 0
+  info = nome_contesto_hash # Otteniamo l'hash {:nome=>"...", :topic=>"..."}
   
-  g_id = @config["db_id"].to_i
-  t_id = @config["topic_id"].to_i
+  return info[:topic] if info[:nome] == "Privata" # "Lista Personale"
   
-  # Riutilizziamo la logica di recupero nomi da DataManager
-  g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo"
-  
-  if t_id > 0
-    # Recuperiamo il nome del topic (riadattando logica da genera_header_contesto)
-    t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = (SELECT chat_id FROM gruppi WHERE id = ?) AND topic_id = ?", [g_id, t_id])
-    t_nome ? "#{g_nome}: #{t_nome}" : "#{g_nome}: #{t_id}"
+  # Se il topic è "Generale" o ha lo stesso nome del gruppo (caso Omegna)
+  if info[:topic] == "Generale" || info[:topic] == info[:nome]
+    info[:nome]
   else
-    g_nome
+    "#{info[:nome]}: #{info[:topic]}"
   end
 end
 

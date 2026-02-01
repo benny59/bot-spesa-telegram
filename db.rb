@@ -161,6 +161,22 @@ def self.comprato?(item_id)
   res && res != ''
 end
 
+# In db.rb (classe DataManager)
+def self.recupera_nomi_contesto(g_id, t_id)
+  return { nome: "Privata", topic: "Lista Personale" } if g_id == 0
+
+  # Recupero info Gruppo
+  gruppo = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [g_id])
+  return { nome: "Gruppo #{g_id}", topic: "" } unless gruppo
+
+  g_nome = gruppo["nome"]
+  c_id = gruppo["chat_id"]
+
+  # Recupero nome Topic (anche per 0)
+  t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [c_id, t_id])
+  
+  { nome: g_nome, topic: t_nome || (t_id == 0 ? "Generale" : t_id.to_s) }
+end
 
 
   def self.rimuovi_item_diretto(item_id)
