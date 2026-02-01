@@ -64,7 +64,7 @@ end
       self.core_start(bot, context)
       # Se siamo in privata, forziamo la comparsa del menu
       if context.private_chat?
-        KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
+        KeyboardGenerator.show_private_keyboard(bot, context.chat_id,context)
       end
 
       # In handlers/message_handler.rb
@@ -157,7 +157,7 @@ end
       self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, true)
     when "/miei", "📋 I MIEI ARTICOLI"
       self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, false)
-when "🛒 LISTA"
+when /^🛒 LISTA/  # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni variazione del tasto.
   conf = DataManager.carica_config_utente(u_id) || {}
   
   # Usa la logica a doppia chiave per compatibilità

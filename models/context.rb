@@ -80,6 +80,27 @@ class Context
     puts "[CONTEXT] 🎯 Context salvato per U:#{user_id} -> G:#{gruppo_id} T:#{topic_id}"
   end
 
+# In context.rb
+def nome_contesto_pulito
+  # Se non c'è config, siamo nella lista personale
+  return "Lista Personale" if @config.nil? || @config["db_id"].to_i == 0
+  
+  g_id = @config["db_id"].to_i
+  t_id = @config["topic_id"].to_i
+  
+  # Riutilizziamo la logica di recupero nomi da DataManager
+  g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo"
+  
+  if t_id > 0
+    # Recuperiamo il nome del topic (riadattando logica da genera_header_contesto)
+    t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = (SELECT chat_id FROM gruppi WHERE id = ?) AND topic_id = ?", [g_id, t_id])
+    t_nome ? "#{g_nome}: #{t_nome}" : "#{g_nome}: #{t_id}"
+  else
+    g_nome
+  end
+end
+
+
   def self.clear_private_context(user_id)
     # Rimuovendo la config, il bot torna a puntare alla Lista Personale (Gruppo 0)
     DB.execute("DELETE FROM config WHERE key = ?", ["context:#{user_id}"])
