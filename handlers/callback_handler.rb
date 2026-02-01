@@ -338,6 +338,11 @@ when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
       # 3. Feedback all'utente e AGGIORNAMENTO tastiera (per il ✅)
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🎯 Target: #{t_name}")
       KeyboardGenerator.show_group_selector(bot, u_id, callback.message.message_id)
+      # --- AGGIUNTA FONDAMENTALE PER AGGIORNARE I TASTONI ---
+      # 4. Creiamo un contesto aggiornato e rimandiamo la tastiera fisica
+      new_context = Context.new(chat_id: callback.message.chat.id, user_id: u_id, scope: :private)
+      KeyboardGenerator.show_private_keyboard(bot, callback.message.chat.id, new_context)
+      
     else
       puts "[CALLBACK] ❓ Azione non gestita: #{data}"
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "Funzione in fase di refactoring")
