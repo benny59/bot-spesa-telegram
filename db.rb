@@ -570,22 +570,24 @@ end
   end
 
   # 2. Recupera gli articoli effettivi
-  def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all_authors)
-    if show_all_authors && g_id != 0
-      # Vedo tutto il contenuto del gruppo
-      DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND topic_id = ? ORDER BY (comprato != ''), nome", [g_id, t_id])
-    else
-      # Vedo solo le mie aggiunte (o la mia lista personale)
-      DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND creato_da = ? AND topic_id = ? ORDER BY (comprato != ''), nome", [g_id, user_id, t_id])
-    end
-  end
+def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
+  # Usiamo una LEFT JOIN per avere subito le iniziali (initials) dell'autore
+  # Questo elimina la necessità di fare query nel ciclo each
+  base_query = <<-SQL
+    SELECT i.*, u.initials AS autore_init
+    FROM items i
+    LEFT JOIN user_names u ON i.creato_da = u.user_id
+    WHERE i.gruppo_id = ? AND i.topic_id = ?
+  SQL
 
-  # 2. Recupera gli articoli specifici per quel contesto nel menu "I miei articoli"
-  def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
-    if show_all && g_id != 0
-      DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND topic_id = ? ORDER BY (comprato != ''), nome", [g_id, t_id])
-    else
-      DB.execute("SELECT * FROM items WHERE gruppo_id = ? AND creato_da = ? AND topic_id = ? ORDER BY (comprato != ''), nome", [g_id, user_id, t_id])
-    end
+  if show_all && g_id != 0
+    # Vedo tutto il contenuto del gruppo/topic
+    DB.execute("#{base_query} ORDER BY (i.comprato != ''), i.nome", [g_id, t_id])
+  else
+    # Vedo solo le mie aggiunte (creato_da = user_id)
+    DB.execute("#{base_query} AND i.creato_da = ? ORDER BY (i.comprato != ''), i.nome", [g_id, t_id, user_id])
   end
+end
+
+
 end

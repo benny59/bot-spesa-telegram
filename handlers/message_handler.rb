@@ -382,102 +382,124 @@ when /^🛒 LISTA/  # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni 
     puts "[CORE] 🧹 Avvio Cleanup di sistema"
   end
 
-  def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
-    is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
-    real_message = is_callback ? message.message : message
+def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
+  is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
+  real_message = is_callback ? message.message : message
 
-    # 1. Recupero Dati (Metodo già inserito in DataManager)
-    groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
-    return if groups_and_topics.empty?
+  # 1. Recupero Dati tramite DataManager
+  groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
+  return if groups_and_topics.empty?
 
-    conf = DataManager.carica_config_utente(user_id) || {}
+  conf = DataManager.carica_config_utente(user_id) || {}
 
-    # 2. Configurazione Paginazione
-    per_page = 5
-    total_pages = (groups_and_topics.size.to_f / per_page).ceil
-    page = [[page, 0].max, total_pages - 1].min
-    slice = groups_and_topics.slice(page * per_page, per_page) || []
+  # 2. Configurazione Paginazione
+  per_page = 5
+  total_pages = (groups_and_topics.size.to_f / per_page).ceil
+  page = [[page, 0].max, total_pages - 1].min
+  slice = groups_and_topics.slice(page * per_page, per_page) || []
 
-    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I TUOI ARTICOLI"
-    text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
-    text << "<i>Clicca l'articolo per spuntare, il titolo per cambiare contesto.</i>\n\n"
+  title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I TUOI ARTICOLI"
+  text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
+  text << "<i>Clicca l'articolo per spuntare, il titolo per cambiare contesto.</i>\n\n"
 
-    item_buttons = []
+  item_buttons = []
 
-    # 3. Ciclo sui Gruppi/Topic
-    slice.each do |row|
-      g_id, t_id = row["gruppo_id"], row["topic_id"]
-      is_active = (g_id == conf["db_id"].to_i && t_id == conf["topic_id"].to_i)
+  # 3. Ciclo sui Gruppi/Topic
+slice.each do |row|
+    g_id, t_id = row["gruppo_id"], row["topic_id"]
+    is_active = (g_id == conf["db_id"].to_i && t_id == conf["topic_id"].to_i)
 
-      t_label = t_id > 0 ? " (#{DataManager.get_topic_name(g_id, t_id)})" : ""
-      prefix = is_active ? "🎯 " : "📂 "
+    # 1. Recupero dati grezzi (Hash solido senza istanziare Context)
+    info = DataManager.recupera_nomi_contesto(g_id, t_id)
+    
+    # 2. Logica di formattazione identica a Context.nome_contesto_pulito
+    if info[:nome] == "Privata"
+      etichetta_contesto = info[:topic]
+    elsif info[:topic] == "Generale" || info[:topic] == info[:nome]
+      etichetta_contesto = info[:nome]
+    else
+      etichetta_contesto = "#{info[:nome]}: #{info[:topic]}"
+    end
 
-      # Intestazione Gruppo
+    prefix = is_active ? "🎯 " : "📂 "
+
+    # Intestazione Gruppo/Topic
+    item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "#{prefix}#{etichetta_contesto.upcase}",
+      callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}",
+    )]
+
+    # 3. Articoli (Sempre con autore_init dalla JOIN)
+    articoli = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
+
+    articoli.each do |art|
+      status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
+      
+      autore_tag = ""
+      if show_all && g_id != 0
+        tag = art["autore_init"] || "?"
+        autore_tag = "[#{tag}] "
+      end
+
       item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "#{prefix}#{row["gruppo_nome"]}#{t_label}".upcase,
-        callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}",
+        text: "#{status} #{autore_tag}#{art["nome"]}",
+        callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
       )]
+    end
+  end
+  
 
-      # Articoli per questo specifico gruppo
-      articoli = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
-
-      articoli.each do |art|
-        status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
-
-        # Se mostro tutto, aggiungo le iniziali del creatore per capire di chi è l'articolo
-        autore_tag = ""
-        if show_all && g_id != 0
-          autore_tag = DB.get_first_value("SELECT initials FROM user_names WHERE user_id = ?", [art["creato_da"]]) || "?"
-          autore_tag = "[#{autore_tag}] "
-        end
-
-        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "#{status} #{autore_tag}#{art["nome"]}",
-          callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
-        )]
-      end
+  # 4. CREAZIONE PULSANTI DI NAVIGAZIONE
+  nav_row = []
+  if total_pages > 1
+    if page > 0
+      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "◀️",
+        callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}",
+      )
     end
 
-    # 4. CREAZIONE PULSANTI DI NAVIGAZIONE
-    nav_row = []
-    if total_pages > 1
-      # Freccia Indietro
-      if page > 0
-        nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "◀️",
-          callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}",
-        )
-      end
+    nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
 
-      # Indicatore di posizione
-      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
-
-      # Freccia Avanti
-      if page < total_pages - 1
-        nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "▶️",
-          callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}",
-        )
-      end
+    if page < total_pages - 1
+      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "▶️",
+        callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}",
+      )
     end
+  end
 
-    # Pulsanti di chiusura e refresh
-    footer_row = [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0"),
-    ]
+  # Pulsanti di chiusura e refresh
+  footer_row = [
+    Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"),
+    Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0"),
+  ]
 
-    # Composizione finale tastiera
-    keyboard = item_buttons
-    keyboard << nav_row unless nav_row.empty?
-    keyboard << footer_row
+  # Composizione finale tastiera
+  keyboard = item_buttons
+  keyboard << nav_row unless nav_row.empty?
+  keyboard << footer_row
 
-    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
+  markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
 
-    if is_callback
-      bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, reply_markup: markup, parse_mode: "HTML")
+if is_callback
+      begin
+        bot.api.edit_message_text(
+          chat_id: chat_id, 
+          message_id: real_message.message_id, 
+          text: text, 
+          reply_markup: markup, 
+          parse_mode: "HTML"
+        )
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        # Se il contenuto è identico, Telegram risponde con 400 "message is not modified"
+        # Lo ignoriamo per evitare il RUNTIME ERROR
+        raise e unless e.message.include?("message is not modified")
+        puts "[DEBUG] Refresh ignorato: contenuto identico"
+      end
     else
       bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
     end
   end
+  
 end
