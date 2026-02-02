@@ -287,6 +287,53 @@ class CarteFedelta
     Dir.glob(File.join(DATA_DIR, "#{nome_file}_#{user_id}_*.png")).each { |f| File.delete(f) if File.exist?(f) }
   end
   
+  
+def self.mostra_singola_carta(bot, chat_id, owner_id, carta_id)
+    carta = DataManager.prendi_dettaglio_carta(carta_id, owner_id)
+    return puts "❌ Carta #{carta_id} non trovata" unless carta
+
+    # 1. TENTATIVO DI FIX PATH
+    # Prendiamo solo il nome del file (es: uniqlo_...png)
+    nome_file = File.basename(carta["immagine_path"] || "")
+    path_db = carta["immagine_path"]
+    path_locale = File.join(Dir.pwd, "data", "carte", nome_file)
+
+    # Decidiamo quale path usare
+    img_path = File.exist?(path_db.to_s) ? path_db : path_locale
+
+    # 2. RIGENERAZIONE SE IL FILE MANCA OVUNQUE
+    if !File.exist?(img_path) || File.size?(img_path).to_i < 100
+      puts "⚠️ [DEBUG] Immagine non trovata in #{img_path}, rigenerazione..."
+      
+      # Chiamata alla tua funzione di generazione (adattala se il nome è diverso)
+      result = genera_barcode_con_nome(carta["codice"], carta["nome"], owner_id, carta["formato"])
+      
+      if result && result[:img_path]
+        img_path = result[:img_path]
+        # Aggiorniamo il DB così la prossima volta il path è corretto per questo ambiente
+        DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [img_path, carta_id])
+      else
+        return bot.api.send_message(chat_id: chat_id, text: "❌ Errore nella generazione del barcode.")
+      end
+    end
+
+    # 3. INVIO SICURO
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: [
+      [Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "close_barcode")]
+    ])
+
+    bot.api.send_photo(
+      chat_id: chat_id,
+      photo: Faraday::UploadIO.new(img_path, 'image/png'),
+      caption: "💳 <b>#{carta['nome']}</b>\n🔢 <code>#{carta['codice']}</code>",
+      parse_mode: 'HTML',
+      reply_markup: markup
+    )
+  rescue => e
+    puts "🚨 Errore critico: #{e.message}"
+    bot.api.send_message(chat_id: chat_id, text: "⚠️ Errore tecnico: #{e.message}")
+  end
+   
   # METODO UI UNIVERSALE: Disegna la griglia di tasti
   # METODO UNIVERSALE DI RENDERING
 def self.mostra_griglia(bot, chat_id, user_id, t_id, carte, titolo)

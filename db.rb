@@ -376,6 +376,31 @@ class DataManager
     puts "[DB_QUERY] ❌ CRASH UPDATE GRUPPO: #{e.message}"
   end
 
+def self.puo_visualizzare?(user_id, carta_id, chat_id)
+  is_group = chat_id.to_i < 0
+
+  if is_group
+    # Nel gruppo: la carta DEVE essere collegata a quel gruppo specifico
+    query = <<-SQL
+      SELECT 1 FROM gruppo_carte_collegamenti l
+      JOIN gruppi g ON l.gruppo_id = g.id
+      WHERE g.chat_id = ? AND l.carta_id = ? LIMIT 1
+    SQL
+    return !!DB.get_first_value(query, [chat_id, carta_id])
+  else
+    # In privata: la carta deve essere MIA o condivisa in UN gruppo di cui faccio parte
+    query = <<-SQL
+      SELECT 1 WHERE EXISTS (
+        SELECT 1 FROM carte_fedelta WHERE user_id = ? AND id = ?
+        UNION
+        SELECT 1 FROM gruppo_carte_collegamenti l
+        JOIN memberships m ON l.gruppo_id = m.gruppo_id
+        WHERE m.user_id = ? AND l.carta_id = ?
+      )
+    SQL
+    return !!DB.get_first_value(query, [user_id, carta_id, user_id, carta_id])
+  end
+end
 
 # In db.rb
 def self.prendi_tutte_le_carte_accessibili(user_id)
