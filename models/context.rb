@@ -80,29 +80,28 @@ class Context
     puts "[CONTEXT] 🎯 Context salvato per U:#{user_id} -> G:#{gruppo_id} T:#{topic_id}"
   end
 
-# In context.rb
-# In context.rb
-def nome_contesto_hash
-  g_id = @config ? @config["db_id"].to_i : 0
-  t_id = @config ? @config["topic_id"].to_i : 0
-  
-  # Delega la query al DataManager
-  DataManager.recupera_nomi_contesto(g_id, t_id)
-end
+  # In context.rb
+  # In context.rb
+  def nome_contesto_hash
+    g_id = @config ? @config["db_id"].to_i : 0
+    t_id = @config ? @config["topic_id"].to_i : 0
 
-def nome_contesto_pulito
-  info = nome_contesto_hash # Otteniamo l'hash {:nome=>"...", :topic=>"..."}
-  
-  return info[:topic] if info[:nome] == "Privata" # "Lista Personale"
-  
-  # Se il topic è "Generale" o ha lo stesso nome del gruppo (caso Omegna)
-  if info[:topic] == "Generale" || info[:topic] == info[:nome]
-    info[:nome]
-  else
-    "#{info[:nome]}: #{info[:topic]}"
+    # Delega la query al DataManager
+    DataManager.recupera_nomi_contesto(g_id, t_id)
   end
-end
 
+  def nome_contesto_pulito
+    info = nome_contesto_hash # Otteniamo l'hash {:nome=>"...", :topic=>"..."}
+
+    return info[:topic] if info[:nome] == "Privata" # "Lista Personale"
+
+    # Se il topic è "Generale" o ha lo stesso nome del gruppo (caso Omegna)
+    if info[:topic] == "Generale" || info[:topic] == info[:nome]
+      info[:nome]
+    else
+      "#{info[:nome]}: #{info[:topic]}"
+    end
+  end
 
   def self.clear_private_context(user_id)
     # Rimuovendo la config, il bot torna a puntare alla Lista Personale (Gruppo 0)

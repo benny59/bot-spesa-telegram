@@ -26,33 +26,30 @@ class MessageHandler
       puts "[ROUTING] 🏢 Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
 
       # 2. LOGICA PER PRIVATA (TELECOMANDO)
-else
-  puts "[ROUTING] 🏠 Chat Privata: Carico target dal DB..."
-  config_salvata = DataManager.carica_config_utente(u_id) || {}
+    else
+      puts "[ROUTING] 🏠 Chat Privata: Carico target dal DB..."
+      config_salvata = DataManager.carica_config_utente(u_id) || {}
 
-  # ALLINEAMENTO CHIAVI: Usa le stesse chiavi ovunque
-  g_id = config_salvata["db_id"] || config_salvata["target_g"]
-  t_id = config_salvata["topic_id"] || config_salvata["target_t"]
+      # ALLINEAMENTO CHIAVI: Usa le stesse chiavi ovunque
+      g_id = config_salvata["db_id"] || config_salvata["target_g"]
+      t_id = config_salvata["topic_id"] || config_salvata["target_t"]
 
-  if g_id && g_id.to_i != 0
-    context.config["db_id"] = g_id.to_i
-    context.config["topic_id"] = (t_id || 0).to_i
-    puts "[ROUTING] 🎯 Target recuperato: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
-  else
-    context.config["db_id"] = 0
-    context.config["topic_id"] = 0
-    puts "[ROUTING] 👤 Default: Lista Personale"
-  end
-end
+      if g_id && g_id.to_i != 0
+        context.config["db_id"] = g_id.to_i
+        context.config["topic_id"] = (t_id || 0).to_i
+        puts "[ROUTING] 🎯 Target recuperato: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
+      else
+        context.config["db_id"] = 0
+        context.config["topic_id"] = 0
+        puts "[ROUTING] 👤 Default: Lista Personale"
+      end
+    end
 
     # 3. GESTIONE FOTO (Blindata contro i nil)
     if msg.photo && !msg.photo.empty?
       return self.handle_photo_bridge(bot, msg, context)
     end
-    
-    
-    
-    
+
     DataManager.salva_config_utente(u_id, context.config)
     text = msg.text.to_s.strip
     return if text.empty? # Esci se non c'è testo (evita crash su messaggi di sistema)
@@ -64,7 +61,7 @@ end
       self.core_start(bot, context)
       # Se siamo in privata, forziamo la comparsa del menu
       if context.private_chat?
-        KeyboardGenerator.show_private_keyboard(bot, context.chat_id,context)
+        KeyboardGenerator.show_private_keyboard(bot, context.chat_id, context)
       end
 
       # In handlers/message_handler.rb
@@ -99,31 +96,28 @@ end
       rescue => e
         puts "[ERROR] Impossibile pinnare: #{e.message}"
       end
-      
- when /^\/checklist/
-  g_id = context.config["db_id"].to_i
-  t_id = context.config["topic_id"].to_i
-  
-  kb = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
-  
-  if kb
-    bot.api.send_message(
-      chat_id: context.chat_id,
-      message_thread_id: context.topic_id, # <--- AGGIUNGI QUESTO
-      text: "📋 *Checklist Intelligente*\nSeleziona gli articoli:",
-      reply_markup: kb,
-      parse_mode: 'Markdown'
-    )
-  else
-    bot.api.send_message(
-      chat_id: context.chat_id,
-      message_thread_id: context.topic_id, # <--- AGGIUNGI QUESTO
-      text: "Storico vuoto per questo contesto."
-    )
-  end
-  return
-  
-      
+    when /^\/checklist/
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
+
+      kb = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
+
+      if kb
+        bot.api.send_message(
+          chat_id: context.chat_id,
+          message_thread_id: context.topic_id, # <--- AGGIUNGI QUESTO
+          text: "📋 *Checklist Intelligente*\nSeleziona gli articoli:",
+          reply_markup: kb,
+          parse_mode: "Markdown",
+        )
+      else
+        bot.api.send_message(
+          chat_id: context.chat_id,
+          message_thread_id: context.topic_id, # <--- AGGIUNGI QUESTO
+          text: "Storico vuoto per questo contesto.",
+        )
+      end
+      return
     when "/addcartagruppo"
       if g_chat_id < 0
         gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
@@ -157,23 +151,21 @@ end
       self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, true)
     when "/miei", "📋 I MIEI ARTICOLI"
       self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, false)
-when /^🛒 LISTA/  # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni variazione del tasto.
-  conf = DataManager.carica_config_utente(u_id) || {}
-  
-  # Usa la logica a doppia chiave per compatibilità
-  g_id = (conf["db_id"] || conf["target_g"] || 0).to_i
-  t_id = (conf["topic_id"] || conf["target_t"] || 0).to_i
+    when /^🛒 LISTA/ # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni variazione del tasto.
+      conf = DataManager.carica_config_utente(u_id) || {}
 
-  context.config["db_id"] = g_id
-  context.config["topic_id"] = t_id
+      # Usa la logica a doppia chiave per compatibilità
+      g_id = (conf["db_id"] || conf["target_g"] || 0).to_i
+      t_id = (conf["topic_id"] || conf["target_t"] || 0).to_i
 
-  items = DataManager.prendi_per_contesto(g_id, t_id)
-  header = DataManager.genera_header_contesto(g_id, t_id)
+      context.config["db_id"] = g_id
+      context.config["topic_id"] = t_id
 
-  self.core_mostra_lista(bot, context, items, header, g_id, t_id)
-  
-  
-      when "/private", "⚙️ IMPOSTA GRUPPO"
+      items = DataManager.prendi_per_contesto(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
+
+      self.core_mostra_lista(bot, context, items, header, g_id, t_id)
+    when "/private", "⚙️ IMPOSTA GRUPPO"
       puts "[ROUTING] ✅ Attivazione Menu Privato e Selettore"
       # 1. Mostra la tastiera fisica (🛒 LISTA, ecc.)
       #KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
@@ -200,10 +192,9 @@ when /^🛒 LISTA/  # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni 
       )
     when /^\/(start|help)/
       self.core_start(bot, context)
-    when /^\+(.*)/
+    when /^\+(.*)/, /^\*(.*)/
+      # Entrambi i prefissi ora usano lo stesso metodo unificato
       self.core_aggiunta(bot, context, $1.to_s.strip)
-    when /^\*(.*)/
-      self.core_aggiunta_personale(bot, context, $1.to_s.strip)
     when "/cleanup"
       self.core_cleanup(bot, context)
     else
@@ -280,26 +271,47 @@ when /^🛒 LISTA/  # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni 
 
   # CORE AGGIUNTA (+)
   def self.core_aggiunta(bot, context, contenuto)
-    return if contenuto.empty?
+    g_id = context.config ? context.config["db_id"].to_i : 0
+    t_id = context.config ? context.config["topic_id"].to_i : 0
+    u_id = context.user_id
 
-    # FIX: Non ricaricare dal DB, usa il contesto che abbiamo faticosamente allineato!
-    # context.config è quello che abbiamo settato a G:50 T:2 nel MessageHandler
-    g_id = context.config["db_id"].to_i
-    t_id = context.config["topic_id"].to_i
+    puts "[TRACE] 🚀 START core_aggiunta - U:#{u_id} G:#{g_id} T:#{t_id}"
 
-    # 2. Salvataggio articoli sul target corretto
-    DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: context.user_id, items_text: contenuto, topic_id: t_id)
-    puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{g_id} | T:#{t_id}"
+    # 1. SCRITTURA
+    DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: u_id, items_text: contenuto, topic_id: t_id)
+    puts "[TRACE] ✅ Articoli scritti nel DB"
 
-    # 3. Preparazione UI con JOIN per iniziali
-    items = DataManager.prendi_per_contesto(g_id, t_id)
+    # 2. CARICAMENTO DATI (Il momento critico)
+    items = DataManager.prendi_articoli_ordinati(g_id, t_id) # Usa quello corretto!
     header = DataManager.genera_header_contesto(g_id, t_id)
+    puts "[TRACE] 📊 Dati caricati per UI. Items: #{items.size} | Header: #{header}"
 
-    # 4. Mostra lista (assicurati che core_mostra_lista usi parse_mode: "HTML")
+    # 3. NOTIFICA GRUPPO
+    if g_id != 0
+      real_chat_id = DataManager.get_real_chat_id(g_id)
+      if real_chat_id
+        # Cerchiamo le initials nei dati appena presi
+        mio_item = items.find { |i| i["creato_da"] == u_id }
+        init = mio_item ? mio_item["autore_init"] : "U"
+        puts "[TRACE] 📢 Notifica gruppo - Init: #{init} Chat: #{real_chat_id}"
+
+        begin
+          bot.api.send_message(
+            chat_id: real_chat_id,
+            text: "➕ <b>#{init}</b>: #{contenuto.gsub(/^[\+\*]/, "").strip}",
+            parse_mode: "HTML",
+            message_thread_id: (t_id > 0 ? t_id : nil),
+            disable_notification: true,
+          )
+        rescue => e
+          puts "[TRACE] ❌ Errore API Notifica: #{e.message}"
+        end
+      end
+    end
+
+    # 4. REFRESH LISTA
+    puts "[TRACE] 🔄 Chiamata core_mostra_lista (7 params)"
     self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
-
-    # Pulizia
-    DataManager.clear_pending(chat_id: context.chat_id, topic_id: t_id)
   end
 
   # CORE STORICO (?)
@@ -318,19 +330,13 @@ when /^🛒 LISTA/  # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni 
     end
   end
 
-  # CORE SHORTCUT PERSONALE (*)
-  def self.core_aggiunta_personale(bot, context, contenuto)
-    DataManager.aggiungi_articoli(gruppo_id: 0, user_id: context.user_id, items_text: contenuto, topic_id: 0)
-    # Mostra la lista personale (G:0)
-    self.core_mostra_lista(bot, context)
-  end
-
   # ==============================================================================
   # METODI PONTE E FALLBACK
   # ==============================================================================
   def self.handle_pending_responses(bot, msg, context)
     pending = DataManager.ottieni_pending(context.chat_id, context.topic_id)
-    if pending
+    if pending && pending["action"].start_with?("add")
+      # Qui dentro mettiamo la chiamata UNICA
       self.core_aggiunta(bot, context, msg.text)
       DataManager.clear_pending(chat_id: context.chat_id, topic_id: context.topic_id)
     end
@@ -382,114 +388,113 @@ when /^🛒 LISTA/  # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni 
     puts "[CORE] 🧹 Avvio Cleanup di sistema"
   end
 
-def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
-  is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
-  real_message = is_callback ? message.message : message
+  def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
+    is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
+    real_message = is_callback ? message.message : message
 
-  # 1. Recupero Dati tramite DataManager
-  groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
-  return if groups_and_topics.empty?
+    # 1. Recupero Dati tramite DataManager
+    groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
+    return if groups_and_topics.empty?
 
-  conf = DataManager.carica_config_utente(user_id) || {}
+    conf = DataManager.carica_config_utente(user_id) || {}
 
-  # 2. Configurazione Paginazione
-  per_page = 5
-  total_pages = (groups_and_topics.size.to_f / per_page).ceil
-  page = [[page, 0].max, total_pages - 1].min
-  slice = groups_and_topics.slice(page * per_page, per_page) || []
+    # 2. Configurazione Paginazione
+    per_page = 5
+    total_pages = (groups_and_topics.size.to_f / per_page).ceil
+    page = [[page, 0].max, total_pages - 1].min
+    slice = groups_and_topics.slice(page * per_page, per_page) || []
 
-  title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I TUOI ARTICOLI"
-  text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
-  text << "<i>Clicca l'articolo per spuntare, il titolo per cambiare contesto.</i>\n\n"
+    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I TUOI ARTICOLI"
+    text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
+    text << "<i>Clicca l'articolo per spuntare, il titolo per cambiare contesto.</i>\n\n"
 
-  item_buttons = []
+    item_buttons = []
 
-  # 3. Ciclo sui Gruppi/Topic
-slice.each do |row|
-    g_id, t_id = row["gruppo_id"], row["topic_id"]
-    is_active = (g_id == conf["db_id"].to_i && t_id == conf["topic_id"].to_i)
+    # 3. Ciclo sui Gruppi/Topic
+    slice.each do |row|
+      g_id, t_id = row["gruppo_id"], row["topic_id"]
+      is_active = (g_id == conf["db_id"].to_i && t_id == conf["topic_id"].to_i)
 
-    # 1. Recupero dati grezzi (Hash solido senza istanziare Context)
-    info = DataManager.recupera_nomi_contesto(g_id, t_id)
-    
-    # 2. Logica di formattazione identica a Context.nome_contesto_pulito
-    if info[:nome] == "Privata"
-      etichetta_contesto = info[:topic]
-    elsif info[:topic] == "Generale" || info[:topic] == info[:nome]
-      etichetta_contesto = info[:nome]
-    else
-      etichetta_contesto = "#{info[:nome]}: #{info[:topic]}"
-    end
+      # 1. Recupero dati grezzi (Hash solido senza istanziare Context)
+      info = DataManager.recupera_nomi_contesto(g_id, t_id)
 
-    prefix = is_active ? "🎯 " : "📂 "
-
-    # Intestazione Gruppo/Topic
-    item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-      text: "#{prefix}#{etichetta_contesto.upcase}",
-      callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}",
-    )]
-
-    # 3. Articoli (Sempre con autore_init dalla JOIN)
-    articoli = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
-
-    articoli.each do |art|
-      status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
-      
-      autore_tag = ""
-      if show_all && g_id != 0
-        tag = art["autore_init"] || "?"
-        autore_tag = "[#{tag}] "
+      # 2. Logica di formattazione identica a Context.nome_contesto_pulito
+      if info[:nome] == "Privata"
+        etichetta_contesto = info[:topic]
+      elsif info[:topic] == "Generale" || info[:topic] == info[:nome]
+        etichetta_contesto = info[:nome]
+      else
+        etichetta_contesto = "#{info[:nome]}: #{info[:topic]}"
       end
 
+      prefix = is_active ? "🎯 " : "📂 "
+
+      # Intestazione Gruppo/Topic
       item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "#{status} #{autore_tag}#{art["nome"]}",
-        callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
+        text: "#{prefix}#{etichetta_contesto.upcase}",
+        callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}",
       )]
+
+      # 3. Articoli (Sempre con autore_init dalla JOIN)
+      articoli = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
+
+      articoli.each do |art|
+        status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
+
+        autore_tag = ""
+        if show_all && g_id != 0
+          tag = art["autore_init"] || "?"
+          autore_tag = "[#{tag}] "
+        end
+
+        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "#{status} #{autore_tag}#{art["nome"]}",
+          callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
+        )]
+      end
     end
-  end
-  
 
-  # 4. CREAZIONE PULSANTI DI NAVIGAZIONE
-  nav_row = []
-  if total_pages > 1
-    if page > 0
-      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "◀️",
-        callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}",
-      )
+    # 4. CREAZIONE PULSANTI DI NAVIGAZIONE
+    nav_row = []
+    if total_pages > 1
+      if page > 0
+        nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "◀️",
+          callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}",
+        )
+      end
+
+      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
+
+      if page < total_pages - 1
+        nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "▶️",
+          callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}",
+        )
+      end
     end
 
-    nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
+    # Pulsanti di chiusura e refresh
+    footer_row = [
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"),
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0"),
+    ]
 
-    if page < total_pages - 1
-      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "▶️",
-        callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}",
-      )
-    end
-  end
+    # Composizione finale tastiera
+    keyboard = item_buttons
+    keyboard << nav_row unless nav_row.empty?
+    keyboard << footer_row
 
-  # Pulsanti di chiusura e refresh
-  footer_row = [
-    Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"),
-    Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0"),
-  ]
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
 
-  # Composizione finale tastiera
-  keyboard = item_buttons
-  keyboard << nav_row unless nav_row.empty?
-  keyboard << footer_row
-
-  markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
-
-if is_callback
+    if is_callback
       begin
         bot.api.edit_message_text(
-          chat_id: chat_id, 
-          message_id: real_message.message_id, 
-          text: text, 
-          reply_markup: markup, 
-          parse_mode: "HTML"
+          chat_id: chat_id,
+          message_id: real_message.message_id,
+          text: text,
+          reply_markup: markup,
+          parse_mode: "HTML",
         )
       rescue Telegram::Bot::Exceptions::ResponseError => e
         # Se il contenuto è identico, Telegram risponde con 400 "message is not modified"
@@ -501,5 +506,4 @@ if is_callback
       bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
     end
   end
-  
 end

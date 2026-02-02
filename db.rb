@@ -156,28 +156,27 @@ class DataManager
     DB.execute("UPDATE items SET comprato = '' WHERE id = ?", [item_id])
   end
 
-def self.comprato?(item_id)
-  res = DB.get_first_value("SELECT comprato FROM items WHERE id = ?", [item_id])
-  res && res != ''
-end
+  def self.comprato?(item_id)
+    res = DB.get_first_value("SELECT comprato FROM items WHERE id = ?", [item_id])
+    res && res != ""
+  end
 
-# In db.rb (classe DataManager)
-def self.recupera_nomi_contesto(g_id, t_id)
-  return { nome: "Privata", topic: "Lista Personale" } if g_id == 0
+  # In db.rb (classe DataManager)
+  def self.recupera_nomi_contesto(g_id, t_id)
+    return { nome: "Privata", topic: "Lista Personale" } if g_id == 0
 
-  # Recupero info Gruppo
-  gruppo = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [g_id])
-  return { nome: "Gruppo #{g_id}", topic: "" } unless gruppo
+    # Recupero info Gruppo
+    gruppo = DB.get_first_row("SELECT nome, chat_id FROM gruppi WHERE id = ?", [g_id])
+    return { nome: "Gruppo #{g_id}", topic: "" } unless gruppo
 
-  g_nome = gruppo["nome"]
-  c_id = gruppo["chat_id"]
+    g_nome = gruppo["nome"]
+    c_id = gruppo["chat_id"]
 
-  # Recupero nome Topic (anche per 0)
-  t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [c_id, t_id])
-  
-  { nome: g_nome, topic: t_nome || (t_id == 0 ? "Generale" : t_id.to_s) }
-end
+    # Recupero nome Topic (anche per 0)
+    t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = ? AND topic_id = ?", [c_id, t_id])
 
+    { nome: g_nome, topic: t_nome || (t_id == 0 ? "Generale" : t_id.to_s) }
+  end
 
   def self.rimuovi_item_diretto(item_id)
     puts "[DATA_MONITOR] 🗑️ Rimozione forzata item ID: #{item_id} (nessuna modifica storico)"
@@ -441,20 +440,20 @@ end
   end
 
   def self.prendi_articoli_ordinati(gruppo_id, topic_id)
-    # Usiamo una JOIN per prendere il conteggio dallo storico mentre carichiamo gli items
     sql = <<-SQL
-    SELECT i.*, IFNULL(s.conteggio, 0) as volte
+    SELECT i.*, IFNULL(s.conteggio, 0) as volte, u.initials AS autore_init
     FROM items i
     LEFT JOIN storico_articoli s ON LOWER(i.nome) = LOWER(s.nome) 
-      AND i.gruppo_id = s.gruppo_id 
-      AND i.topic_id = s.topic_id
+      AND i.gruppo_id = s.gruppo_id AND i.topic_id = s.topic_id
+    LEFT JOIN user_names u ON i.creato_da = u.user_id
     WHERE i.gruppo_id = ? AND i.topic_id = ?
     ORDER BY 
       CASE WHEN i.comprato != '' THEN 1 ELSE 0 END ASC, 
-      i.creato_il DESC
+      volte DESC, i.creato_il DESC
   SQL
     DB.execute(sql, [gruppo_id, topic_id])
   end
+
   # ----------------------------------------------------------------------------
   # PILASTRO '?': STORICO E RICERCA
   # ----------------------------------------------------------------------------
@@ -569,25 +568,29 @@ end
     end
   end
 
+  # In db.rb, dentro la classe DataManager
+  def self.get_real_chat_id(g_id)
+    return nil if g_id == 0
+    DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [g_id])
+  end
+
   # 2. Recupera gli articoli effettivi
-def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
-  # Usiamo una LEFT JOIN per avere subito le iniziali (initials) dell'autore
-  # Questo elimina la necessità di fare query nel ciclo each
-  base_query = <<-SQL
+  def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
+    # Usiamo una LEFT JOIN per avere subito le iniziali (initials) dell'autore
+    # Questo elimina la necessità di fare query nel ciclo each
+    base_query = <<-SQL
     SELECT i.*, u.initials AS autore_init
     FROM items i
     LEFT JOIN user_names u ON i.creato_da = u.user_id
     WHERE i.gruppo_id = ? AND i.topic_id = ?
   SQL
 
-  if show_all && g_id != 0
-    # Vedo tutto il contenuto del gruppo/topic
-    DB.execute("#{base_query} ORDER BY (i.comprato != ''), i.nome", [g_id, t_id])
-  else
-    # Vedo solo le mie aggiunte (creato_da = user_id)
-    DB.execute("#{base_query} AND i.creato_da = ? ORDER BY (i.comprato != ''), i.nome", [g_id, t_id, user_id])
+    if show_all && g_id != 0
+      # Vedo tutto il contenuto del gruppo/topic
+      DB.execute("#{base_query} ORDER BY (i.comprato != ''), i.nome", [g_id, t_id])
+    else
+      # Vedo solo le mie aggiunte (creato_da = user_id)
+      DB.execute("#{base_query} AND i.creato_da = ? ORDER BY (i.comprato != ''), i.nome", [g_id, t_id, user_id])
+    end
   end
-end
-
-
 end

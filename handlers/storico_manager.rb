@@ -63,7 +63,7 @@ class StoricoManager
   end
 
   def self.genera_tastiera_checklist(bot, context, gruppo_id, topic_id)
-  puts "sono in genera_tastiera_checklist"
+    puts "sono in genera_tastiera_checklist"
     suggerimenti = self.suggerimenti_per_checklist(gruppo_id, topic_id)
     puts "suggerimenti #{suggerimenti}"
     return nil if suggerimenti.empty?

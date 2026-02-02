@@ -98,9 +98,9 @@ class KeyboardGenerator
     { text: text, markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard) }
   end
 
-  def self.show_private_keyboard(bot, chat_id,context)
+  def self.show_private_keyboard(bot, chat_id, context)
     puts "📟 [DEBUG] Visualizzazione tastiera privata (con switch gruppo) per: #{chat_id}"
-etichetta_lista = "🛒 LISTA  #{context.nome_contesto_pulito}"
+    etichetta_lista = "🛒 LISTA  #{context.nome_contesto_pulito}"
     puts "etichetta_lista #{etichetta_lista}"
 
     keyboard = Telegram::Bot::Types::ReplyKeyboardMarkup.new(
@@ -122,7 +122,7 @@ etichetta_lista = "🛒 LISTA  #{context.nome_contesto_pulito}"
       one_time_keyboard: false,
     )
 
-   bot.api.send_message(
+    bot.api.send_message(
       chat_id: chat_id,
       text: "passato a #{etichetta_lista}",
       reply_markup: keyboard,

@@ -111,89 +111,90 @@ class CallbackHandler
       # Esempio di gestione del click (Callback)
       # --- CAMBIO CONTESTO RAPIDO DA "I MIEI ARTICOLI" ---
       # --- REFRESH MENU "I MIEI ARTICOLI" ---
-when /^myitems_refresh:(\d+):(\d+):(\d)$/
-  u_id, page, s_all = $1.to_i, $2.to_i, $3.to_i
-  show_all = (s_all == 1)
+    when /^myitems_refresh:(\d+):(\d+):(\d)$/
+      u_id, page, s_all = $1.to_i, $2.to_i, $3.to_i
+      show_all = (s_all == 1)
 
-  # Feedback visivo per far capire che il bot sta lavorando
-  bot.api.answer_callback_query(callback_query_id: callback.id, text: "🔄 Aggiornamento lista...")
+      # Feedback visivo per far capire che il bot sta lavorando
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🔄 Aggiornamento lista...")
 
-  # Chiamata al metodo di classe per rigenerare la UI
-  MessageHandler.handle_myitems(
-    bot, 
-    callback.message.chat.id, 
-    u_id, 
-    callback, 
-    page, 
-    show_all
-  )
-  
-      
-when /^mycontext:(\d+):(-?\d+):(\d)$/
-  g_id, t_id, s_all = $1.to_i, $2.to_i, $3.to_i
+      # Chiamata al metodo di classe per rigenerare la UI
+      MessageHandler.handle_myitems(
+        bot,
+        callback.message.chat.id,
+        u_id,
+        callback,
+        page,
+        show_all
+      )
+    when /^mycontext:(\d+):(-?\d+):(\d)$/
+      g_id, t_id, s_all = $1.to_i, $2.to_i, $3.to_i
 
-  # 1. Salviamo il nuovo target nel DB
-  # Usiamo il metodo centralizzato per coerenza
-  Context.set_private_context(user_id, g_id, t_id)
+      # 1. Salviamo il nuovo target nel DB
+      # Usiamo il metodo centralizzato per coerenza
+      Context.set_private_context(user_id, g_id, t_id)
 
-  # 2. Recuperiamo i nomi per il feedback (Hash solido)
-  nomi = DataManager.recupera_nomi_contesto(g_id, t_id)
-  etichetta = (nomi[:nome] == "Privata") ? nomi[:topic] : "#{nomi[:nome]} #{nomi[:topic]}".strip
+      # 2. Recuperiamo i nomi per il feedback (Hash solido)
+      nomi = DataManager.recupera_nomi_contesto(g_id, t_id)
+      etichetta = (nomi[:nome] == "Privata") ? nomi[:topic] : "#{nomi[:nome]} #{nomi[:topic]}".strip
 
-  # 3. Feedback visivo (Popup Telegram)
-  bot.api.answer_callback_query(
-    callback_query_id: callback.id, 
-    text: "🎯 Target impostato su: #{etichetta}"
-  )
+      # 3. Feedback visivo (Popup Telegram)
+      bot.api.answer_callback_query(
+        callback_query_id: callback.id,
+        text: "🎯 Target impostato su: #{etichetta}",
+      )
 
-  # 4. REFRESH TASTIERA FISICA (Il telecomando)
-  # Creiamo un nuovo contesto che caricherà i dati appena salvati
-  nuovo_ctx = Context.new(chat_id: callback.message.chat.id, user_id: user_id, scope: :private)
-  KeyboardGenerator.show_private_keyboard(bot, callback.message.chat.id, nuovo_ctx)
+      # 4. REFRESH TASTIERA FISICA (Il telecomando)
+      # Creiamo un nuovo contesto che caricherà i dati appena salvati
+      nuovo_ctx = Context.new(chat_id: callback.message.chat.id, user_id: user_id, scope: :private)
+      KeyboardGenerator.show_private_keyboard(bot, callback.message.chat.id, nuovo_ctx)
 
-  # 5. REFRESH INTERFACCIA ATTUALE (Le cartelle)
-  # Aggiorna i pallini 🎯/📂 senza chiudere il menu
-  MessageHandler.handle_myitems(
-    bot, 
-    callback.message.chat.id, 
-    user_id, 
-    callback, 
-    0, # Reset alla pagina 1 per vedere il nuovo target
-    (s_all == 1)
-  )
-  
-      
-      
-      
-when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
-  item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
-  show_all = (s_all == 1)
+      # 5. REFRESH INTERFACCIA ATTUALE (Le cartelle)
+      # Aggiorna i pallini 🎯/📂 senza chiudere il menu
+      MessageHandler.handle_myitems(
+        bot,
+        callback.message.chat.id,
+        user_id,
+        callback,
+        0, # Reset alla pagina 1 per vedere il nuovo target
+        (s_all == 1)
+      )
+    when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
+      item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
+      show_all = (s_all == 1)
 
-  # 1. Esegui il Toggle (Logica esistente)
-  if DataManager.comprato?(item_id)
-    DataManager.despunta_articolo(item_id) #
-  else
-    # Usiamo user_id per marcare chi ha comprato
-    DataManager.spunta_articolo(item_id, user_id) 
-  end
+      # 1. Azione DB
+      if DataManager.comprato?(item_id)
+        DataManager.despunta_articolo(item_id)
+      else
+        DataManager.spunta_articolo(item_id, user_id)
+      end
 
-  # 2. REFRESH DELLA STESSA UI (handle_myitems)
-  # Invece di generare una nuova lista gruppo, richiamiamo handle_myitems 
-  # che ricostruirà la vista a cartelle con lo stato aggiornato.
-  begin
-    MessageHandler.handle_myitems(
-      bot, 
-      callback.message.chat.id, 
-      user_id, 
-      callback, # Passiamo il callback così lui fa edit_message
-      page, 
-      show_all
-    )
-  rescue Telegram::Bot::Exceptions::ResponseError => e
-    raise e unless e.message.include?("message is not modified")
-  end
-  
-        # --------------------------------------------------------------------------
+      # 2. REFRESH CHIRURGICO
+      if show_all
+        # Se siamo in "TUTTI GLI ARTICOLI", richiamiamo handle_myitems
+        # Passando 'callback' il metodo userà l'edit internamente (se implementato correttamente)
+        MessageHandler.handle_myitems(bot, callback.message.chat.id, user_id, callback, page, true)
+      else
+        # Se siamo nella LISTA NORMALE
+        items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+        header = DataManager.genera_header_contesto(g_id, t_id)
+        ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
+
+        begin
+          bot.api.edit_message_text(
+            chat_id: callback.message.chat.id,
+            message_id: callback.message.message_id,
+            text: ui[:text],
+            reply_markup: ui[:markup],
+            parse_mode: "HTML",
+          )
+        rescue => e
+          puts "⚠️ [EDIT ERROR] #{e.message}" unless e.message.include?("not modified")
+        end
+      end
+
+      # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
       # --------------------------------------------------------------------------
       # callback_handler.rb
@@ -384,7 +385,6 @@ when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
       # 4. Creiamo un contesto aggiornato e rimandiamo la tastiera fisica
       new_context = Context.new(chat_id: callback.message.chat.id, user_id: u_id, scope: :private)
       KeyboardGenerator.show_private_keyboard(bot, callback.message.chat.id, new_context)
-      
     else
       puts "[CALLBACK] ❓ Azione non gestita: #{data}"
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "Funzione in fase di refactoring")
