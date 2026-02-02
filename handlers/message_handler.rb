@@ -16,6 +16,13 @@ class MessageHandler
     g_chat_id = msg.chat.id
     # 1. LOGICA PER GRUPPI (REALE)
     unless context.private_chat?
+      # LOG DI EMERGENZA: Vediamo l'intero oggetto messaggio quando accade qualcosa
+      if msg.forum_topic_created || msg.forum_topic_edited
+        puts "[RAW_SERVICE_MSG] Ricevuto messaggio di servizio: #{msg.to_json}"
+      end
+      # Sincronizza il nome del topic se Telegram ci invia un evento di creazione/modifica
+      TopicManager.sincronizza(msg)
+
       gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
       context.config["db_id"] = gruppo ? gruppo["id"].to_i : 0
 
@@ -555,6 +562,39 @@ class MessageHandler
       end
     else
       bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
+    end
+  end
+end
+
+# In message_handler.rb (aggiungi in fondo o come classe di supporto)
+
+class TopicManager
+  def self.sincronizza(msg)
+    # LOG DI INGRESSO
+    puts "[SYNC_LOG] 📨 Analisi messaggio ID:#{msg.message_id}"
+
+    # CASO A: Cambio titolo del gruppo (Globale)
+    if msg.new_chat_title
+      puts "[SYNC_LOG] 🏢 Rilevato NEW_CHAT_TITLE: #{msg.new_chat_title}"
+      DataManager.aggiorna_nome_gruppo(msg.chat.id, msg.new_chat_title)
+      return
+    end
+
+    # CASO B: Cambio Topic (Forum)
+    topic_name = nil
+    if msg.forum_topic_created
+      topic_name = msg.forum_topic_created.name
+      puts "[SYNC_LOG] 🆕 Rilevato FORUM_TOPIC_CREATED: #{topic_name}"
+    elsif msg.forum_topic_edited
+      topic_name = msg.forum_topic_edited.name
+      puts "[SYNC_LOG] ✏️ Rilevato FORUM_TOPIC_EDITED: #{topic_name}"
+    end
+
+    if topic_name
+      t_id = (msg.respond_to?(:message_thread_id) && msg.message_thread_id) ? msg.message_thread_id : 0
+      DataManager.set_topic_name(msg.chat.id, t_id, topic_name)
+    else
+      puts "[SYNC_LOG] ℹ️ Messaggio ignorato (nessun cambio titolo o topic rilevato)"
     end
   end
 end

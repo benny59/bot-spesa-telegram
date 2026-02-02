@@ -336,13 +336,67 @@ class DataManager
   end
 
   def self.genera_header_contesto(g_id, t_id)
-    if g_id == 0
-      "🏠 <b>Lista Personale</b>"
-    else
-      g_nome = DB.get_first_value("SELECT nome FROM gruppi WHERE id = ?", [g_id]) || "Gruppo Sconosciuto"
-      t_nome = DB.get_first_value("SELECT nome FROM topics WHERE chat_id = (SELECT chat_id FROM gruppi WHERE id = ?) AND topic_id = ?", [g_id, t_id])
-      t_nome ? "🎯 <b>#{g_nome}</b>: <i>#{t_nome}</i>" : "👥 <b>#{g_nome}</b>"
+    g_id = g_id.to_i
+    t_id = t_id.to_i
+
+    return "👤 <b>LISTA PERSONALE</b>" if g_id == 0
+
+    # Usiamo la logica di JOIN che hai già per recuperare entrambi i nomi
+    res = DB.get_first_row(
+      "SELECT g.nome as g_nome, t.nome as t_nome 
+     FROM gruppi g 
+     LEFT JOIN topics t ON g.chat_id = t.chat_id AND t.topic_id = ? 
+     WHERE g.id = ?", [t_id, g_id]
+    )
+
+    return "🎯 <b>Gruppo #{g_id}</b>" unless res
+
+    nome_gruppo = res["g_nome"]
+    # CONSISTENZA: Se t_id è 0, usiamo "Generale". Se è un topic senza nome, usiamo "Topic ID"
+    nome_topic = res["t_nome"] || (t_id == 0 ? "Generale" : "Topic #{t_id}")
+
+    "🛒 🎯 <b>#{nome_gruppo}</b>: <i>#{nome_topic}</i>"
+  end
+
+  # In db.rb, dentro class DataManager
+  # In db.rb, dentro class DataManager
+  def self.aggiorna_nome_gruppo(chat_id, nuovo_nome)
+    puts "[DB_QUERY] 📝 Tentativo UPDATE gruppi: ChatID:#{chat_id} -> '#{nuovo_nome}'"
+
+    # Verifichiamo prima se il gruppo esiste
+    esiste = DB.get_first_value("SELECT COUNT(*) FROM gruppi WHERE chat_id = ?", [chat_id])
+    if esiste == 0
+      puts "[DB_QUERY] ⚠️ Errore: Nessun gruppo trovato con ChatID #{chat_id}. Impossibile aggiornare nome."
+      return
     end
+
+    DB.execute("UPDATE gruppi SET nome = ? WHERE chat_id = ?", [nuovo_nome, chat_id])
+    puts "[DB_QUERY] ✅ Nome gruppo aggiornato correttamente nel DB."
+  rescue => e
+    puts "[DB_QUERY] ❌ CRASH UPDATE GRUPPO: #{e.message}"
+  end
+
+  def self.set_topic_name(chat_id, topic_id, nome)
+    t_id = topic_id.to_i
+    nome_pulito = nome.to_s.strip
+    return if nome_pulito.empty?
+
+    puts "[TRACE_DB] 📥 Scrittura Topic... G_Chat:#{chat_id} T:#{t_id} Nome:#{nome_pulito}"
+
+    # RIMOSSO: DB.execute("UPDATE gruppi SET nome = ...")
+    # Non dobbiamo toccare la tabella gruppi qui, altrimenti perdiamo il nome originale.
+
+    query = <<-SQL
+    INSERT INTO topics (chat_id, topic_id, nome) 
+    VALUES (?, ?, ?)
+    ON CONFLICT(chat_id, topic_id) 
+    DO UPDATE SET nome = excluded.nome
+  SQL
+
+    DB.execute(query, [chat_id, t_id, nome_pulito])
+    puts "[TRACE_DB] ✅ Record Topic salvato."
+  rescue => e
+    puts "[TRACE_DB] ❌ ERRORE: #{e.message}"
   end
 
   def self.prendi_carte_gruppo(g_id)
@@ -412,7 +466,6 @@ class DataManager
     end
   end
   def self.prendi_destinazioni_censite(user_id)
-    # Usiamo 'g_nome' anche qui per coerenza
     destinazioni = [{ "chat_id" => 0, "topic_id" => 0, "nome" => "👤 Lista Personale", "g_nome" => "Privata" }]
 
     sql = <<-SQL
@@ -425,17 +478,16 @@ class DataManager
 
     res = DB.execute(sql, [user_id])
     res.each do |r|
-      # Recupero nome reale del topic (riga 173)
-      t_label = r["t_nome"].to_s.strip.empty? ? self.nome_topic(r["chat_id"], r["topic_id"]) : r["t_nome"]
+      # CONSISTENZA: Usiamo la stessa logica dell'header
+      t_label = r["t_nome"].to_s.strip.empty? ? (r["topic_id"] == 0 ? "Generale" : "Topic #{r["topic_id"]}") : r["t_nome"]
 
       destinazioni << {
         "chat_id" => r["id"],
         "topic_id" => r["topic_id"],
-        "nome" => "👥 #{r["g_nome"]}: #{t_label}", # Icona singola risolta
-        "g_nome" => r["g_nome"], # Salviamo il nome del gruppo separato per l'intestazione
+        "nome" => "👥 #{r["g_nome"]}: #{t_label}", # Qui forziamo il formato NOMEGRUPPO: NOMETOPIC
+        "g_nome" => r["g_nome"],
       }
     end
-    p destinazioni
     destinazioni
   end
 

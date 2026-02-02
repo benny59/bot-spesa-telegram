@@ -36,22 +36,28 @@ end
 # 4. LOOP PRINCIPALE
 Telegram::Bot::Client.run(TOKEN) do |bot|
   CommandSetter.aggiorna_comandi(bot)
-
   puts "🤖 [BOT] In ascolto..."
 
   bot.listen do |update|
+    # Debug per vedere TUTTO quello che arriva da Telegram
+    #puts "🔍 [RAW_RECEIVE] Tipo: #{update.class} | JSON: #{update.to_json}"
     begin
       case update
       when Telegram::Bot::Types::Message
-        # FIX: Evitiamo il crash se photo è nil usando l'operatore & o to_a
-        next if update.text.nil? && (update.photo.nil? || update.photo.empty?)
+        # AGGIORNATO: Permettiamo il passaggio anche se è un cambio titolo gruppo
+        is_service_msg = update.forum_topic_created || update.forum_topic_edited || update.new_chat_title
+
+        next if update.text.nil? && update.photo.nil? && !is_service_msg
 
         context = Context.from_message(update)
         MessageHandler.route(bot, update, context)
       when Telegram::Bot::Types::CallbackQuery
-        # 🟢 QUESTO È IL PEZZO MANCANTE
         context = Context.from_callback(update)
         CallbackHandler.route(bot, update, context)
+      else
+        # 🔴 IL "CATTURA TUTTO": Qui finiscono le rinomine, i nuovi membri, etc.
+        puts "⚠️ [UPDATE_SCONOSCIUTO] Tipo: #{update.class}"
+        puts "Contenuto: #{update.to_json}"
       end
     rescue => e
       puts "❌ [RUNTIME ERROR] #{e.class}: #{e.message}"
