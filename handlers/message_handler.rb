@@ -287,28 +287,32 @@ class MessageHandler
     puts "[TRACE] 📊 Dati caricati per UI. Items: #{items.size} | Header: #{header}"
 
     # 3. NOTIFICA GRUPPO
-    if g_id != 0
-      real_chat_id = DataManager.get_real_chat_id(g_id)
-      if real_chat_id
-        # Cerchiamo le initials nei dati appena presi
-        mio_item = items.find { |i| i["creato_da"] == u_id }
-        init = mio_item ? mio_item["autore_init"] : "U"
-        puts "[TRACE] 📢 Notifica gruppo - Init: #{init} Chat: #{real_chat_id}"
+# In MessageHandler.core_aggiunta
 
-        begin
-          bot.api.send_message(
-            chat_id: real_chat_id,
-            text: "➕ <b>#{init}</b>: #{contenuto.gsub(/^[\+\*]/, "").strip}",
-            parse_mode: "HTML",
-            message_thread_id: (t_id > 0 ? t_id : nil),
-            disable_notification: true,
-          )
-        rescue => e
-          puts "[TRACE] ❌ Errore API Notifica: #{e.message}"
-        end
-      end
+# 3. NOTIFICA GRUPPO
+# Inviamo la notifica SOLO SE l'utente sta scrivendo in chat PRIVATA
+# e il target (g_id) è un gruppo.
+if context.scope == :private && g_id != 0
+  real_chat_id = DataManager.get_real_chat_id(g_id)
+  
+  if real_chat_id
+    # Recuperiamo le initials dai dati appena caricati [cite: 3, 35]
+    mio_item = items.find { |i| i["creato_da"] == u_id }
+    init = mio_item ? mio_item["autore_init"] : "U" [cite: 2]
+    
+    begin
+      bot.api.send_message(
+        chat_id: real_chat_id, 
+        text: "➕ <b>#{init}</b>: #{contenuto.gsub(/^[\+\*]/, '').strip}", 
+        parse_mode: "HTML", 
+        message_thread_id: (t_id > 0 ? t_id : nil),
+        disable_notification: true
+      )
+    rescue => e
+      puts "[TRACE] ❌ Errore API Notifica: #{e.message}"
     end
-
+  end
+end
     # 4. REFRESH LISTA
     puts "[TRACE] 🔄 Chiamata core_mostra_lista (7 params)"
     self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
