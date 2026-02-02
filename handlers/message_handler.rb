@@ -192,9 +192,12 @@ class MessageHandler
       )
     when /^\/(start|help)/
       self.core_start(bot, context)
-    when /^\+(.*)/, /^\*(.*)/
-      # Entrambi i prefissi ora usano lo stesso metodo unificato
-      self.core_aggiunta(bot, context, $1.to_s.strip)
+    when /^\+(.*)/
+      # Lista di Gruppo/Contesto attivo
+      self.core_aggiunta(bot, context, $1.to_s.strip, false)
+    when /^\*(.*)/
+      # Lista Personale (Shortcut)
+      self.core_aggiunta(bot, context, $1.to_s.strip, true)
     when "/cleanup"
       self.core_cleanup(bot, context)
     else
@@ -270,10 +273,19 @@ class MessageHandler
   end
 
   # CORE AGGIUNTA (+)
-  def self.core_aggiunta(bot, context, contenuto)
-    g_id = context.config ? context.config["db_id"].to_i : 0
-    t_id = context.config ? context.config["topic_id"].to_i : 0
+  def self.core_aggiunta(bot, context, contenuto, force_personal = false)
     u_id = context.user_id
+
+    if force_personal
+      g_id = 0
+      t_id = 0
+      header = "📋 I TUOI ARTICOLI"
+      puts "[CORE] ⭐️ Aggiunta rapida alla Lista Personale"
+    else
+      g_id = context.config ? context.config["db_id"].to_i : 0
+      t_id = context.config ? context.config["topic_id"].to_i : 0
+      header = DataManager.genera_header_contesto(g_id, t_id)
+    end
 
     puts "[TRACE] 🚀 START core_aggiunta - U:#{u_id} G:#{g_id} T:#{t_id}"
 
@@ -281,41 +293,76 @@ class MessageHandler
     DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: u_id, items_text: contenuto, topic_id: t_id)
     puts "[TRACE] ✅ Articoli scritti nel DB"
 
-    # 2. CARICAMENTO DATI (Il momento critico)
-    items = DataManager.prendi_articoli_ordinati(g_id, t_id) # Usa quello corretto!
-    header = DataManager.genera_header_contesto(g_id, t_id)
+    # 2. CARICAMENTO DATI
+    items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+
+    # AGGIORNAMENTO: Genera l'header dinamico SOLO se non è forzato quello personale
+    unless force_personal
+      header = DataManager.genera_header_contesto(g_id, t_id)
+    end
+
     puts "[TRACE] 📊 Dati caricati per UI. Items: #{items.size} | Header: #{header}"
 
     # 3. NOTIFICA GRUPPO
-# In MessageHandler.core_aggiunta
+    # In MessageHandler.core_aggiunta
 
-# 3. NOTIFICA GRUPPO
-# Inviamo la notifica SOLO SE l'utente sta scrivendo in chat PRIVATA
-# e il target (g_id) è un gruppo.
-if context.scope == :private && g_id != 0
-  real_chat_id = DataManager.get_real_chat_id(g_id)
-  
-  if real_chat_id
-    # Recuperiamo le initials dai dati appena caricati [cite: 3, 35]
-    mio_item = items.find { |i| i["creato_da"] == u_id }
-    init = mio_item ? mio_item["autore_init"] : "U" [cite: 2]
-    
-    begin
-      bot.api.send_message(
-        chat_id: real_chat_id, 
-        text: "➕ <b>#{init}</b>: #{contenuto.gsub(/^[\+\*]/, '').strip}", 
-        parse_mode: "HTML", 
-        message_thread_id: (t_id > 0 ? t_id : nil),
-        disable_notification: true
-      )
-    rescue => e
-      puts "[TRACE] ❌ Errore API Notifica: #{e.message}"
+    # 3. NOTIFICA GRUPPO
+    # Inviamo la notifica SOLO SE l'utente sta scrivendo in chat PRIVATA
+    # e il target (g_id) è un gruppo.
+    if context.scope == :private && g_id != 0
+      real_chat_id = DataManager.get_real_chat_id(g_id)
+
+      if real_chat_id
+        # Recuperiamo le initials dai dati appena caricati [cite: 3, 35]
+        mio_item = items.find { |i| i["creato_da"] == u_id }
+        init = mio_item ? mio_item["autore_init"] : "U"[cite: 2]
+
+        begin
+          bot.api.send_message(
+            chat_id: real_chat_id,
+            text: "➕ <b>#{init}</b>: #{contenuto.gsub(/^[\+\*]/, "").strip}",
+            parse_mode: "HTML",
+            message_thread_id: (t_id > 0 ? t_id : nil),
+            disable_notification: true,
+          )
+        rescue => e
+          puts "[TRACE] ❌ Errore API Notifica: #{e.message}"
+        end
+      end
     end
-  end
-end
     # 4. REFRESH LISTA
     puts "[TRACE] 🔄 Chiamata core_mostra_lista (7 params)"
     self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
+  end
+
+  def self.refresh_lista_spesa(bot, callback, g_id, t_id, page, show_all, user_id)
+    if show_all
+      # Se veniamo dal menu "I Miei Articoli" (cartelle), usiamo il suo refresh dedicato [cite: 12]
+      self.handle_myitems(bot, callback.message.chat.id, user_id, callback, page, true)
+    else
+      # Recupero dati aggiornati [cite: 10]
+      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+
+      # Header coerente: se g_id è 0 è la lista personale dello shortcut "*"
+      header = (g_id == 0) ? "📋 I TUOI ARTICOLI" : DataManager.genera_header_contesto(g_id, t_id)
+
+      # Generazione interfaccia [cite: 10]
+      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
+
+      begin
+        bot.api.edit_message_text(
+          chat_id: callback.message.chat.id,
+          message_id: callback.message.message_id,
+          text: ui[:text],
+          reply_markup: ui[:markup],
+          parse_mode: "HTML",
+        )
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        # Ignoriamo se l'utente clicca freneticamente e il contenuto non cambia [cite: 11, 42]
+        raise e unless e.message.include?("message is not modified")
+        puts "[DEBUG] Refresh lista: contenuto identico"
+      end
+    end
   end
 
   # CORE STORICO (?)

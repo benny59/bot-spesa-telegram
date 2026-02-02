@@ -163,36 +163,15 @@ class CallbackHandler
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
       show_all = (s_all == 1)
 
-      # 1. Azione DB
+      # 1. Azione Database [cite: 9, 10]
       if DataManager.comprato?(item_id)
         DataManager.despunta_articolo(item_id)
       else
         DataManager.spunta_articolo(item_id, user_id)
       end
 
-      # 2. REFRESH CHIRURGICO
-      if show_all
-        # Se siamo in "TUTTI GLI ARTICOLI", richiamiamo handle_myitems
-        # Passando 'callback' il metodo userà l'edit internamente (se implementato correttamente)
-        MessageHandler.handle_myitems(bot, callback.message.chat.id, user_id, callback, page, true)
-      else
-        # Se siamo nella LISTA NORMALE
-        items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-        header = DataManager.genera_header_contesto(g_id, t_id)
-        ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
-
-        begin
-          bot.api.edit_message_text(
-            chat_id: callback.message.chat.id,
-            message_id: callback.message.message_id,
-            text: ui[:text],
-            reply_markup: ui[:markup],
-            parse_mode: "HTML",
-          )
-        rescue => e
-          puts "⚠️ [EDIT ERROR] #{e.message}" unless e.message.include?("not modified")
-        end
-      end
+      # 2. Refresh delegato al metodo dedicato
+      MessageHandler.refresh_lista_spesa(bot, callback, g_id, t_id, page, show_all, user_id)
 
       # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
