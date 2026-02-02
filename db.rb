@@ -376,6 +376,48 @@ class DataManager
     puts "[DB_QUERY] ❌ CRASH UPDATE GRUPPO: #{e.message}"
   end
 
+
+# In db.rb
+def self.prendi_tutte_le_carte_accessibili(user_id)
+  puts "[DB_TRACE] 🔍 Generazione lista per U:#{user_id}"
+  
+  query = <<-SQL
+    WITH carte_unite AS (
+      -- 1. Le tue carte personali (Proprietario sei TU)
+      SELECT c.id, c.nome, c.user_id, NULL as initials
+      FROM carte_fedelta c
+      WHERE c.user_id = ?
+      
+      UNION ALL
+      
+      -- 2. Carte condivise da ALTRI nei gruppi dove sei presente
+      -- (Usa DISTINCT per evitare duplicati della stessa carta da gruppi diversi)
+      SELECT DISTINCT c.id, c.nome, c.user_id, u.initials
+      FROM carte_fedelta c
+      JOIN gruppo_carte_collegamenti l ON c.id = l.carta_id
+      JOIN memberships m ON l.gruppo_id = m.gruppo_id
+      LEFT JOIN user_names u ON c.user_id = u.user_id
+      WHERE m.user_id = ? 
+        AND c.user_id != ? -- Non mostrare le tue come "condivise"
+    )
+    SELECT id, 
+           user_id,
+           CASE 
+             WHEN initials IS NOT NULL THEN nome || ' (' || initials || ')'
+             ELSE nome 
+           END as nome_display
+    FROM carte_unite
+    GROUP BY id, nome_display -- Pulizia finale
+    ORDER BY LOWER(nome_display) ASC
+  SQL
+  
+  res = DB.execute(query, [user_id, user_id, user_id])
+  puts "[DB_TRACE] ✅ #{res.size} carte trovate nell'indice accessibile."
+  res
+end
+
+
+
   def self.set_topic_name(chat_id, topic_id, nome)
     t_id = topic_id.to_i
     nome_pulito = nome.to_s.strip

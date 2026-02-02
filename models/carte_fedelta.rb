@@ -47,6 +47,9 @@ class CarteFedelta
     end
   end
 
+
+
+
   def self.show_user_cards(bot, user_id)
     # Usa DataManager
     carte = DataManager.prendi_carte_utente(user_id)
@@ -283,4 +286,110 @@ class CarteFedelta
   def self.elimina_file_per_nome(user_id, nome_file)
     Dir.glob(File.join(DATA_DIR, "#{nome_file}_#{user_id}_*.png")).each { |f| File.delete(f) if File.exist?(f) }
   end
+  
+  # METODO UI UNIVERSALE: Disegna la griglia di tasti
+  # METODO UNIVERSALE DI RENDERING
+def self.mostra_griglia(bot, chat_id, user_id, t_id, carte, titolo)
+    # Gestione Topic/Thread per gruppi o chat privata
+    is_private = (chat_id.to_i == user_id.to_i)
+    target_thread = is_private ? nil : (t_id.to_i > 0 ? t_id.to_i : nil)
+
+    puts "[UI_TRACE] 🎨 Avvio rendering griglia | Chat:#{chat_id} | Carte:#{carte.size}"
+
+    if carte.empty?
+      puts "[UI_TRACE] ⚠️ Nessuna carta trovata per U:#{user_id}"
+      bot.api.send_message(
+        chat_id: chat_id, 
+        message_thread_id: target_thread, 
+        text: "⚠️ Nessuna carta trovata."
+      )
+      return
+    end
+
+    inline_keyboard = []
+    
+    # Suddividiamo le carte in righe da 3 bottoni ciascuna
+    carte.each_slice(3) do |batch|
+      row = batch.map do |card|
+        # 🛠️ GESTIONE SICURA DEL TESTO (Evita il crash NilClass)
+        # 1. Cerca 'nome_display' (quello con le iniziali della query complessa)
+        # 2. Cerca 'nome' (campo standard)
+        # 3. Fallback a stringa generica
+        testo_tasto = card["nome_display"] || card["nome"] || "Carta ##{card['id']}"
+
+        puts "[UI_TRACE]  └─ Tasto: #{testo_tasto} (ID:#{card['id']})"
+
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: testo_tasto.to_s, # Forza sempre a stringa
+          callback_data: "carte:#{card["user_id"]}:#{card["id"]}"
+        )
+      end
+      inline_keyboard << row
+    end
+
+    # Aggiungiamo il tasto di chiusura in fondo
+    inline_keyboard << [
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "close_barcode")
+    ]
+    
+    puts "[UI_TRACE] 📤 Invio griglia ordinata a Telegram..."
+
+    bot.api.send_message(
+      chat_id: chat_id,
+      message_thread_id: target_thread,
+      text: "<b>#{titolo}</b>",
+      reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard),
+      parse_mode: "HTML"
+    )
+  rescue => e
+    puts "🚨 ERRORE CRITICO in mostra_griglia: #{e.message}"
+    puts e.backtrace.first(5).join("\n")
+  end
+  
+  # Logica per il tastone "LE MIE CARTE"
+  def self.mostra_personali(bot, user_id)
+    carte = DataManager.prendi_tutte_le_carte_accessibili(user_id)
+    mostra_griglia(bot, user_id, user_id, 0, carte, "🎟️ Le tue Carte (Personali + Gruppi)")
+  end
+
+  # Logica per /miecartecondivise (Il report che avevi)
+  def self.show_user_shared_cards_report(bot, user_id)
+    # Usa la query che mi hai appena confermato
+    carte_condivise = DataManager.mie_carte_e_condivisioni(user_id)
+
+    if carte_condivise.empty?
+      bot.api.send_message(chat_id: user_id, text: "📊 Non hai ancora condiviso carte nei gruppi.")
+      return
+    end
+
+    report = "📊 <b>Report Condivisioni Carte</b>\n\n"
+    carte_condivise.each do |c|
+      status = c['gruppi_nomi'] ? "✅ In: <i>#{c['gruppi_nomi']}</i>" : "⚪ Solo privata"
+      report += "• <b>#{c['nome']}</b>\n  └ #{status}\n\n"
+    end
+
+    bot.api.send_message(chat_id: user_id, text: report, parse_mode: "HTML")
+  end
+
+
+  # NUOVO COMANDO: /miecartecondivise (Report Amministrativo)
+  def self.report_condivisioni(bot, user_id)
+    carte_condivise = DataManager.mie_carte_e_condivisioni(user_id)
+
+    if carte_condivise.empty?
+      bot.api.send_message(chat_id: user_id, text: "📊 Non hai ancora condiviso carte nei gruppi.")
+      return
+    end
+
+    report = "📊 <b>Report Carte Condivise</b>\n\n"
+    carte_condivise.each do |c|
+      status = c['gruppi_nomi'] ? "✅ Condivisa in: <i>#{c['gruppi_nomi']}</i>" : "⚪ Solo personale"
+      report += "• <b>#{c['nome']}</b>\n  └ #{status}\n\n"
+    end
+    
+    bot.api.send_message(chat_id: user_id, text: report, parse_mode: "HTML")
+  end
+  
+  
+  
 end

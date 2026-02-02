@@ -12,6 +12,17 @@ class CarteFedeltaGruppo < CarteFedelta
     aggiorna_schema_db_gruppo
   end
 
+def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
+    # Recupera i dati specifici del gruppo
+    carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id)
+    
+    # Chiama il metodo della classe madre
+    mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte condivise nel gruppo")
+  end
+  
+   
+
+
   # Aggiungi carta condivisa al gruppo
   def self.add_group_card(bot, chat_id, gruppo_id, user_id, args)
     parts = args.split(" ", 2)
@@ -105,57 +116,15 @@ class CarteFedeltaGruppo < CarteFedelta
   end
 
   # Mostra carte del gruppo
-  def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
-    g_id = gruppo_id.to_i
-    t_id = topic_id.to_i
-
-    # Recupero dal nuovo metodo in DataManager
-    carte = DataManager.carte_disponibili_nel_gruppo(g_id)
-
-    # LOGICA THREAD: Cruciale per evitare il NameError
-    # Se chat_id == user_id, siamo in una chat privata
-    is_private = (chat_id.to_i == user_id.to_i)
-    target_thread = is_private ? nil : (t_id > 0 ? t_id : nil)
-
-    puts "[DEBUG-UI] Invio Carte -> Chat: #{chat_id}, Thread: #{target_thread.inspect}, G_ID: #{g_id}"
-
-    if carte.empty?
-      bot.api.send_message(
-        chat_id: chat_id,
-        message_thread_id: target_thread, # Usiamo la variabile definita sopra
-        text: "⚠️ <b>Nessuna carta condivisa in questo gruppo.</b>",
-        parse_mode: "HTML",
-      )
-      return
-    end
-
-    # Costruzione tastiera
-    inline_keyboard = []
-    carte.each_slice(3) do |batch|
-      row = batch.map do |card|
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: card["nome"],
-          callback_data: "carte:#{card["user_id"]}:#{card["id"]}",
-        )
-      end
-      inline_keyboard << row
-    end
-
-    inline_keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close")]
-    keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
-
-    # INVIO FINALE: Usiamo target_thread
-    bot.api.send_message(
-      chat_id: chat_id,
-      message_thread_id: target_thread,
-      text: "💳 <b>Carte fedeltà disponibili nel gruppo</b>",
-      reply_markup: keyboard,
-      parse_mode: "HTML",
-    )
-  rescue => e
-    puts "❌ [CARTE ERROR] Errore critico: #{e.message}"
+def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
+    puts "[FLOW] 👥 Trigger CARTE GRUPPO per G:#{gruppo_id}"
+    carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id)
+    
+    # Chiamiamo il metodo della classe madre
+    mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte condivise nel gruppo")
   end
-
+  
+  
   # Elimina carta del gruppo (solo chi l'ha aggiunta)
   def self.delete_group_card(bot, gruppo_id, user_id, carta_id, chat_id = nil, is_link_id = false)
     if is_link_id
