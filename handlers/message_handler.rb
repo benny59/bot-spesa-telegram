@@ -137,11 +137,10 @@ class MessageHandler
       CarteFedeltaGruppo.show_group_cards(bot, context.config["db_id"], g_chat_id, u_id, context.config["topic_id"])
     when "/miecartecondivise"
       CarteFedeltaGruppo.show_user_shared_cards_report(bot, u_id)
-  when "💳 LE MIE CARTE"
-  # Chiama la nuova griglia aggregata (Personali + Gruppi)
-  # Usiamo il metodo della classe base CarteFedelta
-  CarteFedelta.mostra_personali(bot, u_id)
-      
+    when "💳 LE MIE CARTE"
+      # Chiama la nuova griglia aggregata (Personali + Gruppi)
+      # Usiamo il metodo della classe base CarteFedelta
+      CarteFedelta.mostra_personali(bot, u_id)
     when "/addcarta"
       bot.api.send_message(chat_id: u_id, text: "✍️ Invia la foto della carta con il nome nella didascalia (caption).")
     when "/delcarta"

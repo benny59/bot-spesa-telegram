@@ -47,9 +47,6 @@ class CarteFedelta
     end
   end
 
-
-
-
   def self.show_user_cards(bot, user_id)
     # Usa DataManager
     carte = DataManager.prendi_carte_utente(user_id)
@@ -286,113 +283,82 @@ class CarteFedelta
   def self.elimina_file_per_nome(user_id, nome_file)
     Dir.glob(File.join(DATA_DIR, "#{nome_file}_#{user_id}_*.png")).each { |f| File.delete(f) if File.exist?(f) }
   end
-  
-  
-def self.mostra_singola_carta(bot, chat_id, owner_id, carta_id)
+
+  # In carte_fedelta.rb
+  # In carte_fedelta.rb
+  def self.mostra_singola_carta(bot, chat_id, owner_id, carta_id, t_id = nil) # <--- t_id opzionale
     carta = DataManager.prendi_dettaglio_carta(carta_id, owner_id)
     return puts "❌ Carta #{carta_id} non trovata" unless carta
 
     # 1. TENTATIVO DI FIX PATH
-    # Prendiamo solo il nome del file (es: uniqlo_...png)
     nome_file = File.basename(carta["immagine_path"] || "")
     path_db = carta["immagine_path"]
     path_locale = File.join(Dir.pwd, "data", "carte", nome_file)
-
-    # Decidiamo quale path usare
     img_path = File.exist?(path_db.to_s) ? path_db : path_locale
 
     # 2. RIGENERAZIONE SE IL FILE MANCA OVUNQUE
     if !File.exist?(img_path) || File.size?(img_path).to_i < 100
-      puts "⚠️ [DEBUG] Immagine non trovata in #{img_path}, rigenerazione..."
-      
-      # Chiamata alla tua funzione di generazione (adattala se il nome è diverso)
+      puts "⚠️ [DEBUG] Immagine non trovata, rigenerazione..."
       result = genera_barcode_con_nome(carta["codice"], carta["nome"], owner_id, carta["formato"])
-      
+
       if result && result[:img_path]
         img_path = result[:img_path]
-        # Aggiorniamo il DB così la prossima volta il path è corretto per questo ambiente
         DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [img_path, carta_id])
       else
-        return bot.api.send_message(chat_id: chat_id, text: "❌ Errore nella generazione del barcode.")
+        return bot.api.send_message(chat_id: chat_id, text: "❌ Errore nella generazione del barcode.", message_thread_id: t_id)
       end
     end
 
-    # 3. INVIO SICURO
+    # 3. INVIO SICURO (con gestione Thread)
     markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: [
-      [Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "close_barcode")]
-    ])
+                                                              [Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "close_barcode")],
+                                                            ])
 
     bot.api.send_photo(
       chat_id: chat_id,
-      photo: Faraday::UploadIO.new(img_path, 'image/png'),
-      caption: "💳 <b>#{carta['nome']}</b>\n🔢 <code>#{carta['codice']}</code>",
-      parse_mode: 'HTML',
-      reply_markup: markup
+      message_thread_id: (t_id.to_i > 0 ? t_id : nil), # <--- AGGIUNTO QUI
+      photo: Faraday::UploadIO.new(img_path, "image/png"),
+      caption: "💳 <b>#{carta["nome"]}</b>\n🔢 <code>#{carta["codice"]}</code>",
+      parse_mode: "HTML",
+      reply_markup: markup,
     )
   rescue => e
     puts "🚨 Errore critico: #{e.message}"
-    bot.api.send_message(chat_id: chat_id, text: "⚠️ Errore tecnico: #{e.message}")
+    bot.api.send_message(chat_id: chat_id, text: "⚠️ Errore tecnico: #{e.message}", message_thread_id: t_id)
   end
-   
+
   # METODO UI UNIVERSALE: Disegna la griglia di tasti
   # METODO UNIVERSALE DI RENDERING
-def self.mostra_griglia(bot, chat_id, user_id, t_id, carte, titolo)
-    # Gestione Topic/Thread per gruppi o chat privata
-    is_private = (chat_id.to_i == user_id.to_i)
-    target_thread = is_private ? nil : (t_id.to_i > 0 ? t_id.to_i : nil)
-
-    puts "[UI_TRACE] 🎨 Avvio rendering griglia | Chat:#{chat_id} | Carte:#{carte.size}"
-
+  # In carte_fedelta.rb
+  def self.mostra_griglia(bot, chat_id, user_id, topic_id, carte, titolo)
     if carte.empty?
-      puts "[UI_TRACE] ⚠️ Nessuna carta trovata per U:#{user_id}"
-      bot.api.send_message(
-        chat_id: chat_id, 
-        message_thread_id: target_thread, 
-        text: "⚠️ Nessuna carta trovata."
-      )
+      bot.api.send_message(chat_id: chat_id, text: "📭 Nessuna carta disponibile qui.", message_thread_id: topic_id)
       return
     end
 
-    inline_keyboard = []
-    
-    # Suddividiamo le carte in righe da 3 bottoni ciascuna
-    carte.each_slice(3) do |batch|
-      row = batch.map do |card|
-        # 🛠️ GESTIONE SICURA DEL TESTO (Evita il crash NilClass)
-        # 1. Cerca 'nome_display' (quello con le iniziali della query complessa)
-        # 2. Cerca 'nome' (campo standard)
-        # 3. Fallback a stringa generica
-        testo_tasto = card["nome_display"] || card["nome"] || "Carta ##{card['id']}"
-
-        puts "[UI_TRACE]  └─ Tasto: #{testo_tasto} (ID:#{card['id']})"
-
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: testo_tasto.to_s, # Forza sempre a stringa
-          callback_data: "carte:#{card["user_id"]}:#{card["id"]}"
-        )
-      end
-      inline_keyboard << row
+    # Costruzione tastiera
+    buttons = carte.map do |c|
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: (c["nome_display"] || c["nome"]).to_s,
+        callback_data: "carte:#{c["user_id"]}:#{c["id"]}",
+      )
     end
 
-    # Aggiungiamo il tasto di chiusura in fondo
-    inline_keyboard << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "close_barcode")
-    ]
-    
-    puts "[UI_TRACE] 📤 Invio griglia ordinata a Telegram..."
+    # Creiamo la griglia (2 o 3 colonne a tua scelta, qui lascio 2 come nel tuo esempio)
+    grid = buttons.each_slice(3).to_a
+
+    # AGGIUNTA TASTO CHIUDI (Punto 1 della tua richiesta)
+    grid << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi Lista", callback_data: "close_barcode")]
 
     bot.api.send_message(
       chat_id: chat_id,
-      message_thread_id: target_thread,
-      text: "<b>#{titolo}</b>",
-      reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard),
-      parse_mode: "HTML"
+      text: "<b>#{titolo}</b>\nSeleziona una carta:",
+      reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: grid),
+      parse_mode: "HTML",
+      message_thread_id: (topic_id.to_i > 0 ? topic_id : nil),
     )
-  rescue => e
-    puts "🚨 ERRORE CRITICO in mostra_griglia: #{e.message}"
-    puts e.backtrace.first(5).join("\n")
   end
-  
+
   # Logica per il tastone "LE MIE CARTE"
   def self.mostra_personali(bot, user_id)
     carte = DataManager.prendi_tutte_le_carte_accessibili(user_id)
@@ -411,13 +377,12 @@ def self.mostra_griglia(bot, chat_id, user_id, t_id, carte, titolo)
 
     report = "📊 <b>Report Condivisioni Carte</b>\n\n"
     carte_condivise.each do |c|
-      status = c['gruppi_nomi'] ? "✅ In: <i>#{c['gruppi_nomi']}</i>" : "⚪ Solo privata"
-      report += "• <b>#{c['nome']}</b>\n  └ #{status}\n\n"
+      status = c["gruppi_nomi"] ? "✅ In: <i>#{c["gruppi_nomi"]}</i>" : "⚪ Solo privata"
+      report += "• <b>#{c["nome"]}</b>\n  └ #{status}\n\n"
     end
 
     bot.api.send_message(chat_id: user_id, text: report, parse_mode: "HTML")
   end
-
 
   # NUOVO COMANDO: /miecartecondivise (Report Amministrativo)
   def self.report_condivisioni(bot, user_id)
@@ -430,13 +395,10 @@ def self.mostra_griglia(bot, chat_id, user_id, t_id, carte, titolo)
 
     report = "📊 <b>Report Carte Condivise</b>\n\n"
     carte_condivise.each do |c|
-      status = c['gruppi_nomi'] ? "✅ Condivisa in: <i>#{c['gruppi_nomi']}</i>" : "⚪ Solo personale"
-      report += "• <b>#{c['nome']}</b>\n  └ #{status}\n\n"
+      status = c["gruppi_nomi"] ? "✅ Condivisa in: <i>#{c["gruppi_nomi"]}</i>" : "⚪ Solo personale"
+      report += "• <b>#{c["nome"]}</b>\n  └ #{status}\n\n"
     end
-    
+
     bot.api.send_message(chat_id: user_id, text: report, parse_mode: "HTML")
   end
-  
-  
-  
 end

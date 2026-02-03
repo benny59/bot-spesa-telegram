@@ -12,16 +12,13 @@ class CarteFedeltaGruppo < CarteFedelta
     aggiorna_schema_db_gruppo
   end
 
-def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
+  def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     # Recupera i dati specifici del gruppo
     carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id)
-    
+
     # Chiama il metodo della classe madre
     mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte condivise nel gruppo")
   end
-  
-   
-
 
   # Aggiungi carta condivisa al gruppo
   def self.add_group_card(bot, chat_id, gruppo_id, user_id, args)
@@ -116,15 +113,14 @@ def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
   end
 
   # Mostra carte del gruppo
-def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
+  def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     puts "[FLOW] 👥 Trigger CARTE GRUPPO per G:#{gruppo_id}"
     carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id)
-    
+
     # Chiamiamo il metodo della classe madre
     mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte condivise nel gruppo")
   end
-  
-  
+
   # Elimina carta del gruppo (solo chi l'ha aggiunta)
   def self.delete_group_card(bot, gruppo_id, user_id, carta_id, chat_id = nil, is_link_id = false)
     if is_link_id
@@ -468,66 +464,6 @@ def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     else
       Logger.warn("Callback non gestita CarteFedeltaGruppo", data: data)
       bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "Operazione non riconosciuta")
-    end
-  end
-
-  def self.mostra_carta_gruppo(bot, chat_id, gruppo_id, carta_id, topic_id = nil)
-    row = DB.execute("
-    SELECT c.* 
-    FROM #{CARDS_TABLE} c 
-    JOIN #{GROUP_LINKS_TABLE} gcl ON c.id = gcl.carta_id 
-    WHERE c.id = ? AND gcl.gruppo_id = ?",
-                     [carta_id, gruppo_id]).first
-
-    if row
-      img_path = row["immagine_path"]
-
-      # Rigenera se necessario
-      unless img_path && File.exist?(img_path) && File.size(img_path) > 100
-        begin
-          result = genera_barcode_con_nome(row["codice"], row["nome"], "gruppo_#{gruppo_id}")
-          DB.execute("UPDATE #{CARDS_TABLE} SET immagine_path = ? WHERE id = ?",
-                     [result[:img_path], carta_id])
-          img_path = result[:img_path]
-        rescue => e
-          puts "❌ Rigenerazione carta gruppo fallita: #{e.message}"
-          bot.api.send_message(chat_id: chat_id, text: "❌ Errore nella rigenerazione del barcode.")
-          return
-        end
-      end
-
-      if File.exist?(img_path)
-        caption = "🏢 Carta Condivisa\n💳 #{row["nome"]}\n🔢 Codice: #{row["codice"]}"
-        inline_keyboard = [
-          [
-            Telegram::Bot::Types::InlineKeyboardButton.new(
-              text: "❌ Chiudi",
-              callback_data: "close_barcode",
-            ),
-          ],
-        ]
-        keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: inline_keyboard)
-
-        # 🔥 MODIFICA PRINCIPALE: Usa message_thread_id se topic_id > 0
-        params = {
-          chat_id: chat_id,
-          photo: Faraday::UploadIO.new(img_path, "image/png"),
-          caption: caption,
-          reply_markup: keyboard,
-        }
-        if topic_id && topic_id.to_i > 0
-          params[:message_thread_id] = topic_id.to_i
-          puts "[DEBUG-API] Invio foto con THREAD: #{topic_id}"
-        else
-          puts "[DEBUG-API] Invio foto senza THREAD (General)"
-        end
-
-        bot.api.send_photo(params)
-      else
-        bot.api.send_message(chat_id: chat_id, text: "❌ Immagine non disponibile per #{row["nome"]}")
-      end
-    else
-      bot.api.send_message(chat_id: chat_id, text: "❌ Carta non trovata nel gruppo.")
     end
   end
 

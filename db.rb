@@ -376,20 +376,20 @@ class DataManager
     puts "[DB_QUERY] ❌ CRASH UPDATE GRUPPO: #{e.message}"
   end
 
-def self.puo_visualizzare?(user_id, carta_id, chat_id)
-  is_group = chat_id.to_i < 0
+  def self.puo_visualizzare?(user_id, carta_id, chat_id)
+    is_group = chat_id.to_i < 0
 
-  if is_group
-    # Nel gruppo: la carta DEVE essere collegata a quel gruppo specifico
-    query = <<-SQL
+    if is_group
+      # Nel gruppo: la carta DEVE essere collegata a quel gruppo specifico
+      query = <<-SQL
       SELECT 1 FROM gruppo_carte_collegamenti l
       JOIN gruppi g ON l.gruppo_id = g.id
       WHERE g.chat_id = ? AND l.carta_id = ? LIMIT 1
     SQL
-    return !!DB.get_first_value(query, [chat_id, carta_id])
-  else
-    # In privata: la carta deve essere MIA o condivisa in UN gruppo di cui faccio parte
-    query = <<-SQL
+      return !!DB.get_first_value(query, [chat_id, carta_id])
+    else
+      # In privata: la carta deve essere MIA o condivisa in UN gruppo di cui faccio parte
+      query = <<-SQL
       SELECT 1 WHERE EXISTS (
         SELECT 1 FROM carte_fedelta WHERE user_id = ? AND id = ?
         UNION
@@ -398,15 +398,15 @@ def self.puo_visualizzare?(user_id, carta_id, chat_id)
         WHERE m.user_id = ? AND l.carta_id = ?
       )
     SQL
-    return !!DB.get_first_value(query, [user_id, carta_id, user_id, carta_id])
+      return !!DB.get_first_value(query, [user_id, carta_id, user_id, carta_id])
+    end
   end
-end
 
-# In db.rb
-def self.prendi_tutte_le_carte_accessibili(user_id)
-  puts "[DB_TRACE] 🔍 Generazione lista per U:#{user_id}"
-  
-  query = <<-SQL
+  # In db.rb
+  def self.prendi_tutte_le_carte_accessibili(user_id)
+    puts "[DB_TRACE] 🔍 Generazione lista per U:#{user_id}"
+
+    query = <<-SQL
     WITH carte_unite AS (
       -- 1. Le tue carte personali (Proprietario sei TU)
       SELECT c.id, c.nome, c.user_id, NULL as initials
@@ -435,13 +435,11 @@ def self.prendi_tutte_le_carte_accessibili(user_id)
     GROUP BY id, nome_display -- Pulizia finale
     ORDER BY LOWER(nome_display) ASC
   SQL
-  
-  res = DB.execute(query, [user_id, user_id, user_id])
-  puts "[DB_TRACE] ✅ #{res.size} carte trovate nell'indice accessibile."
-  res
-end
 
-
+    res = DB.execute(query, [user_id, user_id, user_id])
+    puts "[DB_TRACE] ✅ #{res.size} carte trovate nell'indice accessibile."
+    res
+  end
 
   def self.set_topic_name(chat_id, topic_id, nome)
     t_id = topic_id.to_i

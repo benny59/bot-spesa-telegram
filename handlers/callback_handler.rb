@@ -24,41 +24,25 @@ class CallbackHandler
     when /^carte_gruppo_/
       # Delega tutto a CarteFedeltaGruppo che ha già la logica pronta
       CarteFedeltaGruppo.handle_callback(bot, callback)
- when /^carte:(\d+):(\d+)$/
+    when /^carte:(\d+):(\d+)$/
       owner_id, card_id = $1.to_i, $2.to_i
       chat_id = callback.message.chat.id
       user_id = callback.from.id
       t_id = (callback.message.respond_to?(:message_thread_id) ? callback.message.message_thread_id : 0).to_i
 
-      # Capisce se siamo in una chat privata
-      is_private = (chat_id.to_i == user_id.to_i)
-
       begin
-        if is_private
-          # 🏠 CASO PRIVATA: Usa il metodo base (che deve mostrare la carta se accessibile)
-          puts "[DEBUG-CARTE] 🏠 Visualizzazione PRIVATA per U:#{user_id} | Carta:#{card_id}"
-          CarteFedelta.mostra_singola_carta(bot, chat_id, owner_id, card_id)
-        else
-          # 👥 CASO GRUPPO: Recupera il g_id e usa la logica di gruppo
-          g_id = 0
-          if context && context.config
-            g_id = context.config["db_id"].to_i
-          else
-            gruppo = DataManager.prendi_gruppo_da_chat_id(chat_id)
-            g_id = gruppo ? gruppo["id"].to_i : 0
-          end
-          
-          puts "[DEBUG-CARTE] 👥 Visualizzazione GRUPPO:#{g_id} | Carta:#{card_id}"
-          CarteFedeltaGruppo.mostra_carta_gruppo(bot, chat_id, g_id, card_id, t_id)
-        end
-        
+        # 🎯 CHIAMATA UNICA: Non serve più IF/ELSE o g_id.
+        # Il metodo mostra_singola_carta gestirà i permessi e il thread.
+        puts "[DEBUG-CARTE] 🔍 Richiesta Visualizzazione | U:#{user_id} | Carta:#{card_id} | Topic:#{t_id}"
+
+        CarteFedelta.mostra_singola_carta(bot, chat_id, owner_id, card_id, t_id)
+
         bot.api.answer_callback_query(callback_query_id: callback.id)
       rescue => e
         puts "❌ [RUNTIME ERROR CARTE] #{e.message}"
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "⚠️ Errore: #{e.message}")
       end
-      
-          when "close_barcode"
+    when "close_barcode"
       bot.api.answer_callback_query(callback_query_id: callback.id)
       bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id) rescue nil
 
