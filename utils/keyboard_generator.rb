@@ -86,13 +86,16 @@ class KeyboardGenerator
 
     # Controlli: Svuota, Carte e Chiudi devono conoscere il contesto
     keyboard << [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🧹 Svuota", callback_data: "ui_cleanup:#{g_id}:#{t_id}"),
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "➕ Aggiungi", callback_data: "aggiungi:#{g_id}:#{t_id}"),
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "💳 Carte", callback_data: "ui_cards:#{g_id}:#{t_id}"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "📋 Checklist", callback_data: "ui_checklist:#{g_id}:#{t_id}"),
+
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🧹 Svuota", callback_data: "ui_cleanup:#{g_id}:#{t_id}"),
 
     ]
 
     keyboard << [
+      Telegram::Bot::Types::InlineKeyboardButton.new(text: "📋 Checklist", callback_data: "ui_checklist:#{g_id}:#{t_id}"),
+
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "🕒 Storico", callback_data: "show_storico:#{g_id}:#{t_id}"),
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄 Aggiorna", callback_data: "ui_back_to_list:#{g_id}:#{t_id}"),
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{g_id}:#{t_id}"),

@@ -282,6 +282,35 @@ class CallbackHandler
       # --------------------------------------------------------------------------
       # AGGIUNTA RAPIDA DALLO STORICO
       # --------------------------------------------------------------------------
+      # In CallbackHandler
+      # --- Nel CALLBACK_HANDLER ---
+    when /^aggiungi:(\d+)(?::(\d+))?$/
+      g_id = $1.to_i
+      t_id = $2&.to_i || 0
+      u_name = callback.from.first_name
+
+      # 1. Impostiamo il pending come hai indicato tu
+      DataManager.set_pending(
+        chat_id: callback.message.chat.id,
+        topic_id: 0, # In privata il pending è sempre a livello chat
+        action: "add:#{u_name}",
+        gruppo_id: g_id,
+      )
+
+      # 2. Generiamo l'header per far capire all'utente dove sta scrivendo
+      destinazione = DataManager.genera_header_contesto(g_id, t_id)
+
+      # 3. FIX CRASH: thread_id solo se siamo in un gruppo
+      is_private = callback.message.chat.type == "private"
+      thread_to_use = is_private ? nil : (t_id > 0 ? t_id : nil)
+
+      bot.api.send_message(
+        chat_id: callback.message.chat.id,
+        message_thread_id: thread_to_use,
+        text: "✍️ <b>#{u_name}</b>, scrivi gli articoli per:\n#{destinazione}",
+        parse_mode: "HTML",
+      )
+      bot.api.answer_callback_query(callback_query_id: callback.id)
     when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       nome, g_id, t_id = $1, $2.to_i, $3.to_i
 
