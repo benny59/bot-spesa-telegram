@@ -91,19 +91,21 @@ def init_db
   SQL
 
   db.execute <<-SQL
-    CREATE TABLE IF NOT EXISTS storico_articoli (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      gruppo_id INTEGER,
-      topic_id INTEGER DEFAULT 0,
-      nome TEXT,
-      conteggio INTEGER DEFAULT 0,
-      ultima_aggiunta DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(nome, gruppo_id, topic_id),
-      FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE
-    );
-  SQL
+  CREATE TABLE IF NOT EXISTS storico_articoli (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gruppo_id INTEGER,
+    topic_id INTEGER DEFAULT 0,
+    nome TEXT,
+    conteggio INTEGER DEFAULT 0,
+    creato_da INTEGER,       -- <--- AGGIUNTO
+    comprato_da INTEGER,     -- <--- AGGIUNTO
+    ultima_aggiunta DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(nome, gruppo_id, topic_id),
+    FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE
+  );
+SQL
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS gruppo_carte_collegamenti (
@@ -122,6 +124,7 @@ def init_db
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_gruppo_topic ON items (gruppo_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_topic ON pending_actions (chat_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_gruppo_topic ON storico_articoli (gruppo_id, topic_id, conteggio DESC, ultima_aggiunta DESC);"
+  db.execute "CREATE INDEX IF NOT EXISTS idx_storico_nome_gruppo ON storico_articoli (nome, gruppo_id, topic_id);"
 
   puts "✅ [DB] Database inizializzato correttamente."
   db
@@ -203,46 +206,47 @@ class DataManager
   # ----------------------------------------------------------------------------
   # Cancella gli articoli comprati e aggiorna il conteggio nello storico
   def self.esegui_scopetta(gruppo_id, topic_id = 0)
-    puts "[DATA_MONITOR] 🧹 Avvio scopetta selettiva per G:#{gruppo_id} T:#{topic_id}"
+    puts "[DATA_MONITOR] 🧹 Scopetta: elaborazione diciture esatte per G:#{gruppo_id}"
 
     comprati = DB.execute(
-      "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''",
+      "SELECT nome, creato_da, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''",
       [gruppo_id, topic_id]
     )
     return if comprati.empty?
 
     DB.transaction do
       comprati.each do |item|
-        nome_norm = item["nome"].to_s.strip
+        nome_esatto = item["nome"].to_s.strip # Puliamo solo gli spazi esterni
+        c_da = item["creato_da"]
+        comp_da = item["comprato"]
 
-        # 1. Vediamo se esiste già (senza fidarci dei vincoli)
+        # Ricerca ESATTA (Rimosso LOWER)
         esistente = DB.get_first_row(
-          "SELECT id, conteggio FROM storico_articoli WHERE LOWER(nome) = LOWER(?) AND gruppo_id = ? AND topic_id = ?",
-          [nome_norm, gruppo_id, topic_id]
+          "SELECT id FROM storico_articoli WHERE nome = ? AND gruppo_id = ? AND topic_id = ?",
+          [nome_esatto, gruppo_id, topic_id]
         )
 
         if esistente
-          # 2. Se esiste, facciamo UPDATE
           DB.execute(
-            "UPDATE storico_articoli SET conteggio = conteggio + 1, ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-            [esistente["id"]]
+            "UPDATE storico_articoli SET 
+           conteggio = conteggio + 1, 
+           creato_da = ?, 
+           comprato_da = ?, 
+           updated_at = datetime('now') 
+           WHERE id = ?",
+            [c_da, comp_da, esistente["id"]]
           )
         else
-          # 3. Se non esiste, facciamo INSERT semplice
-          # Usiamo 'INSERT OR IGNORE' così se proprio c'è un indice fantasma non crasha comunque
           DB.execute(
-            "INSERT OR IGNORE INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))",
-            [gruppo_id, topic_id, nome_norm]
+            "INSERT OR IGNORE INTO storico_articoli 
+           (gruppo_id, topic_id, nome, conteggio, creato_da, comprato_da, ultima_aggiunta) 
+           VALUES (?, ?, ?, 1, ?, ?, datetime('now'))",
+            [gruppo_id, topic_id, nome_esatto, c_da, comp_da]
           )
         end
       end
-
-      # 4. Pulizia finale
       DB.execute("DELETE FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''", [gruppo_id, topic_id])
     end
-    puts "[DATA_MONITOR] ✅ Scopetta completata."
-  rescue => e
-    puts "❌ [DATA_ERROR] Errore: #{e.message}"
   end
   # ----------------------------------------------------------------------------
   # REGISTRAZIONE UTENTE (WHITELIST)
@@ -354,8 +358,8 @@ class DataManager
     nome_gruppo = res["g_nome"]
     # CONSISTENZA: Se t_id è 0, usiamo "Generale". Se è un topic senza nome, usiamo "Topic ID"
     nome_topic = res["t_nome"] || (t_id == 0 ? "Generale" : "Topic #{t_id}")
-
-    "🛒 🎯 <b>#{nome_gruppo}</b>: <i>#{nome_topic}</i>"
+    orario = Time.now.strftime("%H:%M:%S")
+    "#{orario} <b>#{nome_gruppo}</b>: <i>#{nome_topic}</i>"
   end
 
   # In db.rb, dentro class DataManager
@@ -555,19 +559,42 @@ class DataManager
     end
     destinazioni
   end
+  # In db.rb
+  def self.prendi_ultimi_acquisti_con_nomi(gruppo_id, topic_id, limite = 15)
+    sql = <<-SQL
+    SELECT s.nome,
+           s.updated_at,
+           u1.initials AS autore_init,
+           u2.initials AS buyer_init
+    FROM storico_articoli s
+    LEFT JOIN user_names u1 ON s.creato_da = u1.user_id
+    LEFT JOIN user_names u2 ON s.comprato_da = u2.user_id
+    WHERE s.gruppo_id = ? 
+      AND s.topic_id = ? 
+      AND s.conteggio > 0
+    ORDER BY datetime(s.updated_at) DESC
+    LIMIT ?
+  SQL
+
+    DB.execute(sql, [gruppo_id, topic_id, limite])
+  end
 
   def self.prendi_articoli_ordinati(gruppo_id, topic_id)
     sql = <<-SQL
-    SELECT i.*, IFNULL(s.conteggio, 0) as volte, u.initials AS autore_init
+    SELECT i.*, 
+           IFNULL(s.conteggio, 0) as volte, 
+           u1.initials AS autore_init,
+           u2.initials AS buyer_init  -- <--- RECUPERO INIZIALI COMPRATORE
     FROM items i
     LEFT JOIN storico_articoli s ON LOWER(i.nome) = LOWER(s.nome) 
       AND i.gruppo_id = s.gruppo_id AND i.topic_id = s.topic_id
-    LEFT JOIN user_names u ON i.creato_da = u.user_id
+    LEFT JOIN user_names u1 ON i.creato_da = u1.user_id -- JOIN Autore
+    LEFT JOIN user_names u2 ON i.comprato = u2.user_id  -- <--- JOIN Compratore
     WHERE i.gruppo_id = ? AND i.topic_id = ?
     ORDER BY 
-      CASE WHEN i.comprato != '' THEN 1 ELSE 0 END ASC, 
+      CASE WHEN (i.comprato IS NOT NULL AND i.comprato != '') THEN 1 ELSE 0 END ASC, 
       volte DESC, i.creato_il DESC
-  SQL
+    SQL
     DB.execute(sql, [gruppo_id, topic_id])
   end
 

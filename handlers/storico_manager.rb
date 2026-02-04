@@ -91,4 +91,38 @@ class StoricoManager
 
     Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
   end
+
+  # In storico_manager.rb
+  def self.ultimi_acquisti(gruppo_id, topic_id, limite = 15)
+    begin
+      puts "🕒 [STORICO] Recupero flusso acquisti per G:#{gruppo_id}"
+      # Usiamo il nuovo metodo di db.rb
+      DataManager.prendi_ultimi_acquisti_con_nomi(gruppo_id, topic_id, limite)
+    rescue => e
+      puts "❌ Errore: #{e.message}"
+      []
+    end
+  end
+
+  def self.formatta_storico(acquisti)
+    return "🕒 *Ultimi acquisti*\n\nNessun dato." if acquisti.empty?
+
+    righe = acquisti.map do |row|
+      # Accorciamo il nome a 10 caratteri per stare nei margini mobile
+      nome = row["nome"][0, 10].ljust(10)
+
+      # Se il buyer è ancora ??, mostriamo solo l'autore per pulizia
+      if row["buyer_init"] == "??"
+        flusso = "#{row["autore_init"]}".center(7)
+      else
+        flusso = "#{row["autore_init"]}->#{row["buyer_init"]}".ljust(7)
+      end
+
+      data = Time.parse(row["updated_at"]).strftime("%d/%m")
+
+      "`#{nome} #{flusso} #{data}`"
+    end
+
+    "🕒 *Ultimi acquisti*\n\n" + righe.join("\n")
+  end
 end

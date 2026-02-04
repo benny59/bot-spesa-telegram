@@ -114,36 +114,66 @@ class CallbackHandler
         page,
         show_all
       )
+    when /^show_storico:(\d+):(\d+)$/
+      gruppo_id = $1.to_i
+      topic_id = $2.to_i
+
+      # 1. Creiamo l'istanza di contesto dal callback
+      # Questo imposta correttamente @scope leggendo il tipo di chat (private/group)
+      ctx = Context.from_callback(callback)
+
+      # Recupero e formattazione dati
+      acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id)
+      testo = StoricoManager.formatta_storico(acquisti)
+
+      current_chat_id = callback.message.chat.id
+
+      # 2. Ora puoi usare il metodo di istanza correttamente
+      # Se è una chat privata, target_thread sarà nil, evitando l'errore 400
+      target_thread = ctx.private_chat? ? nil : (topic_id > 0 ? topic_id : nil)
+
+      # Debug per verifica
+      puts "🔍 Scope: #{ctx.scope} | Private?: #{ctx.private_chat?} | Target Thread: #{target_thread.inspect}"
+
+      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+        inline_keyboard: [[
+          Telegram::Bot::Types::InlineKeyboardButton.new(
+            text: "❌ Chiudi",
+            callback_data: "ui_close:#{current_chat_id}:#{topic_id}",
+          ),
+        ]],
+      )
+
+      bot.api.send_message(
+        chat_id: current_chat_id,
+        message_thread_id: target_thread,
+        text: testo,
+        parse_mode: "Markdown",
+        reply_markup: keyboard,
+      )
+
+      bot.api.answer_callback_query(callback_query_id: callback.id)
     when /^mycontext:(\d+):(-?\d+):(\d)$/
       g_id, t_id, s_all = $1.to_i, $2.to_i, $3.to_i
 
-      # 1. Salviamo il nuovo target nel DB
-      # Usiamo il metodo centralizzato per coerenza
+      # 1. Aggiorna il target nel database
       Context.set_private_context(user_id, g_id, t_id)
 
-      # 2. Recuperiamo i nomi per il feedback (Hash solido)
+      # 2. Popup di conferma
       nomi = DataManager.recupera_nomi_contesto(g_id, t_id)
       etichetta = (nomi[:nome] == "Privata") ? nomi[:topic] : "#{nomi[:nome]} #{nomi[:topic]}".strip
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🎯 Target: #{etichetta}")
 
-      # 3. Feedback visivo (Popup Telegram)
-      bot.api.answer_callback_query(
-        callback_query_id: callback.id,
-        text: "🎯 Target impostato su: #{etichetta}",
-      )
+      # 3. ⚠️ RIMOSSO: KeyboardGenerator.show_private_keyboard(...)
+      # Non chiamare la tastiera fisica qui! Altrimenti sovrascrive il menu gruppi.
 
-      # 4. REFRESH TASTIERA FISICA (Il telecomando)
-      # Creiamo un nuovo contesto che caricherà i dati appena salvati
-      nuovo_ctx = Context.new(chat_id: callback.message.chat.id, user_id: user_id, scope: :private)
-      KeyboardGenerator.show_private_keyboard(bot, callback.message.chat.id, nuovo_ctx)
-
-      # 5. REFRESH INTERFACCIA ATTUALE (Le cartelle)
-      # Aggiorna i pallini 🎯/📂 senza chiudere il menu
+      # 4. Refresh solo del contenuto del messaggio (i pallini 🎯/📂)
       MessageHandler.handle_myitems(
         bot,
         callback.message.chat.id,
         user_id,
         callback,
-        0, # Reset alla pagina 1 per vedere il nuovo target
+        0,
         (s_all == 1)
       )
     when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
@@ -194,8 +224,10 @@ class CallbackHandler
       )
     when /^ui_back_to_list:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
-      # Confermiamo il click e torniamo alla lista principale
-      bot.api.answer_callback_query(callback_query_id: callback.id)
+      # Confermiamo subito il click per evitare il timeout di Telegram
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "Aggiornamento in corso...")
+
+      # Eseguiamo il refresh sulla pagina 0
       self.refresh_ui(bot, callback, context, g_id, t_id, 0, 0)
 
       # --------------------------------------------------------------------------
@@ -368,10 +400,8 @@ class CallbackHandler
 
   # In handlers/callback_handler.rb
   def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
-    # Usa il metodo che ha i JOIN per le iniziali MB/ER
     items = DataManager.prendi_per_contesto(g_id, t_id)
-    header = DataManager.genera_header_contesto(g_id, t_id) #
-
+    header = DataManager.genera_header_contesto(g_id, t_id)
     ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
     bot.api.edit_message_text(
@@ -379,9 +409,15 @@ class CallbackHandler
       message_id: callback.message.message_id,
       text: ui[:text],
       reply_markup: ui[:markup],
-      parse_mode: "HTML", # Risolve il problema estetico dei tag visibili
+      parse_mode: "HTML",
     )
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    if e.message.include?("message is not modified")
+      puts "ℹ️ [REFRESH] Nessuna modifica rilevata, ignoro l'aggiornamento."
+    else
+      puts "[REFRESH ERROR] #{e.message}"
+    end
   rescue => e
-    puts "[REFRESH ERROR] #{e.message}"
+    puts "[REFRESH ERROR GENERALE] #{e.message}"
   end
 end
