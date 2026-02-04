@@ -14,6 +14,33 @@ class MessageHandler
   def self.route(bot, msg, context)
     u_id = msg.from.id
     g_chat_id = msg.chat.id
+
+    # Estrazione dati per Whitelist e User_Names
+    username = msg.from.username || "Unknown"
+    first_name = msg.from.first_name || "Utente"
+    last_name = msg.from.last_name || ""
+    full_name = "#{first_name} #{last_name}".strip
+
+    # 0. CONTROLLO WHITELIST
+    unless Whitelist.is_allowed?(u_id)
+      Whitelist.add_pending_request(u_id, username, full_name)
+
+      c_id = Whitelist.get_creator_id
+      if c_id && c_id != u_id
+        # Notifica al creatore con bottoni per approvare/rifiutare
+        self.notifica_creatore_nuovo_utente(bot, c_id, u_id, username, full_name)
+      end
+
+      return bot.api.send_message(
+               chat_id: msg.chat.id,
+               text: "🚫 *Accesso Limitato*\nLa tua richiesta (ID: #{u_id}) è in attesa di approvazione.",
+               parse_mode: "Markdown",
+             )
+    end
+
+    # Se autorizzato, salva/aggiorna le iniziali nella tabella user_names
+    Whitelist.salva_nome_utente(u_id, first_name, last_name)
+
     # 1. LOGICA PER GRUPPI (REALE)
     unless context.private_chat?
       # LOG DI EMERGENZA: Vediamo l'intero oggetto messaggio quando accade qualcosa
@@ -567,6 +594,37 @@ class MessageHandler
     else
       bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
     end
+  end
+  def self.notifica_creatore_nuovo_utente(bot, creator_id, user_id, username, full_name)
+    # Sanitizziamo il nome per il callback (gli spazi rompono i dati)
+    clean_name = full_name.gsub(/\s+/, "_")
+
+    kb = [
+      [
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "✅ Approva",
+          callback_data: "adm_app:#{user_id}:#{username}:#{clean_name}",
+        ),
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "❌ Rifiuta",
+          callback_data: "adm_rej:#{user_id}",
+        ),
+      ],
+    ]
+    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb)
+
+    bot.api.send_message(
+      chat_id: creator_id,
+      text: "🔔 <b>Nuova Richiesta Accesso</b>\n" +
+            "👤 Utente: #{full_name}\n" +
+            "🆔 ID: #{user_id}\n" +
+            "🏷 Username: @#{username}\n\n" +
+            "Vuoi abilitare questo utente?",
+      reply_markup: markup,
+      parse_mode: "HTML",
+    )
+  rescue => e
+    puts "[ERROR] Notifica creatore fallita: #{e.message}"
   end
 end
 

@@ -1,6 +1,7 @@
 # handlers/callback_handler.rb
 require_relative "storico_manager"
 require_relative "../models/carte_fedelta"
+require_relative "../models/whitelist"
 
 require_relative "../models/context"
 require_relative "../db"
@@ -14,6 +15,33 @@ class CallbackHandler
     puts "[CALLBACK] 🖱️ Ricevuto: '#{data}' da #{user_name}"
 
     case data
+    # In CallbackHandler (o nel blocco case del callback in bot_spesa.rb)
+    when /^adm_app:(\d+):(.+):(.+)$/
+      target_id, target_user, target_name = $1.to_i, $2, $3.gsub("_", " ")
+
+      # ✅ Azione su DB: Approva l'utente
+      Whitelist.approve_user(target_id, target_user, target_name)
+
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Utente approvato!")
+      bot.api.edit_message_text(
+        chat_id: callback.message.chat.id,
+        message_id: callback.message.message_id,
+        text: "✅ <b>Richiesta Approvata</b>\nL'utente #{target_name} è ora in whitelist.",
+        parse_mode: "HTML",
+      )
+      # Notifica l'utente interessato
+      bot.api.send_message(chat_id: target_id, text: "🎉 La tua richiesta è stata approvata!")
+    when /^adm_rej:(\d+)$/
+      target_id = $1.to_i
+      Whitelist.remove_pending_request(target_id)
+
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Richiesta rifiutata")
+      bot.api.edit_message_text(
+        chat_id: callback.message.chat.id,
+        message_id: callback.message.message_id,
+        text: "❌ <b>Richiesta Rifiutata</b>\nL'utente ID #{target_id} è stato rimosso dai pendenti.",
+        parse_mode: "HTML",
+      )
     when /^mostra_carte:(\d+):(\d+)$/
       gruppo_id = $1.to_i
       topic_id = $2.to_i
@@ -419,5 +447,52 @@ class CallbackHandler
     end
   rescue => e
     puts "[REFRESH ERROR GENERALE] #{e.message}"
+  end
+
+  def self.handle_approve_user(bot, callback_query, chat_id, target_user_id, username, full_name)
+    # ✅ Azione su DB centralizzata in Whitelist
+    Whitelist.approve_user(target_user_id, username, full_name.gsub("_", " "))
+
+    # Conferma al creatore (chi ha cliccato il tasto)
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "✅ Utente #{full_name} (@#{username}) approvato e aggiunto alla whitelist.",
+    )
+
+    # Notifica all'utente approvato
+    bot.api.send_message(
+      chat_id: target_user_id,
+      text: "🎉 La tua richiesta di accesso è stata approvata! Ora puoi usare il bot.",
+    )
+
+    # Rimuoviamo i bottoni dal messaggio originale per evitare doppi click
+    bot.api.edit_message_text(
+      chat_id: chat_id,
+      message_id: callback_query.message.message_id,
+      text: "✅ Richiesta approvata per #{full_name}",
+    )
+  end
+
+  def self.handle_reject_user(bot, callback_query, chat_id, target_user_id)
+    # ❌ Azione su DB centralizzata in Whitelist
+    Whitelist.remove_pending_request(target_user_id)
+
+    bot.api.answer_callback_query(callback_query_id: callback_query.id, text: "❌ Richiesta rifiutata")
+
+    bot.api.edit_message_text(
+      chat_id: chat_id,
+      message_id: callback_query.message.message_id,
+      text: "❌ Richiesta rifiutata per ID: #{target_user_id}",
+    )
+
+    # Notifica all'utente rifiutato
+    begin
+      bot.api.send_message(
+        chat_id: target_user_id,
+        text: "🚫 La tua richiesta di accesso è stata rifiutata dall'amministratore.",
+      )
+    rescue => e
+      puts "⚠️ Impossibile notificare utente rifiutato: #{e.message}"
+    end
   end
 end
