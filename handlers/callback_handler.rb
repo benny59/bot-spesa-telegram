@@ -257,6 +257,44 @@ class CallbackHandler
 
       # Eseguiamo il refresh sulla pagina 0
       self.refresh_ui(bot, callback, context, g_id, t_id, 0, 0)
+    when /^show_photos:(\d+):(\d+)$/
+      g_id, t_id = $1.to_i, $2.to_i
+      c_id = callback.message.chat.id
+
+      # DEFINIZIONE DELLA VARIABILE (Il pezzo mancante!)
+      # Se la chat è privata (>0), il thread_id deve essere nil
+      actual_thread_id = (c_id > 0) ? nil : t_id
+
+      articoli = DataManager.prendi_articoli_ordinati(g_id, t_id).select { |i| i["ha_foto"].to_i > 0 }
+
+      if articoli.empty?
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "Nessuna 📸 in questa lista.")
+      else
+        bot.api.answer_callback_query(callback_query_id: callback.id)
+
+        articoli.each do |art|
+          foto_ids = DataManager.prendi_foto_articolo(art["id"])
+          foto_ids.each do |f|
+            begin
+              bot.api.send_photo(
+                chat_id: c_id,
+                photo: f["file_id"],
+                caption: "📸 Articolo: <b>#{art["nome"]}</b>",
+                parse_mode: "HTML",
+                message_thread_id: actual_thread_id, # Ora la variabile esiste!
+                reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(
+                  inline_keyboard: [[
+                    # Usiamo il tuo ui_close che è già perfetto e DRY
+                    Telegram::Bot::Types::InlineKeyboardButton.new(text: "🗑️ Chiudi", callback_data: "ui_close"),
+                  ]],
+                ),
+              )
+            rescue => e
+              puts "❌ Errore API durante invio foto: #{e.message}"
+            end
+          end
+        end
+      end
 
       # --------------------------------------------------------------------------
       # APERTURA CHECKLIST (Suggerimenti dallo Storico)
@@ -284,16 +322,15 @@ class CallbackHandler
       # --------------------------------------------------------------------------
       # In CallbackHandler
       # --- Nel CALLBACK_HANDLER ---
-    when /^aggiungi:(\d+)(?::(\d+))?$/
-      g_id = $1.to_i
-      t_id = $2&.to_i || 0
-      u_name = callback.from.first_name
+    when /^aggiungi:(\d+):(\d+)$/
+      g_id, t_id = $1.to_i, $2.to_i
+      c_id = callback.message.chat.id
+      user_name = callback.from.first_name
 
-      # 1. Impostiamo il pending come hai indicato tu
       DataManager.set_pending(
-        chat_id: callback.message.chat.id,
-        topic_id: 0, # In privata il pending è sempre a livello chat
-        action: "add:#{u_name}",
+        chat_id: c_id,
+        topic_id: t_id,
+        action: "add:#{user_name}",
         gruppo_id: g_id,
       )
 
@@ -304,10 +341,10 @@ class CallbackHandler
       is_private = callback.message.chat.type == "private"
       thread_to_use = is_private ? nil : (t_id > 0 ? t_id : nil)
 
+      # Qui l'errore: avevi scritto u_name invece di user_name
       bot.api.send_message(
-        chat_id: callback.message.chat.id,
-        message_thread_id: thread_to_use,
-        text: "✍️ <b>#{u_name}</b>, scrivi gli articoli per:\n#{destinazione}",
+        chat_id: c_id,
+        text: "📝 <b>#{user_name}</b>, cosa vuoi aggiungere alla lista?\nScrivi il nome o invia una foto con descrizione.",
         parse_mode: "HTML",
       )
       bot.api.answer_callback_query(callback_query_id: callback.id)
@@ -402,18 +439,19 @@ class CallbackHandler
       begin
         target_chat_id = callback.message.chat.id
         target_msg_id = callback.message.message_id
-
         bot.api.delete_message(chat_id: target_chat_id, message_id: target_msg_id)
-      rescue => e
-        puts "⚠️ [CALLBACK] Errore eliminazione: #{e.message}"
-        # Se il messaggio è troppo vecchio (>48h) o mancano permessi, togliamo solo i bottoni
-        begin
-          bot.api.edit_message_reply_markup(chat_id: target_chat_id, message_id: target_msg_id, reply_markup: nil)
-        rescue => e_markup
-          puts "❌ [CALLBACK] Impossibile anche modificare il markup: #{e_markup.message}"
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        # Se l'errore è "not found", ignoriamo (il messaggio è già sparito)
+        unless e.message.include?("message to delete not found")
+          puts "⚠️ [CALLBACK] Errore eliminazione: #{e.message}"
+          # Prova a togliere i bottoni se non può cancellare (messaggio vecchio)
+          begin
+            bot.api.edit_message_reply_markup(chat_id: target_chat_id, message_id: target_msg_id, reply_markup: nil)
+          rescue => e_markup
+            # Silenzioso anche qui se il messaggio è sparito nel frattempo
+          end
         end
       end
-      # Rispondiamo sempre alla query per togliere l'icona del caricamento dal bottone
       bot.api.answer_callback_query(callback_query_id: callback.id)
 
       # --- NUOVA GESTIONE CAMBIO GRUPPO DA PRIVATA ---
@@ -457,7 +495,9 @@ class CallbackHandler
 
   # In handlers/callback_handler.rb
   def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
-    items = DataManager.prendi_per_contesto(g_id, t_id)
+    # Usiamo il metodo corretto che include 'ha_foto'
+    items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+
     header = DataManager.genera_header_contesto(g_id, t_id)
     ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
@@ -469,11 +509,9 @@ class CallbackHandler
       parse_mode: "HTML",
     )
   rescue Telegram::Bot::Exceptions::ResponseError => e
-    if e.message.include?("message is not modified")
-      puts "ℹ️ [REFRESH] Nessuna modifica rilevata, ignoro l'aggiornamento."
-    else
-      puts "[REFRESH ERROR] #{e.message}"
-    end
+    # Ignoriamo l'errore se il contenuto è identico (clic ripetuti su aggiorna)
+    return if e.message.include?("message is not modified")
+    puts "[REFRESH ERROR] #{e.message}"
   rescue => e
     puts "[REFRESH ERROR GENERALE] #{e.message}"
   end

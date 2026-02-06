@@ -41,6 +41,85 @@ class MessageHandler
     # Se autorizzato, salva/aggiorna le iniziali nella tabella user_names
     Whitelist.salva_nome_utente(u_id, first_name, last_name)
 
+    # Sostituisci la parte iniziale della gestione foto con questa:
+    u_id = msg.from.id
+    c_id = msg.chat.id
+
+    # Il routing sotto popola db_id e topic_id. Se la foto arriva prima,
+    # forziamo il caricamento del contesto SUBITO.
+    if context.config["db_id"].nil?
+      config_salvata = DataManager.carica_config_utente(u_id) || {}
+      context.config["db_id"] = (config_salvata["db_id"] || config_salvata["target_g"] || 0).to_i
+      context.config["topic_id"] = (config_salvata["topic_id"] || config_salvata["target_t"] || 0).to_i
+    end
+
+    effective_g_id = context.config["db_id"].to_i
+    effective_t_id = context.config["topic_id"].to_i
+
+    puts "[TRACE_PHOTO] 📥 Ricezione -> User:#{u_id} | Chat:#{c_id} | G:#{effective_g_id} T:#{effective_t_id}"
+
+    if msg.photo && !msg.photo.empty?
+      puts "[TRACE_PHOTO] 🖼️ Foto rilevata. Caption: '#{msg.caption}'"
+
+      # CERCHIAMO IL PENDING SUL TOPIC LOGICO (2)
+      pending = DataManager.ottieni_pending(c_id, effective_t_id)
+
+      if pending && pending["action"]&.start_with?("add:")
+        puts "[TRACE_PHOTO] 🎯 MATCH! Procedo al salvataggio..."
+
+        begin
+          testo = msg.caption || "Articolo da foto"
+
+          # Aggiungiamo gli articoli usando il topic logico
+          ids = DataManager.aggiungi_articoli(
+            gruppo_id: pending["gruppo_id"],
+            user_id: u_id,
+            items_text: testo,
+            topic_id: effective_t_id,
+          )
+
+          if ids.any?
+            # Usiamo effective_t_id per salvare le foto e rimuovere il pending
+            ids.each do |id_articolo|
+              DataManager.salva_foto_articolo(id_articolo, msg.photo.last.file_id, msg.photo.last.file_unique_id)
+            end
+
+            DataManager.rimuovi_pending(c_id, effective_t_id) # FIX: rimosso dal topic giusto
+
+            puts "[TRACE_PHOTO] ✅ Salvataggio completato per ID: #{ids.first}"
+
+            actual_thread_id = (c_id > 0) ? nil : effective_t_id
+
+            bot.api.send_message(
+              chat_id: c_id,
+              text: "📸 Foto salvata: <b>#{testo}</b>",
+              parse_mode: "HTML",
+              message_thread_id: actual_thread_id,
+            )
+
+            # Refresh lista
+            articoli = DataManager.prendi_articoli_ordinati(pending["gruppo_id"], effective_t_id)
+            lista_aggiornata = KeyboardGenerator.genera_lista(articoli, pending["gruppo_id"], effective_t_id)
+
+            bot.api.send_message(
+              chat_id: c_id,
+              text: lista_aggiornata[:text],
+              reply_markup: lista_aggiornata[:markup],
+              parse_mode: "HTML",
+              message_thread_id: actual_thread_id,
+            )
+          end
+        rescue => e
+          puts "[TRACE_PHOTO] ❌ ERRORE DURANTE SALVATAGGIO: #{e.message}"
+        end
+        return
+      else
+        # Se arrivi qui, il problema è che il PENDING è stato salvato su Topic 0
+        puts "[TRACE_PHOTO] ⏩ Foto ignorata: nessuna azione pendente su Topic:#{effective_t_id}"
+        puts "[DEBUG] Controlla se il Pending esiste su Topic 0 invece che #{effective_t_id}"
+      end
+    end
+
     # 1. LOGICA PER GRUPPI (REALE)
     unless context.private_chat?
       # LOG DI EMERGENZA: Vediamo l'intero oggetto messaggio quando accade qualcosa
@@ -77,11 +156,6 @@ class MessageHandler
         context.config["topic_id"] = 0
         puts "[ROUTING] 👤 Default: Lista Personale"
       end
-    end
-
-    # 3. GESTIONE FOTO (Blindata contro i nil)
-    if msg.photo && !msg.photo.empty?
-      return self.handle_photo_bridge(bot, msg, context)
     end
 
     DataManager.salva_config_utente(u_id, context.config)
@@ -212,22 +286,30 @@ class MessageHandler
       # Ripristiniamo la chiamata che avevi in produzione:
       KeyboardGenerator.show_group_selector(bot, u_id)
     when "➕ AGGIUNGI PRODOTTO"
-      # 1. Chiedi al DB, non al context!
-      conf = DataManager.carica_config_utente(u_id)
-      g_id = conf ? conf["target_g"].to_i : 0
-      t_id = conf ? conf["target_t"].to_i : 0
+      u_id = msg.from.id
+      c_id = msg.chat.id
 
-      # 2. Imposta il pending sul target reale (fondamentale per core_aggiunta)
-      DataManager.set_pending(chat_id: context.chat_id, topic_id: 0, action: "add:#{msg.from.first_name}", gruppo_id: g_id)
+      # NON CARICARE DAL DB QUI! Usa quello che il routing ha appena deciso
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
 
-      # 3. Genera l'intestazione corretta
-      destinazione = DataManager.genera_header_contesto(g_id, t_id)
+      # LOG DI SICUREZZA: deve corrispondere a quello del routing
+      puts "[DEBUG_TASTONE] 🎯 CONTEXT ATTUALE -> G:#{g_id} T:#{t_id}"
+
+      # SCRITTURA PENDING: usiamo i dati del contesto
+      DataManager.set_pending(
+        chat_id: c_id,
+        topic_id: t_id,
+        action: "add:#{msg.from.first_name}",
+        gruppo_id: g_id,
+      )
 
       bot.api.send_message(
-        chat_id: context.chat_id,
-        text: "✍️ <b>#{msg.from.first_name}</b>, scrivi gli articoli per:\n#{destinazione}",
+        chat_id: c_id,
+        text: "✍️ <b>#{msg.from.first_name}</b>, scrivi gli articoli o manda una foto per la lista selezionata.",
         parse_mode: "HTML",
       )
+      return # Evita di finire nell'else
     when /^\/(start|help)/
       self.core_start(bot, context)
     when /^\+(.*)/

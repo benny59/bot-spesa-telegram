@@ -36,6 +36,8 @@ class KeyboardGenerator
   end
 
   def self.genera_lista(items, gruppo_id, topic_id, page = 0, nome_target = "Lista")
+    # DEBUG TEMPORANEO:
+    puts "DEBUG: Primo item ha_foto -> #{items.first["ha_foto"] if items.any?}"
     g_id = gruppo_id.to_i
     t_id = topic_id.to_i
 
@@ -52,6 +54,12 @@ class KeyboardGenerator
       # Determina se è comprato
       is_comprato = item["comprato"] && !item["comprato"].to_s.empty?
 
+      # --- FIX ICONA ---
+      # Usiamo .to_i perché SQLite a volte restituisce il conteggio come stringa o nullo
+      num_foto = item["ha_foto"].to_i
+      foto_icon = num_foto > 0 ? " 📸" : ""
+      display_name = "#{item["nome"]}"
+
       # Recupera iniziali
       autore = item["autore_init"] || "??"
       buyer = item["buyer_init"]
@@ -64,14 +72,14 @@ class KeyboardGenerator
 
       # 2. Etichetta del Cestino
       # Layout: 🗑️ [Autore] oppure 🗑️ [Autore] ✅ [Buyer]
-      del_label = "🗑️ #{autore}"
+      del_label = "🗑️ #{foto_icon} #{autore}"
       del_label += " ✅ #{buyer}" if is_comprato
 
       cb_data = "mycomprato:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}:0"
       cb_del = "delete_item:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}"
 
       keyboard << [
-        Telegram::Bot::Types::InlineKeyboardButton.new(text: item["nome"], callback_data: cb_data),
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: display_name, callback_data: cb_data),
         Telegram::Bot::Types::InlineKeyboardButton.new(text: del_label, callback_data: cb_del),
       ]
     end
@@ -101,6 +109,18 @@ class KeyboardGenerator
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{g_id}:#{t_id}"),
 
     ]
+
+    # Inserimento dinamico del tasto "VEDI FOTO"
+    ha_almeno_una_foto = items.any? { |i| i["ha_foto"].to_i > 0 }
+
+    if ha_almeno_una_foto
+      keyboard << [
+        Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: "📸 VEDI FOTO ARTICOLI",
+          callback_data: "show_photos:#{g_id}:#{t_id}",
+        ),
+      ]
+    end
 
     # Header in HTML per evitare problemi di parsing
     text = "🛒 <b>#{nome_target}</b>\n"
