@@ -499,20 +499,20 @@ class DataManager
     DB.execute(query, [g_id])
   end
 
-  def self.prendi_per_contesto(g_id, t_id)
-    query = <<-SQL
-    SELECT 
-      i.*, 
-      u1.initials AS autore_init, 
-      u2.initials AS buyer_init
-    FROM items i
-    LEFT JOIN user_names u1 ON i.creato_da = u1.user_id
-    LEFT JOIN user_names u2 ON CAST(i.comprato AS INTEGER) = u2.user_id
-    WHERE i.gruppo_id = ? AND i.topic_id = ?
-    ORDER BY (i.comprato != ''), i.id DESC
-  SQL
-    DB.execute(query, [g_id, t_id])
-  end
+  #  def self.prendi_per_contesto(g_id, t_id)
+  #    query = <<-SQL
+  #    SELECT
+  #      i.*,
+  #      u1.initials AS autore_init,
+  #      u2.initials AS buyer_init
+  #    FROM items i
+  #    LEFT JOIN user_names u1 ON i.creato_da = u1.user_id
+  #    LEFT JOIN user_names u2 ON CAST(i.comprato AS INTEGER) = u2.user_id
+  #    WHERE i.gruppo_id = ? AND i.topic_id = ?
+  #    ORDER BY (i.comprato != ''), i.id DESC
+  #  SQL
+  #    DB.execute(query, [g_id, t_id])
+  #  end
 
   def self.prendi_miei_ovunque(u_id)
     query = <<-SQL

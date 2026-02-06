@@ -208,15 +208,34 @@ class CallbackHandler
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
       show_all = (s_all == 1)
 
-      # 1. Azione Database [cite: 9, 10]
+      # 1. Azione Database
       if DataManager.comprato?(item_id)
         DataManager.despunta_articolo(item_id)
       else
         DataManager.spunta_articolo(item_id, user_id)
       end
 
-      # 2. Refresh delegato al metodo dedicato
-      MessageHandler.refresh_lista_spesa(bot, callback, g_id, t_id, page, show_all, user_id)
+      # 2. REFRESH DELLA LISTA (Edit del messaggio corrente)
+      # Recuperiamo i dati aggiornati
+      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
+
+      # Generiamo la nuova interfaccia (testo + tastiera)
+      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
+
+      # USIAMO EDIT_MESSAGE_TEXT per sovrascrivere il messaggio
+      begin
+        bot.api.edit_message_text(
+          chat_id: context.chat_id,
+          message_id: callback.message.message_id, # ID del messaggio cliccato
+          text: ui[:text],
+          reply_markup: ui[:markup],
+          parse_mode: "HTML",
+        )
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        # Telegram dà errore se cerchi di modificare un messaggio con contenuti identici
+        puts "[REFRESH] Nessuna modifica visibile o errore: #{e.message}"
+      end
 
       # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
@@ -334,19 +353,20 @@ class CallbackHandler
         gruppo_id: g_id,
       )
 
-      # 2. Generiamo l'header per far capire all'utente dove sta scrivendo
-      destinazione = DataManager.genera_header_contesto(g_id, t_id)
-
-      # 3. FIX CRASH: thread_id solo se siamo in un gruppo
+      # 1. Capiamo se siamo in privata o gruppo
       is_private = callback.message.chat.type == "private"
       thread_to_use = is_private ? nil : (t_id > 0 ? t_id : nil)
 
-      # Qui l'errore: avevi scritto u_name invece di user_name
+      # 2. Feedback visivo: diciamo all'utente DOVE sta aggiungendo
+      info_target = DataManager.genera_header_contesto(g_id, t_id)
+
       bot.api.send_message(
         chat_id: c_id,
-        text: "📝 <b>#{user_name}</b>, cosa vuoi aggiungere alla lista?\nScrivi il nome o invia una foto con descrizione.",
+        message_thread_id: thread_to_use, # <--- IL PEZZO MANCANTE!
+        text: "📝 <b>#{user_name}</b>, sessione aperta per:\n#{info_target}\n\nScrivi i prodotti o invia una foto.",
         parse_mode: "HTML",
       )
+
       bot.api.answer_callback_query(callback_query_id: callback.id)
     when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       nome, g_id, t_id = $1, $2.to_i, $3.to_i

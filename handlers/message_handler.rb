@@ -1,11 +1,9 @@
 # handlers/message_handler.rb
-# In alto al file aggiungi:
 require_relative "../utils/keyboard_generator"
 require_relative "../models/context"
 require_relative "../models/carte_fedelta"
 require_relative "../models/carte_fedelta_gruppo"
 require_relative "./storico_manager"
-
 require_relative "../db"
 
 class MessageHandler
@@ -13,6 +11,7 @@ class MessageHandler
   # ROUTER PRINCIPALE (DISPATCHER)
   def self.route(bot, msg, context)
     u_id = msg.from.id
+    c_id = msg.chat.id
     g_chat_id = msg.chat.id
 
     # Estrazione dati per Whitelist e User_Names
@@ -24,13 +23,10 @@ class MessageHandler
     # 0. CONTROLLO WHITELIST
     unless Whitelist.is_allowed?(u_id)
       Whitelist.add_pending_request(u_id, username, full_name)
-
-      c_id = Whitelist.get_creator_id
-      if c_id && c_id != u_id
-        # Notifica al creatore con bottoni per approvare/rifiutare
-        self.notifica_creatore_nuovo_utente(bot, c_id, u_id, username, full_name)
+      c_creator_id = Whitelist.get_creator_id
+      if c_creator_id && c_creator_id != u_id
+        self.notifica_creatore_nuovo_utente(bot, c_creator_id, u_id, username, full_name)
       end
-
       return bot.api.send_message(
                chat_id: msg.chat.id,
                text: "🚫 *Accesso Limitato*\nLa tua richiesta (ID: #{u_id}) è in attesa di approvazione.",
@@ -38,15 +34,9 @@ class MessageHandler
              )
     end
 
-    # Se autorizzato, salva/aggiorna le iniziali nella tabella user_names
     Whitelist.salva_nome_utente(u_id, first_name, last_name)
 
-    # Sostituisci la parte iniziale della gestione foto con questa:
-    u_id = msg.from.id
-    c_id = msg.chat.id
-
-    # Il routing sotto popola db_id e topic_id. Se la foto arriva prima,
-    # forziamo il caricamento del contesto SUBITO.
+    # Caricamento contesto forzato
     if context.config["db_id"].nil?
       config_salvata = DataManager.carica_config_utente(u_id) || {}
       context.config["db_id"] = (config_salvata["db_id"] || config_salvata["target_g"] || 0).to_i
@@ -56,689 +46,278 @@ class MessageHandler
     effective_g_id = context.config["db_id"].to_i
     effective_t_id = context.config["topic_id"].to_i
 
-    puts "[TRACE_PHOTO] 📥 Ricezione -> User:#{u_id} | Chat:#{c_id} | G:#{effective_g_id} T:#{effective_t_id}"
-
+    # --- GESTIONE FOTO ---
     if msg.photo && !msg.photo.empty?
       puts "[TRACE_PHOTO] 🖼️ Foto rilevata. Caption: '#{msg.caption}'"
-
-      # CERCHIAMO IL PENDING SUL TOPIC LOGICO (2)
       pending = DataManager.ottieni_pending(c_id, effective_t_id)
 
       if pending && pending["action"]&.start_with?("add:")
         puts "[TRACE_PHOTO] 🎯 MATCH! Procedo al salvataggio..."
-
         begin
           testo = msg.caption || "Articolo da foto"
+          g_id = pending["gruppo_id"].to_i
+          t_id = effective_t_id
 
-          # Aggiungiamo gli articoli usando il topic logico
-          ids = DataManager.aggiungi_articoli(
-            gruppo_id: pending["gruppo_id"],
-            user_id: u_id,
-            items_text: testo,
-            topic_id: effective_t_id,
-          )
+          ids = DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: u_id, items_text: testo, topic_id: t_id)
 
           if ids.any?
-            # Usiamo effective_t_id per salvare le foto e rimuovere il pending
-            ids.each do |id_articolo|
-              DataManager.salva_foto_articolo(id_articolo, msg.photo.last.file_id, msg.photo.last.file_unique_id)
+            ids.each { |id| DataManager.salva_foto_articolo(id, msg.photo.last.file_id, msg.photo.last.file_unique_id) }
+            DataManager.rimuovi_pending(c_id, t_id)
+
+            if context.scope == :private && g_id != 0
+              real_chat_id = DataManager.get_real_chat_id(g_id)
+              if real_chat_id
+                # Usiamo il metodo che hai già in DataManager per recuperare i dati dell'utente
+                # Se non hai un metodo 'get_initials', usiamo quello che carica gli articoli
+                # e prendiamo l'iniziale dall'autore, che è la cosa più sicura.
+                articoli_freschi = DataManager.prendi_articoli_ordinati(g_id, t_id)
+                mio_item = articoli_freschi.find { |i| i["creato_da"] == u_id }
+                init = mio_item ? mio_item["autore_init"] : "??"
+
+                bot.api.send_message(
+                  chat_id: real_chat_id,
+                  message_thread_id: (t_id > 0 ? t_id : nil),
+                  text: "📸 <b>#{init}</b> ha aggiunto una foto: <b>#{testo}</b>",
+                  parse_mode: "HTML",
+                  disable_notification: true,
+                )
+              end
             end
 
-            DataManager.rimuovi_pending(c_id, effective_t_id) # FIX: rimosso dal topic giusto
-
-            puts "[TRACE_PHOTO] ✅ Salvataggio completato per ID: #{ids.first}"
-
-            actual_thread_id = (c_id > 0) ? nil : effective_t_id
-
+            # 4. CONFERMA IN PRIVATO (L' "OK" che mancava)
             bot.api.send_message(
-              chat_id: c_id,
-              text: "📸 Foto salvata: <b>#{testo}</b>",
+              chat_id: context.chat_id,
+              text: "✅ Ho aggiunto <b>#{testo}</b> con la foto alla lista.",
               parse_mode: "HTML",
-              message_thread_id: actual_thread_id,
-            )
-
-            # Refresh lista
-            articoli = DataManager.prendi_articoli_ordinati(pending["gruppo_id"], effective_t_id)
-            lista_aggiornata = KeyboardGenerator.genera_lista(articoli, pending["gruppo_id"], effective_t_id)
-
-            bot.api.send_message(
-              chat_id: c_id,
-              text: lista_aggiornata[:text],
-              reply_markup: lista_aggiornata[:markup],
-              parse_mode: "HTML",
-              message_thread_id: actual_thread_id,
             )
           end
         rescue => e
-          puts "[TRACE_PHOTO] ❌ ERRORE DURANTE SALVATAGGIO: #{e.message}"
+          puts "[TRACE_PHOTO] ❌ ERRORE: #{e.message}"
         end
         return
-      else
-        # Se arrivi qui, il problema è che il PENDING è stato salvato su Topic 0
-        puts "[TRACE_PHOTO] ⏩ Foto ignorata: nessuna azione pendente su Topic:#{effective_t_id}"
-        puts "[DEBUG] Controlla se il Pending esiste su Topic 0 invece che #{effective_t_id}"
+      elsif context.private_chat? && msg.caption && !msg.caption.empty?
+        # Bridge per caricamento carte fedeltà
+        return self.handle_photo_bridge(bot, msg, context)
       end
     end
 
-    # 1. LOGICA PER GRUPPI (REALE)
+    # --- LOGICA ROUTING ---
     unless context.private_chat?
-      # LOG DI EMERGENZA: Vediamo l'intero oggetto messaggio quando accade qualcosa
-      if msg.forum_topic_created || msg.forum_topic_edited
-        puts "[RAW_SERVICE_MSG] Ricevuto messaggio di servizio: #{msg.to_json}"
-      end
-      # Sincronizza il nome del topic se Telegram ci invia un evento di creazione/modifica
       TopicManager.sincronizza(msg)
-
       gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
       context.config["db_id"] = gruppo ? gruppo["id"].to_i : 0
-
-      # Gestione Topic
       t_id_msg = msg.respond_to?(:message_thread_id) ? msg.message_thread_id : nil
       context.config["topic_id"] = t_id_msg ? t_id_msg.to_i : 0
-
-      puts "[ROUTING] 🏢 Gruppo: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
-
-      # 2. LOGICA PER PRIVATA (TELECOMANDO)
     else
-      puts "[ROUTING] 🏠 Chat Privata: Carico target dal DB..."
       config_salvata = DataManager.carica_config_utente(u_id) || {}
-
-      # ALLINEAMENTO CHIAVI: Usa le stesse chiavi ovunque
       g_id = config_salvata["db_id"] || config_salvata["target_g"]
       t_id = config_salvata["topic_id"] || config_salvata["target_t"]
-
-      if g_id && g_id.to_i != 0
-        context.config["db_id"] = g_id.to_i
-        context.config["topic_id"] = (t_id || 0).to_i
-        puts "[ROUTING] 🎯 Target recuperato: G:#{context.config["db_id"]} T:#{context.config["topic_id"]}"
-      else
-        context.config["db_id"] = 0
-        context.config["topic_id"] = 0
-        puts "[ROUTING] 👤 Default: Lista Personale"
-      end
+      context.config["db_id"] = (g_id || 0).to_i
+      context.config["topic_id"] = (t_id || 0).to_i
     end
 
     DataManager.salva_config_utente(u_id, context.config)
     text = msg.text.to_s.strip
-    return if text.empty? # Esci se non c'è testo (evita crash su messaggi di sistema)
-    cmd = text.split("@").first.strip.downcase rescue ""
-    puts "[ROUTING] 🚦 Smistamento: '#{text[0..20]}...' (Scope: #{context.scope})"
+    return if text.empty?
 
-    case text # Usiamo text per matchare anche le etichette dei bottoni
+    case text
     when /^\/(start|help)/
       self.core_start(bot, context)
-      # Se siamo in privata, forziamo la comparsa del menu
-      if context.private_chat?
-        KeyboardGenerator.show_private_keyboard(bot, context.chat_id, context)
-      end
-
-      # In handlers/message_handler.rb
-
+      KeyboardGenerator.show_private_keyboard(bot, context.chat_id, context) if context.private_chat?
     when "/setup_pin"
       g_id = context.config["db_id"].to_i
       t_id = context.config["topic_id"].to_i
-
-      kb = [[Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "🛒 MOSTRA LISTA AGGIORNATA",
-        callback_data: "trigger_list:#{g_id}:#{t_id}",
-      )]]
-
-      markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb)
-
-      # 'sent' è l'oggetto Message (guarda il tuo log, c'è già tutto dentro)
-      sent = bot.api.send_message(
-        chat_id: msg.chat.id,
-        message_thread_id: (t_id > 0 ? t_id : nil),
-        text: "📌 <b>Pannello Spesa - Topic #{t_id}</b>\nUsa questo tasto per richiamare la lista in questo thread.",
-        reply_markup: markup,
-        parse_mode: "HTML",
-      )
-
-      begin
-        # ACCESSO DIRETTO: sent.message_id, senza .result!
-        bot.api.pin_chat_message(
-          chat_id: msg.chat.id,
-          message_id: sent.message_id,
-        )
-        puts "[DEBUG] ✅ Pannello pinnato: ID #{sent.message_id} nel Topic #{t_id}"
-      rescue => e
-        puts "[ERROR] Impossibile pinnare: #{e.message}"
-      end
+      kb = [[Telegram::Bot::Types::InlineKeyboardButton.new(text: "🛒 MOSTRA LISTA AGGIORNATA", callback_data: "trigger_list:#{g_id}:#{t_id}")]]
+      sent = bot.api.send_message(chat_id: msg.chat.id, message_thread_id: (t_id > 0 ? t_id : nil), text: "📌 <b>Pannello Spesa</b>", reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb), parse_mode: "HTML")
+      bot.api.pin_chat_message(chat_id: msg.chat.id, message_id: sent.message_id)
     when /^\/checklist/
       g_id = context.config["db_id"].to_i
       t_id = context.config["topic_id"].to_i
-
       kb = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
-
-      if kb
-        bot.api.send_message(
-          chat_id: context.chat_id,
-          message_thread_id: context.topic_id, # <--- AGGIUNGI QUESTO
-          text: "📋 *Checklist Intelligente*\nSeleziona gli articoli:",
-          reply_markup: kb,
-          parse_mode: "Markdown",
-        )
-      else
-        bot.api.send_message(
-          chat_id: context.chat_id,
-          message_thread_id: context.topic_id, # <--- AGGIUNGI QUESTO
-          text: "Storico vuoto per questo contesto.",
-        )
-      end
-      return
+      bot.api.send_message(chat_id: context.chat_id, message_thread_id: (t_id > 0 ? t_id : nil), text: "📋 *Checklist Intelligente*", reply_markup: kb, parse_mode: "Markdown") if kb
     when "/addcartagruppo"
       if g_chat_id < 0
         gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)
-        if gruppo
-          CarteFedeltaGruppo.show_add_to_group_interface(bot, u_id, gruppo["id"], nil)
-          bot.api.send_message(chat_id: g_chat_id, message_thread_id: msg.message_thread_id, text: "✉️ @#{msg.from.username}, ti ho inviato la gestione delle carte in privato.")
-        end
+        CarteFedeltaGruppo.show_add_to_group_interface(bot, u_id, gruppo["id"], nil) if gruppo
       end
     when "/carte", "/cartegruppo"
       CarteFedeltaGruppo.show_group_cards(bot, context.config["db_id"], g_chat_id, u_id, context.config["topic_id"])
-    when "/miecartecondivise"
-      CarteFedeltaGruppo.show_user_shared_cards_report(bot, u_id)
     when "💳 LE MIE CARTE"
-      # Chiama la nuova griglia aggregata (Personali + Gruppi)
-      # Usiamo il metodo della classe base CarteFedelta
       CarteFedelta.mostra_personali(bot, u_id)
-    when "/addcarta"
-      bot.api.send_message(chat_id: u_id, text: "✍️ Invia la foto della carta con il nome nella didascalia (caption).")
-    when "/delcarta"
-      CarteFedelta.show_delete_interface(bot, u_id)
     when /^\?(.*)/
-      # 1. Recupero ID Gruppo dal DB (config) e Topic dal messaggio
-      g_id = context.config["db_id"].to_i
-      t_id = (msg.message_thread_id || 0).to_i
-
-      # 2. Recupero Dati
-      items = DataManager.prendi_per_contesto(g_id, t_id)
-      header = DataManager.genera_header_contesto(g_id, t_id)
-
-      # 3. CHIAMATA CORRETTA: devi passare TUTTI i parametri nell'ordine giusto
-      # bot, context, items, header, g_id, t_id, page
-      self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
-    when "/tutti", "📦 TUTTI GLI ARTICOLI"
-      # Passiamo chat_id e user_id estratti dal context, non l'intero oggetto
-      self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, true)
-    when "/miei", "📋 I MIEI ARTICOLI"
-      self.handle_myitems(bot, context.chat_id, context.user_id, msg, 0, false)
-    when /^🛒 LISTA/ # <--- Il simbolo ^ indica "inizia con". Corrisponde a ogni variazione del tasto.
-      conf = DataManager.carica_config_utente(u_id) || {}
-
-      # Usa la logica a doppia chiave per compatibilità
-      g_id = (conf["db_id"] || conf["target_g"] || 0).to_i
-      t_id = (conf["topic_id"] || conf["target_t"] || 0).to_i
-
-      context.config["db_id"] = g_id
-      context.config["topic_id"] = t_id
-
-      items = DataManager.prendi_per_contesto(g_id, t_id)
-      header = DataManager.genera_header_contesto(g_id, t_id)
-
-      self.core_mostra_lista(bot, context, items, header, g_id, t_id)
-    when "/private", "⚙️ IMPOSTA GRUPPO"
-      puts "[ROUTING] ✅ Attivazione Menu Privato e Selettore"
-      # 1. Mostra la tastiera fisica (🛒 LISTA, ecc.)
-      #KeyboardGenerator.show_private_keyboard(bot, context.chat_id)
-
-      # 2. Mostra i bottoni inline per scegliere il gruppo target
-      # Ripristiniamo la chiamata che avevi in produzione:
-      KeyboardGenerator.show_group_selector(bot, u_id)
-    when "➕ AGGIUNGI PRODOTTO"
-      u_id = msg.from.id
-      c_id = msg.chat.id
-
-      # NON CARICARE DAL DB QUI! Usa quello che il routing ha appena deciso
+      # 1. NON ricalcolare nulla. Usa il contesto già pronto!
       g_id = context.config["db_id"].to_i
       t_id = context.config["topic_id"].to_i
 
-      # LOG DI SICUREZZA: deve corrispondere a quello del routing
-      puts "[DEBUG_TASTONE] 🎯 CONTEXT ATTUALE -> G:#{g_id} T:#{t_id}"
+      # 2. Prendi i dati usando il metodo "buono" che vede le foto
+      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
 
-      # SCRITTURA PENDING: usiamo i dati del contesto
-      DataManager.set_pending(
-        chat_id: c_id,
-        topic_id: t_id,
-        action: "add:#{msg.from.first_name}",
-        gruppo_id: g_id,
-      )
-
-      bot.api.send_message(
-        chat_id: c_id,
-        text: "✍️ <b>#{msg.from.first_name}</b>, scrivi gli articoli o manda una foto per la lista selezionata.",
-        parse_mode: "HTML",
-      )
-      return # Evita di finire nell'else
-    when /^\/(start|help)/
-      self.core_start(bot, context)
+      # 3. Mostra la lista
+      self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
+    when "/tutti", "📦 TUTTI GLI ARTICOLI"
+      self.handle_myitems(bot, context.chat_id, u_id, msg, 0, true)
+    when "/miei", "📋 I MIEI ARTICOLI"
+      self.handle_myitems(bot, context.chat_id, u_id, msg, 0, false)
+    when /^🛒 LISTA/
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
+      # USARE SEMPRE QUESTO:
+      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
+      self.core_mostra_lista(bot, context, items, header, g_id, t_id)
+    when "/private", "⚙️ IMPOSTA GRUPPO"
+      KeyboardGenerator.show_group_selector(bot, u_id)
+    when "➕ AGGIUNGI PRODOTTO"
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
+      DataManager.set_pending(chat_id: c_id, topic_id: t_id, action: "add:#{first_name}", gruppo_id: g_id)
+      bot.api.send_message(chat_id: c_id, text: "✍️ <b>#{first_name}</b>, scrivi gli articoli o manda una foto.", parse_mode: "HTML")
     when /^\+(.*)/
-      # Lista di Gruppo/Contesto attivo
-      self.core_aggiunta(bot, context, $1.to_s.strip, false)
+      self.core_aggiunta(bot, context, $1.to_s.strip, false, msg)
     when /^\*(.*)/
-      # Lista Personale (Shortcut)
-      self.core_aggiunta(bot, context, $1.to_s.strip, true)
-    when "/cleanup"
-      self.core_cleanup(bot, context)
+      self.core_aggiunta(bot, context, $1.to_s.strip, true, msg)
     else
-      self.handle_pending_responses(bot, msg, context)
+      t_id_logico = context.config["topic_id"].to_i
+      self.handle_pending_responses(bot, msg, context, t_id_logico)
     end
   end
-  # ==============================================================================
-  # FUNZIONI CORE (I PILASTRI)
-  # ==============================================================================
-  # In message_handler.rb, modifica core_mostra_lista
-  # message_handler.rb
 
-  # handlers/message_handler.rb
-  # In handlers/message_handler.rb
-  def self.carica_contesto_privato(user_id, context)
-    # Usiamo il tuo metodo esistente a riga 331 di db.rb
-    config = DataManager.carica_config_utente(user_id)
-
-    if config.is_a?(Hash) && config["target_g"]
-      context.config["db_id"] = config["target_g"].to_i
-      context.config["topic_id"] = (config["target_t"] || 0).to_i
-    else
-      # Default se non ha mai scelto nulla
-      context.config["db_id"] = 0
-      context.config["topic_id"] = 0
-    end
-  end
+  # ==============================================================================
+  # FUNZIONI CORE
+  # ==============================================================================
 
   def self.core_mostra_lista(bot, context, items, header, g_id, t_id, page = 0)
-    # Rimuovi il caricamento dal DB qui dentro, usa quelli passati come argomenti
     ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
-
     target_thread = context.private_chat? ? nil : (t_id.to_i > 0 ? t_id.to_i : nil)
-
-    begin
-      puts "[CORE] 📤 INVIO - Chat: #{context.chat_id}, G:#{g_id}, T:#{t_id}"
-      bot.api.send_message(
-        chat_id: context.chat_id,
-        message_thread_id: target_thread,
-        text: ui[:text],
-        reply_markup: ui[:markup],
-        parse_mode: "HTML",
-      )
-    rescue => e
-      puts "❌ [CORE ERROR] #{e.message}"
-    end
+    bot.api.send_message(chat_id: context.chat_id, message_thread_id: target_thread, text: ui[:text], reply_markup: ui[:markup], parse_mode: "HTML")
   end
 
-  def self.show_private_keyboard(bot, chat_id)
-    puts "📟 [DEBUG] Visualizzazione tastiera privata per: #{chat_id}"
-
-    markup = KeyboardGenerator.tastiera_privata_fissa
-
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "🎮 *Pannello di Controllo*\nUsa i tasti in basso per gestire la spesa.",
-      reply_markup: markup,
-      parse_mode: "Markdown",
-    )
-  end
-
-  def self.core_cambio_modalita(bot, context)
-    # Nome corretto del metodo presente in db.rb a riga 231
-    destinazioni = DataManager.prendi_destinazioni_censite(context.user_id)
-    markup = KeyboardGenerator.tastiera_scelta_gruppo(destinazioni)
-
-    bot.api.send_message(
-      chat_id: context.chat_id,
-      text: "🎯 *Seleziona Destinazione*\nDove vuoi inviare i prodotti?",
-      reply_markup: markup,
-      parse_mode: "Markdown",
-    )
-  end
-
-  # CORE AGGIUNTA (+)
-  def self.core_aggiunta(bot, context, contenuto, force_personal = false)
+  def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = nil)
     u_id = context.user_id
+    u_name = msg ? msg.from.first_name : "Utente"
+    testo_pulito = contenuto.to_s.gsub(/^[\+\*]/, "").strip
 
-    if force_personal
-      g_id = 0
-      t_id = 0
-      header = "📋 I TUOI ARTICOLI"
-      puts "[CORE] ⭐️ Aggiunta rapida alla Lista Personale"
-    else
-      g_id = context.config ? context.config["db_id"].to_i : 0
-      t_id = context.config ? context.config["topic_id"].to_i : 0
-      header = DataManager.genera_header_contesto(g_id, t_id)
+    if testo_pulito.empty?
+      g_pending = force_personal ? 0 : context.config["db_id"].to_i
+      t_pending = force_personal ? 0 : context.config["topic_id"].to_i
+      DataManager.set_pending(chat_id: context.chat_id, topic_id: t_pending, action: "add:#{u_name}", gruppo_id: g_pending)
+      bot.api.send_message(chat_id: context.chat_id, message_thread_id: (context.chat_id < 0 ? t_pending : nil), text: "✍️ <b>#{u_name}</b>, scrivi gli articoli o manda una foto.", parse_mode: "HTML")
+      return
     end
 
-    puts "[TRACE] 🚀 START core_aggiunta - U:#{u_id} G:#{g_id} T:#{t_id}"
-
-    # 1. SCRITTURA
+    g_id = force_personal ? 0 : context.config["db_id"].to_i
+    t_id = force_personal ? 0 : context.config["topic_id"].to_i
     DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: u_id, items_text: contenuto, topic_id: t_id)
-    puts "[TRACE] ✅ Articoli scritti nel DB"
 
-    # 2. CARICAMENTO DATI
     items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-
-    # AGGIORNAMENTO: Genera l'header dinamico SOLO se non è forzato quello personale
-    unless force_personal
-      header = DataManager.genera_header_contesto(g_id, t_id)
-    end
-
-    puts "[TRACE] 📊 Dati caricati per UI. Items: #{items.size} | Header: #{header}"
-
-    # 3. NOTIFICA GRUPPO
-    # In MessageHandler.core_aggiunta
-
-    # 3. NOTIFICA GRUPPO
-    # Inviamo la notifica SOLO SE l'utente sta scrivendo in chat PRIVATA
-    # e il target (g_id) è un gruppo.
     if context.scope == :private && g_id != 0
       real_chat_id = DataManager.get_real_chat_id(g_id)
-
       if real_chat_id
-        # Recuperiamo le initials dai dati appena caricati [cite: 3, 35]
         mio_item = items.find { |i| i["creato_da"] == u_id }
-        init = mio_item ? mio_item["autore_init"] : "U"[cite: 2]
-
-        begin
-          bot.api.send_message(
-            chat_id: real_chat_id,
-            text: "➕ <b>#{init}</b>: #{contenuto.gsub(/^[\+\*]/, "").strip}",
-            parse_mode: "HTML",
-            message_thread_id: (t_id > 0 ? t_id : nil),
-            disable_notification: true,
-          )
-        rescue => e
-          puts "[TRACE] ❌ Errore API Notifica: #{e.message}"
-        end
+        init = mio_item ? mio_item["autore_init"] : u_name[0..1].upcase
+        bot.api.send_message(chat_id: real_chat_id, message_thread_id: (t_id > 0 ? t_id : nil), text: "➕ <b>#{init}</b>: #{testo_pulito}", parse_mode: "HTML", disable_notification: true)
       end
     end
-    # 4. REFRESH LISTA
-    puts "[TRACE] 🔄 Chiamata core_mostra_lista (7 params)"
-    self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
+
+    bot.api.send_message(chat_id: context.chat_id, message_thread_id: (context.private_chat? ? nil : t_id), text: "✅ <b>#{testo_pulito}</b> aggiunto alla lista.", parse_mode: "HTML")
   end
 
-  def self.refresh_lista_spesa(bot, callback, g_id, t_id, page, show_all, user_id)
-    if show_all
-      # Se veniamo dal menu "I Miei Articoli" (cartelle), usiamo il suo refresh dedicato [cite: 12]
-      self.handle_myitems(bot, callback.message.chat.id, user_id, callback, page, true)
-    else
-      # Recupero dati aggiornati [cite: 10]
-      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-
-      # Header coerente: se g_id è 0 è la lista personale dello shortcut "*"
-      header = (g_id == 0) ? "📋 I TUOI ARTICOLI" : DataManager.genera_header_contesto(g_id, t_id)
-
-      # Generazione interfaccia [cite: 10]
-      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
-
-      begin
-        bot.api.edit_message_text(
-          chat_id: callback.message.chat.id,
-          message_id: callback.message.message_id,
-          text: ui[:text],
-          reply_markup: ui[:markup],
-          parse_mode: "HTML",
-        )
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        # Ignoriamo se l'utente clicca freneticamente e il contenuto non cambia [cite: 11, 42]
-        raise e unless e.message.include?("message is not modified")
-        puts "[DEBUG] Refresh lista: contenuto identico"
-      end
-    end
-  end
-
-  # CORE STORICO (?)
-  def self.core_storico(bot, context, query)
-    puts "[CORE] 🔍 Esecuzione Ricerca (?)"
-    g_id = context.lista_personale? ? 0 : (context.config["db_id"] || 0)
-    t_id = context.lista_personale? ? 0 : (context.config["topic_id"] || 0)
-
-    risultati = DataManager.ricerca_storico(gruppo_id: g_id, topic_id: t_id, query: query.empty? ? nil : query)
-
-    if risultati.any?
-      testo = "📜 **Storico / Suggerimenti:**\n" + risultati.map { |r| "• #{r["nome"]} (#{r["conteggio"]})" }.join("\n")
-      bot.api.send_message(chat_id: context.chat_id, text: testo, parse_mode: "Markdown")
-    else
-      bot.api.send_message(chat_id: context.chat_id, text: "❓ Storico vuoto.")
-    end
-  end
-
-  # ==============================================================================
-  # METODI PONTE E FALLBACK
-  # ==============================================================================
-  def self.handle_pending_responses(bot, msg, context)
-    pending = DataManager.ottieni_pending(context.chat_id, context.topic_id)
-    if pending && pending["action"].start_with?("add")
-      # Qui dentro mettiamo la chiamata UNICA
-      self.core_aggiunta(bot, context, msg.text)
-      DataManager.clear_pending(chat_id: context.chat_id, topic_id: context.topic_id)
+  def self.handle_pending_responses(bot, msg, context, forced_t_id = nil)
+    t_id = forced_t_id || context.topic_id || 0
+    pending = DataManager.ottieni_pending(context.chat_id, t_id)
+    if pending && pending["action"]&.start_with?("add")
+      self.core_aggiunta(bot, context, msg.text, false, msg)
+      DataManager.rimuovi_pending(context.chat_id, t_id)
     end
   end
 
   def self.handle_photo_bridge(bot, msg, context)
     u_id = msg.from.id
     caption = msg.caption.to_s.strip
+    file_id = msg.photo.last.file_id
+    file_info = bot.api.get_file(file_id: file_id)
+    url = "https://api.telegram.org/file/bot#{bot.api.token}/#{file_info.file_path}"
+    local_path = "data/carte/temp_#{u_id}.png"
+    FileUtils.mkdir_p("data/carte")
+    File.open(local_path, "wb") { |f| f.write(Faraday.get(url).body) }
 
-    if context.private_chat?
-      if caption.empty?
-        return bot.api.send_message(chat_id: u_id, text: "📸 Per salvare una carta, invia la foto scrivendo il *nome* nella didascalia.")
-      end
-
-      # 1. Recupero file
-      file_id = msg.photo.last.file_id
-      file_info = bot.api.get_file(file_id: file_id)
-      # Accediamo direttamente al metodo file_path dell'oggetto restituito
-      url = "https://api.telegram.org/file/bot#{bot.api.token}/#{file_info.file_path}"
-      local_path = "data/carte/temp_#{u_id}.png"
-      # Assicuriamoci che la directory esista per evitare altri NoMethodError/Errno
-      FileUtils.mkdir_p("data/carte") unless Dir.exist?("data/carte")
-
-      File.open(local_path, "wb") do |f|
-        f.write(Faraday.get(url).body)
-      end
-
-      # 2. Scansione con BarcodeScanner
-      barcode = BarcodeScanner.scan_image(local_path)
-
-      if barcode
-        # 3. Creazione carta (usa il metodo che hai già in carte_fedelta.rb)
-        CarteFedelta.add_card_from_photo(bot, u_id, caption, barcode[:data], local_path, barcode[:format])
-      else
-        bot.api.send_message(chat_id: u_id, text: "❌ Nessun codice a barre trovato. Prova una foto più vicina e nitida.")
-      end
-
-      File.delete(local_path) if File.exist?(local_path)
+    barcode = BarcodeScanner.scan_image(local_path)
+    if barcode
+      CarteFedelta.add_card_from_photo(bot, u_id, caption, barcode[:data], local_path, barcode[:format])
+    else
+      bot.api.send_message(chat_id: u_id, text: "❌ Nessun codice a barre trovato.")
     end
-  end
-
-  def self.core_start(bot, context)
-    bot.api.send_message(chat_id: context.chat_id, text: "🤖 **Bot Spesa Refactored**\nUsa `+` per aggiungere o `?` per cercare.")
-  end
-
-  def self.core_cleanup(bot, context)
-    # Esempio di metodo protetto
-    return unless context.user_id.to_s == "IL_TUO_ID_ADMIN"
-    puts "[CORE] 🧹 Avvio Cleanup di sistema"
+    File.delete(local_path) if File.exist?(local_path)
   end
 
   def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
     is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
     real_message = is_callback ? message.message : message
-
-    # 1. Recupero Dati tramite DataManager
     groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
     return if groups_and_topics.empty?
 
     conf = DataManager.carica_config_utente(user_id) || {}
-
-    # 2. Configurazione Paginazione
     per_page = 5
     total_pages = (groups_and_topics.size.to_f / per_page).ceil
     page = [[page, 0].max, total_pages - 1].min
     slice = groups_and_topics.slice(page * per_page, per_page) || []
 
-    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I TUOI ARTICOLI"
+    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I MIEI ARTICOLI"
     text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
-    text << "<i>Clicca l'articolo per spuntare, il titolo per cambiare contesto.</i>\n\n"
-
     item_buttons = []
 
-    # 3. Ciclo sui Gruppi/Topic
     slice.each do |row|
       g_id, t_id = row["gruppo_id"], row["topic_id"]
       is_active = (g_id == conf["db_id"].to_i && t_id == conf["topic_id"].to_i)
-
-      # 1. Recupero dati grezzi (Hash solido senza istanziare Context)
       info = DataManager.recupera_nomi_contesto(g_id, t_id)
-
-      # 2. Logica di formattazione identica a Context.nome_contesto_pulito
-      if info[:nome] == "Privata"
-        etichetta_contesto = info[:topic]
-      elsif info[:topic] == "Generale" || info[:topic] == info[:nome]
-        etichetta_contesto = info[:nome]
-      else
-        etichetta_contesto = "#{info[:nome]}: #{info[:topic]}"
-      end
-
+      label = info[:nome] == "Privata" ? info[:topic] : (info[:topic] == "Generale" ? info[:nome] : "#{info[:nome]}: #{info[:topic]}")
       prefix = is_active ? "🎯 " : "📂 "
 
-      # Intestazione Gruppo/Topic
-      item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: "#{prefix}#{etichetta_contesto.upcase}",
-        callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}",
-      )]
-
-      # 3. Articoli (Sempre con autore_init dalla JOIN)
-      articoli = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
-
-      articoli.each do |art|
+      item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{prefix}#{label.upcase}", callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}")]
+      DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all).each do |art|
         status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
-
-        autore_tag = ""
-        if show_all && g_id != 0
-          tag = art["autore_init"] || "?"
-          autore_tag = "[#{tag}] "
-        end
-
-        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "#{status} #{autore_tag}#{art["nome"]}",
-          callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
-        )]
+        tag = (show_all && g_id != 0) ? "[#{art["autore_init"] || "?"}] " : ""
+        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{status} #{tag}#{art["nome"]}", callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}")]
       end
     end
 
-    # 4. CREAZIONE PULSANTI DI NAVIGAZIONE
-    nav_row = []
-    if total_pages > 1
-      if page > 0
-        nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "◀️",
-          callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}",
-        )
-      end
+    nav = []
+    nav << Telegram::Bot::Types::InlineKeyboardButton.new(text: "◀️", callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}") if page > 0
+    nav << Telegram::Bot::Types::InlineKeyboardButton.new(text: "▶️", callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}") if page < total_pages - 1
 
-      nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{page + 1}/#{total_pages}", callback_data: "noop")
-
-      if page < total_pages - 1
-        nav_row << Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "▶️",
-          callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}",
-        )
-      end
-    end
-
-    # Pulsanti di chiusura e refresh
-    footer_row = [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0"),
-    ]
-
-    # Composizione finale tastiera
     keyboard = item_buttons
-    keyboard << nav_row unless nav_row.empty?
-    keyboard << footer_row
+    keyboard << nav unless nav.empty?
+    keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"), Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0")]
 
     markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
-
     if is_callback
-      begin
-        bot.api.edit_message_text(
-          chat_id: chat_id,
-          message_id: real_message.message_id,
-          text: text,
-          reply_markup: markup,
-          parse_mode: "HTML",
-        )
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        # Se il contenuto è identico, Telegram risponde con 400 "message is not modified"
-        # Lo ignoriamo per evitare il RUNTIME ERROR
-        raise e unless e.message.include?("message is not modified")
-        puts "[DEBUG] Refresh ignorato: contenuto identico"
-      end
+      bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, reply_markup: markup, parse_mode: "HTML") rescue nil
     else
       bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
     end
   end
+
+  def self.core_start(bot, context)
+    bot.api.send_message(chat_id: context.chat_id, text: "🤖 **Bot Spesa**\nUsa `+` per aggiungere o `?` per cercare.")
+  end
+
   def self.notifica_creatore_nuovo_utente(bot, creator_id, user_id, username, full_name)
-    # Sanitizziamo il nome per il callback (gli spazi rompono i dati)
     clean_name = full_name.gsub(/\s+/, "_")
-
-    kb = [
-      [
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "✅ Approva",
-          callback_data: "adm_app:#{user_id}:#{username}:#{clean_name}",
-        ),
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "❌ Rifiuta",
-          callback_data: "adm_rej:#{user_id}",
-        ),
-      ],
-    ]
-    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb)
-
-    bot.api.send_message(
-      chat_id: creator_id,
-      text: "🔔 <b>Nuova Richiesta Accesso</b>\n" +
-            "👤 Utente: #{full_name}\n" +
-            "🆔 ID: #{user_id}\n" +
-            "🏷 Username: @#{username}\n\n" +
-            "Vuoi abilitare questo utente?",
-      reply_markup: markup,
-      parse_mode: "HTML",
-    )
-  rescue => e
-    puts "[ERROR] Notifica creatore fallita: #{e.message}"
+    kb = [[Telegram::Bot::Types::InlineKeyboardButton.new(text: "✅ Approva", callback_data: "adm_app:#{user_id}:#{username}:#{clean_name}"),
+           Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Rifiuta", callback_data: "adm_rej:#{user_id}")]]
+    bot.api.send_message(chat_id: creator_id, text: "🔔 **Richiesta Accesso**\n👤 #{full_name}\n🆔 #{user_id}", reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb), parse_mode: "HTML")
   end
 end
 
-# In message_handler.rb (aggiungi in fondo o come classe di supporto)
-
 class TopicManager
   def self.sincronizza(msg)
-    # LOG DI INGRESSO
-    puts "[SYNC_LOG] 📨 Analisi messaggio ID:#{msg.message_id}"
-
-    # CASO A: Cambio titolo del gruppo (Globale)
     if msg.new_chat_title
-      puts "[SYNC_LOG] 🏢 Rilevato NEW_CHAT_TITLE: #{msg.new_chat_title}"
       DataManager.aggiorna_nome_gruppo(msg.chat.id, msg.new_chat_title)
-      return
-    end
-
-    # CASO B: Cambio Topic (Forum)
-    topic_name = nil
-    if msg.forum_topic_created
-      topic_name = msg.forum_topic_created.name
-      puts "[SYNC_LOG] 🆕 Rilevato FORUM_TOPIC_CREATED: #{topic_name}"
+    elsif msg.forum_topic_created
+      DataManager.set_topic_name(msg.chat.id, msg.message_thread_id, msg.forum_topic_created.name)
     elsif msg.forum_topic_edited
-      topic_name = msg.forum_topic_edited.name
-      puts "[SYNC_LOG] ✏️ Rilevato FORUM_TOPIC_EDITED: #{topic_name}"
-    end
-
-    if topic_name
-      t_id = (msg.respond_to?(:message_thread_id) && msg.message_thread_id) ? msg.message_thread_id : 0
-      DataManager.set_topic_name(msg.chat.id, t_id, topic_name)
-    else
-      puts "[SYNC_LOG] ℹ️ Messaggio ignorato (nessun cambio titolo o topic rilevato)"
+      DataManager.set_topic_name(msg.chat.id, msg.message_thread_id, msg.forum_topic_edited.name)
     end
   end
 end

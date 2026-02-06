@@ -92,39 +92,37 @@ class KeyboardGenerator
       keyboard << nav
     end
 
-    # Controlli: Svuota, Carte e Chiudi devono conoscere il contesto
+    # --- AZIONI PRINCIPALI (Riga 1) ---
     keyboard << [
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "➕ Aggiungi", callback_data: "aggiungi:#{g_id}:#{t_id}"),
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "💳 Carte", callback_data: "ui_cards:#{g_id}:#{t_id}"),
-
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "🧹 Svuota", callback_data: "ui_cleanup:#{g_id}:#{t_id}"),
-
     ]
 
-    keyboard << [
+    # --- AZIONI SECONDARIE (Riga 2) ---
+    row_secondary = [
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "📋 Checklist", callback_data: "ui_checklist:#{g_id}:#{t_id}"),
-
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "🕒 Storico", callback_data: "show_storico:#{g_id}:#{t_id}"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄 Aggiorna", callback_data: "ui_back_to_list:#{g_id}:#{t_id}"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{g_id}:#{t_id}"),
-
     ]
+    keyboard << row_secondary
 
-    # Inserimento dinamico del tasto "VEDI FOTO"
+    # Uniamo "Vedi Foto" con i tasti di sistema per risparmiare righe verticali
+    system_row = []
+
+    # Se ci sono foto, il tasto 📸 prende il posto principale in questa riga
     ha_almeno_una_foto = items.any? { |i| i["ha_foto"].to_i > 0 }
-
     if ha_almeno_una_foto
-      keyboard << [
-        Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "📸 VEDI FOTO ARTICOLI",
-          callback_data: "show_photos:#{g_id}:#{t_id}",
-        ),
-      ]
+      system_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "📸 Foto", callback_data: "show_photos:#{g_id}:#{t_id}")
     end
 
-    # Header in HTML per evitare problemi di parsing
+    system_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "ui_back_to_list:#{g_id}:#{t_id}")
+    system_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{g_id}:#{t_id}")
+
+    keyboard << system_row
+
+    # Header in HTML
     text = "🛒 <b>#{nome_target}</b>\n"
-    text += "📄 Pagina #{current_page + 1} di #{total_pages} (<i>#{items.size} elementi</i>)"
+    text += "📄 Pagina <b>#{current_page + 1}</b> di #{total_pages} (<i>#{items.size} elementi</i>)"
 
     { text: text, markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard) }
   end
