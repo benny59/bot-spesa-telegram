@@ -14,11 +14,19 @@ class MessageHandler
     c_id = msg.chat.id
     g_chat_id = msg.chat.id
 
+    raw_text = msg.text.to_s.strip
+    text = raw_text.split("@").first # Prende solo "/newgroup" da "/newgroup@bot"
+
     # Estrazione dati per Whitelist e User_Names
     username = msg.from.username || "Unknown"
     first_name = msg.from.first_name || "Utente"
     last_name = msg.from.last_name || ""
     full_name = "#{first_name} #{last_name}".strip
+
+    # --- CHIRURGIA: SPOSTIAMO QUI IL COMANDO ---
+    if text == "/newgroup"
+      return self.handle_newgroup(bot, msg, c_id, u_id)
+    end
 
     # 0. CONTROLLO WHITELIST
     unless Whitelist.is_allowed?(u_id)
@@ -117,8 +125,6 @@ class MessageHandler
     end
 
     DataManager.salva_config_utente(u_id, context.config)
-    text = msg.text.to_s.strip
-    return if text.empty?
 
     case text
     when /^\/(start|help)/
@@ -278,7 +284,14 @@ class MessageHandler
       DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all).each do |art|
         status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
         tag = (show_all && g_id != 0) ? "[#{art["autore_init"] || "?"}] " : ""
-        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{status} #{tag}#{art["nome"]}", callback_data: "mycomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}")]
+
+        icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 📸" : ""
+        label_articolo = "#{status} #{tag}#{art["nome"]}#{icona_foto}"
+
+        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+          text: label_articolo,
+          callback_data: "myallcomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
+        )]
       end
     end
 
@@ -295,6 +308,90 @@ class MessageHandler
       bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, reply_markup: markup, parse_mode: "HTML") rescue nil
     else
       bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
+    end
+  end
+
+  def self.handle_newgroup(bot, msg, chat_id, user_id)
+    puts "🔍 /newgroup richiesto da: #{msg.from.first_name} (ID: #{user_id})"
+
+    # Se non c'è ancora un creatore nel DB, il primo che preme /newgroup lo diventa
+    if Whitelist.get_creator_id.nil?
+      puts "🎉 Primo utente - Imposto come creatore"
+      Whitelist.add_creator(user_id, msg.from.username, "#{msg.from.first_name} #{msg.from.last_name}")
+    end
+
+    creator_id = Whitelist.get_creator_id
+    is_allowed = Whitelist.is_allowed?(user_id)
+    puts "🔍 Whitelist check - Creatore: #{creator_id}, Utente: #{user_id}, Autorizzato: #{is_allowed}"
+
+    unless is_allowed
+      handle_newgroup_pending(bot, msg, chat_id, user_id, creator_id)
+      return
+    end
+
+    handle_newgroup_approved(bot, msg, chat_id, user_id)
+  end
+
+  def self.handle_newgroup_pending(bot, msg, chat_id, user_id, creator_id)
+    # Salva la richiesta pendente nel DB
+    Whitelist.add_pending_request(user_id, msg.from.username, "#{msg.from.first_name} #{msg.from.last_name}")
+
+    # Notifica al creatore con bottoni Inline per approvazione rapida
+    if creator_id
+      keyboard = Telegram::Bot::Types::InlineKeyboardMarkup.new(
+        inline_keyboard: [
+          [
+            Telegram::Bot::Types::InlineKeyboardButton.new(
+              text: "✅ Approva",
+              callback_data: "approve_user:#{user_id}:#{msg.from.username}:#{msg.from.first_name}_#{msg.from.last_name}",
+            ),
+            Telegram::Bot::Types::InlineKeyboardButton.new(
+              text: "❌ Rifiuta",
+              callback_data: "reject_user:#{user_id}",
+            ),
+          ],
+        ],
+      )
+
+      bot.api.send_message(
+        chat_id: creator_id,
+        text: "🔔 *Richiesta di accesso*\n\n" \
+              "👤 #{msg.from.first_name} #{msg.from.last_name}\n" \
+              "📧 @#{msg.from.username}\n" \
+              "🆔 #{user_id}\n\n" \
+              "Aggiungere alla whitelist?",
+        parse_mode: "Markdown",
+        reply_markup: keyboard,
+      )
+    end
+
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "📨 La tua richiesta di accesso è stata inviata all'amministratore.\nRiceverai una notifica quando verrà approvata.",
+    )
+  end
+
+  def self.handle_newgroup_approved(bot, msg, chat_id, user_id)
+    nome_gruppo = msg.chat.title || "Lista di #{msg.from.first_name}"
+
+    # Chiamata pulita al DataManager
+    risultato = DataManager.registra_gruppo_se_nuovo(chat_id, nome_gruppo, user_id)
+
+    case risultato[:status]
+    when :esistente
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "ℹ️ **Gruppo già presente**\nQuesto gruppo è già registrato con l'ID: `#{risultato[:id]}`.",
+        parse_mode: "Markdown",
+      )
+    when :creato
+      bot.api.send_message(
+        chat_id: chat_id,
+        text: "🎉 **Gruppo registrato!**\n🆔 ID Interno: `#{risultato[:id]}`\nOra puoi usare i comandi della lista.",
+        parse_mode: "Markdown",
+      )
+    when :errore
+      bot.api.send_message(chat_id: chat_id, text: "❌ Errore durante la registrazione: #{risultato[:messaggio]}")
     end
   end
 

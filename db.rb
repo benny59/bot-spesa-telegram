@@ -780,21 +780,36 @@ class DataManager
 
   # 2. Recupera gli articoli effettivi
   def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
-    # Usiamo una LEFT JOIN per avere subito le iniziali (initials) dell'autore
-    # Questo elimina la necessità di fare query nel ciclo each
+    # Aggiungiamo la subquery identica a quella della lista standard
     base_query = <<-SQL
-    SELECT i.*, u.initials AS autore_init
+    SELECT i.*, u.initials AS autore_init,
+           (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) as ha_foto_reale
     FROM items i
     LEFT JOIN user_names u ON i.creato_da = u.user_id
     WHERE i.gruppo_id = ? AND i.topic_id = ?
   SQL
 
     if show_all && g_id != 0
-      # Vedo tutto il contenuto del gruppo/topic
-      DB.execute("#{base_query} ORDER BY (i.comprato != ''), i.nome", [g_id, t_id])
+      DB.execute("#{base_query} ORDER BY (i.comprato != '' AND i.comprato IS NOT NULL), i.nome", [g_id, t_id])
     else
-      # Vedo solo le mie aggiunte (creato_da = user_id)
-      DB.execute("#{base_query} AND i.creato_da = ? ORDER BY (i.comprato != ''), i.nome", [g_id, t_id, user_id])
+      DB.execute("#{base_query} AND i.creato_da = ? ORDER BY (i.comprato != '' AND i.comprato IS NOT NULL), i.nome", [g_id, t_id, user_id])
     end
+  end
+
+  def self.registra_gruppo_se_nuovo(chat_id, nome_gruppo, user_id)
+    # 1. Cerchiamo se esiste già
+    esistente = DB.get_first_row("SELECT id FROM gruppi WHERE chat_id = ?", [chat_id])
+    return { status: :esistente, id: esistente["id"] } if esistente
+
+    # 2. Se non esiste, inseriamo
+    DB.execute(
+      "INSERT INTO gruppi (nome, creato_da, chat_id) VALUES (?, ?, ?)",
+      [nome_gruppo, user_id, chat_id]
+    )
+    nuovo_id = DB.get_first_value("SELECT last_insert_rowid()")
+    { status: :creato, id: nuovo_id }
+  rescue => e
+    puts "❌ [DB ERROR] registra_gruppo: #{e.message}"
+    { status: :errore, messaggio: e.message }
   end
 end

@@ -104,28 +104,29 @@ class CallbackHandler
 
     when /^trigger_list:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
-      items = DataManager.prendi_per_contesto(g_id, t_id) #
-      header = DataManager.genera_header_contesto(g_id, t_id) #
+
+      # CORREZIONE: Usa il metodo esistente che abbiamo già testato
+      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
       ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, header)
 
+      # Usiamo l'invio pulito (nuovo messaggio o edit a seconda dei casi)
+      # Qui solitamente si usa send_message perché il trigger viene da un messaggio pinnato vecchio
       bot.api.send_message(
-        chat_id: callback.message.chat.id,
+        chat_id: context.chat_id,
         message_thread_id: (t_id > 0 ? t_id : nil),
         text: ui[:text],
         reply_markup: ui[:markup],
         parse_mode: "HTML",
       )
-      bot.api.answer_callback_query(callback_query_id: callback.id)
-    when /^ui_back_to_list:(-?\d+):(\d+)$/
+    when /^ui_back_to_list:(-?\d+):(\d+)/
       g_id, t_id = $1.to_i, $2.to_i
-      bot.api.answer_callback_query(callback_query_id: callback.id)
-      # Torna alla pagina 0 della lista principale
-      self.refresh_ui(bot, callback, context, g_id, t_id, 0, 0)
+      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
+      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, header)
 
-      # Toggle "Comprato" (Mette nel carrello o toglie)
-      # Esempio di gestione del click (Callback)
-      # --- CAMBIO CONTESTO RAPIDO DA "I MIEI ARTICOLI" ---
-      # --- REFRESH MENU "I MIEI ARTICOLI" ---
+      # Qui passi context (o l'ID), il metodo nuovo gestirà entrambi
+      self.edit_veloce(bot, context, callback, ui)
     when /^myitems_refresh:(\d+):(\d+):(\d)$/
       u_id, page, s_all = $1.to_i, $2.to_i, $3.to_i
       show_all = (s_all == 1)
@@ -206,36 +207,38 @@ class CallbackHandler
       )
     when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
-      show_all = (s_all == 1)
 
-      # 1. Azione Database
+      # 1. Logica DB (La tua)
       if DataManager.comprato?(item_id)
         DataManager.despunta_articolo(item_id)
       else
         DataManager.spunta_articolo(item_id, user_id)
       end
 
-      # 2. REFRESH DELLA LISTA (Edit del messaggio corrente)
-      # Recuperiamo i dati aggiornati
+      # 2. Refresh Standard
       items = DataManager.prendi_articoli_ordinati(g_id, t_id)
       header = DataManager.genera_header_contesto(g_id, t_id)
-
-      # Generiamo la nuova interfaccia (testo + tastiera)
       ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
-      # USIAMO EDIT_MESSAGE_TEXT per sovrascrivere il messaggio
-      begin
-        bot.api.edit_message_text(
-          chat_id: context.chat_id,
-          message_id: callback.message.message_id, # ID del messaggio cliccato
-          text: ui[:text],
-          reply_markup: ui[:markup],
-          parse_mode: "HTML",
-        )
-      rescue Telegram::Bot::Exceptions::ResponseError => e
-        # Telegram dà errore se cerchi di modificare un messaggio con contenuti identici
-        puts "[REFRESH] Nessuna modifica visibile o errore: #{e.message}"
+      # 3. Edit (Il tuo blocco begin/rescue)
+      self.edit_veloce(bot, context, callback, ui)
+
+      # --- RAMO 2: LISTA "TUTTI GLI ARTICOLI" (Refresh Differenziato) ---
+    when /^myallcomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
+      item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
+
+      # 1. Logica DB (IDENTICA - DRY)
+      if DataManager.comprato?(item_id)
+        DataManager.despunta_articolo(item_id)
+      else
+        DataManager.spunta_articolo(item_id, user_id)
       end
+
+      # 2. Refresh GLOBALE (Cambia solo questo!)
+      items = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, s_all == 1)
+      MessageHandler.handle_myitems(bot, context.chat_id, user_id, callback, page, s_all == 1)
+      # 3. Edit
+      # self.edit_veloce(bot, context, callback, ui)
 
       # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
@@ -515,25 +518,12 @@ class CallbackHandler
 
   # In handlers/callback_handler.rb
   def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
-    # Usiamo il metodo corretto che include 'ha_foto'
     items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-
     header = DataManager.genera_header_contesto(g_id, t_id)
     ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
 
-    bot.api.edit_message_text(
-      chat_id: callback.message.chat.id,
-      message_id: callback.message.message_id,
-      text: ui[:text],
-      reply_markup: ui[:markup],
-      parse_mode: "HTML",
-    )
-  rescue Telegram::Bot::Exceptions::ResponseError => e
-    # Ignoriamo l'errore se il contenuto è identico (clic ripetuti su aggiorna)
-    return if e.message.include?("message is not modified")
-    puts "[REFRESH ERROR] #{e.message}"
-  rescue => e
-    puts "[REFRESH ERROR GENERALE] #{e.message}"
+    # PROSCIUGATO:
+    self.edit_veloce(bot, callback.message.chat.id, callback.message.message_id, ui)
   end
 
   def self.handle_approve_user(bot, callback_query, chat_id, target_user_id, username, full_name)
@@ -581,5 +571,24 @@ class CallbackHandler
     rescue => e
       puts "⚠️ Impossibile notificare utente rifiutato: #{e.message}"
     end
+  end
+
+  def self.edit_veloce(bot, chat_id_or_context, callback, ui)
+    # Se è un oggetto context, prendiamo l'id, altrimenti usiamo il valore così com'è
+    c_id = chat_id_or_context.respond_to?(:chat_id) ? chat_id_or_context.chat_id : chat_id_or_context
+
+    bot.api.edit_message_text(
+      chat_id: c_id,
+      message_id: callback.message.message_id,
+      text: ui[:text],
+      reply_markup: ui[:markup],
+      parse_mode: "HTML",
+    )
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    # Silenziamo il log se il messaggio è identico, è un comportamento previsto
+    return if e.message.include?("message is not modified")
+    puts "[REFRESH] Errore API: #{e.message}"
+  rescue => e
+    puts "[REFRESH] Errore Generico: #{e.message}"
   end
 end
