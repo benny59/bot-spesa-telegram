@@ -538,48 +538,55 @@ class DataManager
     DB.execute(query, [u_id, u_id])
   end
 
-  def self.aggiorna_membership(u_id, g_id)
-    # Usiamo 'last_seen' come definito nel tuo CREATE TABLE
-    query = <<-SQL
+ def self.aggiorna_membership(u_id, telegram_chat_id)
+  # 1. Recuperiamo l'ID primario del database per quel gruppo
+  g_id_db = DB.get_first_value("SELECT id FROM gruppi WHERE chat_id = ?", [telegram_chat_id])
+puts "g_id_db #{g_id_db} telegram_chat_id: #{telegram_chat_id}"
+  # Se il gruppo non esiste ancora nel DB, non possiamo creare la membership
+  return if g_id_db.nil?
+
+  # 2. Ora inseriamo usando l'ID corretto (es. 48 invece di -100...)
+  query = <<-SQL
     INSERT INTO memberships (user_id, gruppo_id, last_seen)
     VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(user_id, gruppo_id) DO UPDATE SET
     last_seen = CURRENT_TIMESTAMP
   SQL
 
-    begin
-      DB.execute(query, [u_id, g_id])
-      # puts "[DB] Membership aggiornata: U:#{u_id} G:#{g_id}"
-    rescue SQLite3::Exception => e
-      puts "❌ [DB ERROR] Errore aggiorna_membership: #{e.message}"
-    end
+  begin
+    DB.execute(query, [u_id, g_id_db])
+  rescue SQLite3::Exception => e
+    puts "❌ [DB ERROR] Errore aggiorna_membership: #{e.message}"
   end
-  def self.prendi_destinazioni_censite(user_id)
+end
+
+def self.prendi_destinazioni_censite(user_id)
     destinazioni = [{ "chat_id" => 0, "topic_id" => 0, "nome" => "👤 Lista Personale", "g_nome" => "Privata" }]
 
     sql = <<-SQL
-    SELECT g.id, g.chat_id, t.topic_id, t.nome as t_nome, g.nome as g_nome
-    FROM memberships m
-    JOIN gruppi g ON m.gruppo_id = g.id
-    JOIN topics t ON g.chat_id = t.chat_id
-    WHERE m.user_id = ?
-  SQL
+      SELECT g.id, g.chat_id, t.topic_id, t.nome as t_nome, g.nome as g_nome
+      FROM memberships m
+      JOIN gruppi g ON m.gruppo_id = g.id
+      LEFT JOIN topics t ON g.chat_id = t.chat_id  -- <--- CAMBIATO IN LEFT JOIN
+      WHERE m.user_id = ?
+    SQL
 
     res = DB.execute(sql, [user_id])
     res.each do |r|
-      # CONSISTENZA: Usiamo la stessa logica dell'header
-      t_label = r["t_nome"].to_s.strip.empty? ? (r["topic_id"] == 0 ? "Generale" : "Topic #{r["topic_id"]}") : r["t_nome"]
+      # Se t_nome è NULL (grazie al LEFT JOIN), topic_id sarà nullo o 0
+      t_id = r["topic_id"] || 0
+      t_label = r["t_nome"].to_s.strip.empty? ? (t_id == 0 ? "Generale" : "Topic #{t_id}") : r["t_nome"]
 
       destinazioni << {
         "chat_id" => r["id"],
-        "topic_id" => r["topic_id"],
-        "nome" => "👥 #{r["g_nome"]}: #{t_label}", # Qui forziamo il formato NOMEGRUPPO: NOMETOPIC
+        "topic_id" => t_id,
+        "nome" => "👥 #{r["g_nome"]}: #{t_label}",
         "g_nome" => r["g_nome"],
       }
     end
     destinazioni
   end
-  # In db.rb
+    # In db.rb
   def self.prendi_ultimi_acquisti_con_nomi(gruppo_id, topic_id, limite = 15)
     sql = <<-SQL
     SELECT s.nome,

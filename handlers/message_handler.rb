@@ -16,6 +16,9 @@ class MessageHandler
 
     raw_text = msg.text.to_s.strip
     text = raw_text.split("@").first # Prende solo "/newgroup" da "/newgroup@bot"
+    
+    DataManager.aggiorna_membership(msg.from.id, msg.chat.id)
+
 
     # Estrazione dati per Whitelist e User_Names
     username = msg.from.username || "Unknown"
