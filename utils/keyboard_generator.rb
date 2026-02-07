@@ -35,7 +35,11 @@ class KeyboardGenerator
     Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb)
   end
 
-  def self.genera_lista(items, gruppo_id, topic_id, page = 0, nome_target = "Lista")
+  def self.genera_lista(items, gruppo_id, topic_id, page = 0, options = {})
+    # Default delle opzioni
+    opts = { nome_target: "Lista", is_group: false }.merge(options)
+    nome_target = opts[:nome_target]
+
     # DEBUG TEMPORANEO:
     puts "DEBUG: Primo item ha_foto -> #{items.first["ha_foto"] if items.any?}"
     g_id = gruppo_id.to_i
@@ -93,23 +97,26 @@ class KeyboardGenerator
     end
 
     # --- AZIONI PRINCIPALI (Riga 1) ---
+
     keyboard << [
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "➕ Aggiungi", callback_data: "aggiungi:#{g_id}:#{t_id}"),
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "💳 Carte", callback_data: "ui_cards:#{g_id}:#{t_id}"),
       Telegram::Bot::Types::InlineKeyboardButton.new(text: "🧹 Svuota", callback_data: "ui_cleanup:#{g_id}:#{t_id}"),
-    ]
 
-    # --- AZIONI SECONDARIE (Riga 2) ---
-    row_secondary = [
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "📋 Checklist", callback_data: "ui_checklist:#{g_id}:#{t_id}"),
-      Telegram::Bot::Types::InlineKeyboardButton.new(text: "🕒 Storico", callback_data: "show_storico:#{g_id}:#{t_id}"),
     ]
-    keyboard << row_secondary
+    # Se ci sono foto, il tasto 📸 prende il posto principale in questa riga
 
+    if !opts[:is_group]
+      # --- AZIONI SECONDARIE (Riga 2) ---
+      row_secondary = [
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "📋 Checklist", callback_data: "ui_checklist:#{g_id}:#{t_id}"),
+        Telegram::Bot::Types::InlineKeyboardButton.new(text: "🕒 Storico", callback_data: "show_storico:#{g_id}:#{t_id}"),
+      ]
+      keyboard << row_secondary
+    end
     # Uniamo "Vedi Foto" con i tasti di sistema per risparmiare righe verticali
     system_row = []
 
-    # Se ci sono foto, il tasto 📸 prende il posto principale in questa riga
     ha_almeno_una_foto = items.any? { |i| i["ha_foto"].to_i > 0 }
     if ha_almeno_una_foto
       system_row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "📸 Foto", callback_data: "show_photos:#{g_id}:#{t_id}")

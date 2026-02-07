@@ -194,7 +194,11 @@ class MessageHandler
   # ==============================================================================
 
   def self.core_mostra_lista(bot, context, items, header, g_id, t_id, page = 0)
-    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
+    options = {
+      nome_target: header,
+      is_group: !context.private_chat?, # Sfruttiamo il metodo che hai già nel context
+    }
+    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
     target_thread = context.private_chat? ? nil : (t_id.to_i > 0 ? t_id.to_i : nil)
     bot.api.send_message(chat_id: context.chat_id, message_thread_id: target_thread, text: ui[:text], reply_markup: ui[:markup], parse_mode: "HTML")
   end

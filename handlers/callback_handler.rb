@@ -105,13 +105,18 @@ class CallbackHandler
     when /^trigger_list:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
 
-      # CORREZIONE: Usa il metodo esistente che abbiamo già testato
       items = DataManager.prendi_articoli_ordinati(g_id, t_id)
       header = DataManager.genera_header_contesto(g_id, t_id)
-      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, header)
 
-      # Usiamo l'invio pulito (nuovo messaggio o edit a seconda dei casi)
-      # Qui solitamente si usa send_message perché il trigger viene da un messaggio pinnato vecchio
+      # Costruiamo l'hash delle opzioni al volo
+      options = {
+        nome_target: header,
+        is_group: !context.private_chat?,
+      }
+
+      # Passiamo l'hash invece della semplice stringa
+      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, options)
+
       bot.api.send_message(
         chat_id: context.chat_id,
         message_thread_id: (t_id > 0 ? t_id : nil),
@@ -123,9 +128,17 @@ class CallbackHandler
       g_id, t_id = $1.to_i, $2.to_i
       items = DataManager.prendi_articoli_ordinati(g_id, t_id)
       header = DataManager.genera_header_contesto(g_id, t_id)
-      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, header)
 
-      # Qui passi context (o l'ID), il metodo nuovo gestirà entrambi
+      # Prepariamo l'hash options come negli altri punti
+      options = {
+        nome_target: header,
+        is_group: !context.private_chat?,
+      }
+
+      # Passiamo options invece della sola stringa header
+      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, options)
+
+      # La tua edit_veloce riceve l'hash ui con :text e :markup e aggiorna il messaggio
       self.edit_veloce(bot, context, callback, ui)
     when /^myitems_refresh:(\d+):(\d+):(\d)$/
       u_id, page, s_all = $1.to_i, $2.to_i, $3.to_i
@@ -218,7 +231,14 @@ class CallbackHandler
       # 2. Refresh Standard
       items = DataManager.prendi_articoli_ordinati(g_id, t_id)
       header = DataManager.genera_header_contesto(g_id, t_id)
-      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
+
+      options = {
+        nome_target: header,
+        is_group: !context.private_chat?,
+      }
+
+      # Passiamo l'hash invece della stringa
+      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
 
       # 3. Edit (Il tuo blocco begin/rescue)
       self.edit_veloce(bot, context, callback, ui)
@@ -520,9 +540,18 @@ class CallbackHandler
   def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
     items = DataManager.prendi_articoli_ordinati(g_id, t_id)
     header = DataManager.genera_header_contesto(g_id, t_id)
-    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, header)
+
+    # Costruiamo l'hash options usando il context
+    options = {
+      nome_target: header,
+      is_group: !context.private_chat?,
+    }
+
+    # Passiamo l'hash al generatore
+    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
 
     # PROSCIUGATO:
+    # Usiamo l'ID dal callback per l'edit, ma la UI ora è contestualizzata
     self.edit_veloce(bot, callback.message.chat.id, callback.message.message_id, ui)
   end
 
