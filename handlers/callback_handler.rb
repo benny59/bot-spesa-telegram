@@ -124,23 +124,29 @@ class CallbackHandler
         reply_markup: ui[:markup],
         parse_mode: "HTML",
       )
-    when /^ui_back_to_list:(-?\d+):(\d+)/
+when /^ui_back_to_list:(-?\d+):(\d+)/
       g_id, t_id = $1.to_i, $2.to_i
       items = DataManager.prendi_articoli_ordinati(g_id, t_id)
       header = DataManager.genera_header_contesto(g_id, t_id)
 
-      # Prepariamo l'hash options come negli altri punti
+      # Prepariamo l'hash options
       options = {
         nome_target: header,
         is_group: !context.private_chat?,
       }
 
-      # Passiamo options invece della sola stringa header
+      # genera_lista restituisce l'hash {text: "...", markup: ...}
       ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, options)
 
-      # La tua edit_veloce riceve l'hash ui con :text e :markup e aggiorna il messaggio
-      self.edit_veloce(bot, context, callback, ui)
-    when /^myitems_refresh:(\d+):(\d+):(\d)$/
+      # ESTRAIAMO IL MARKUP (Telegram vuole solo l'oggetto InlineKeyboardMarkup)
+      # Se la tua edit_veloce non lo fa internamente, estrailo qui:
+      markup_finale = ui.is_a?(Hash) ? ui[:markup] : ui
+
+      # Chiamata sicura
+      self.edit_veloce(bot, context, callback, markup_finale)
+      
+      
+          when /^myitems_refresh:(\d+):(\d+):(\d)$/
       u_id, page, s_all = $1.to_i, $2.to_i, $3.to_i
       show_all = (s_all == 1)
 
@@ -264,12 +270,42 @@ class CallbackHandler
       # LA SCOPETTA (Svuota carrello -> Storico)
       # --------------------------------------------------------------------------
       # callback_handler.rb
-    when /^ui_cleanup:(-?\d+):(\d+)$/
+when /^ui_cleanup:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
+
+      # 1. Eseguiamo la pulizia
       DataManager.esegui_scopetta(g_id, t_id)
+      
+      # 2. Controllo articoli rimasti per il messaggio condizionale
+      articoli_rimasti = DataManager.prendi_articoli_ordinati(g_id, t_id).size
+
+      # 3. Notifica al gruppo (solo se l'utente opera dalla sua chat privata)
+      if g_id != 0 && callback.message.chat.type == 'private'
+        target_chat = DataManager.get_real_chat_id(g_id)
+        u_name = callback.from.first_name
+        
+        testo_notifica = if articoli_rimasti == 0
+                           "🛒 **#{u_name}** ha terminato la spesa."
+                         else
+                           "🛒 **#{u_name}** ha terminato la spesa, controlla gli articoli rimasti."
+                         end
+
+        bot.api.send_message(
+          chat_id: target_chat,
+          text: testo_notifica,
+          parse_mode: 'Markdown',
+          message_thread_id: (t_id != 0 ? t_id : nil)
+        )
+      end
+
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🧹 Lista pulita!")
+      
       # Torna sempre a pagina 0 dopo la pulizia
       self.refresh_ui(bot, callback, context, g_id, t_id, 0, 0)
+            
+      
+      
+      
     when /^pin_refresh:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🔄 Lista aggiornata")
@@ -417,26 +453,34 @@ class CallbackHandler
         message_id: callback.message.message_id,
         reply_markup: nuovo_markup,
       )
-    when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
-      item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
+when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
+  item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
+  
+  nome_art = DataManager.get_nome_articolo(item_id)
+  DataManager.rimuovi_item_diretto(item_id)
+  bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Rimosso")
 
-      # Chiamata pulita al DataManager
-      DataManager.rimuovi_item_diretto(item_id)
+  # NOTIFICA: Solo se l'azione parte dalla chat privata
+  is_in_private = callback.message.chat.type == 'private'
+  
+  if g_id != 0 && is_in_private
+    target_chat = DataManager.get_real_chat_id(g_id)
+    begin
+      bot.api.send_message(
+        chat_id: target_chat,
+        text: "❌ <b>#{callback.from.first_name}</b> ha cancellato: #{nome_art}",
+        parse_mode: 'html',
+        message_thread_id: (t_id != 0 ? t_id : nil)
+      )
+    rescue => e
+      puts "⚠️ [NOTIFICA_SKIP] #{e.message}"
+    end
+  end
 
-      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Rimosso")
-
-      # Recupero nome topic per l'intestazione corretta
-      nome_display = (g_id == 0) ? "Lista Personale" : DataManager.get_topic_name(callback.message.chat.id, t_id)
-
-      # Refresh
-      self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
-
-      # In handlers/callback_handler.rb (aggiungere al case data)
-
-      # handlers/callback_handler.rb (intorno alla riga 176)
-
-      # handlers/callback_handler.rb
-
+  # Refresh dell'interfaccia
+  self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
+  
+              
     when /^set_target:(.+):(.+)$/
       g_db_id = $1.to_i # L'ID interno (es: 50)
       t_id = $2.to_i    # L'ID del topic (es: 2)
@@ -537,23 +581,61 @@ class CallbackHandler
   # handlers/callback_handler.rb
 
   # In handlers/callback_handler.rb
-  def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
-    items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-    header = DataManager.genera_header_contesto(g_id, t_id)
+def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
+  items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+  header = DataManager.genera_header_contesto(g_id, t_id)
+  
+  # Determiniamo se siamo in chat privata o gruppo per le opzioni
+  is_private = callback.message.chat.type == 'private'
+  options = { nome_target: header, is_group: !is_private, page: page.to_i }
 
-    # Costruiamo l'hash options usando il context
-    options = {
-      nome_target: header,
-      is_group: !context.private_chat?,
-    }
+  # Qui sta il trucco: genera_lista restituisce un HASH
+  result = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
+  
+  # Estraiamo il markup dall'hash
+  ui = result[:markup] 
+  
+  # LOG DI CONTROLLO
+  puts "📟 [UI_REFRESH] Articoli: #{items.size} | Righe tastiera: #{ui.inline_keyboard.size}"
 
-    # Passiamo l'hash al generatore
-    ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
+  c_id = callback.message.chat.id
+  m_id = callback.message.message_id
 
-    # PROSCIUGATO:
-    # Usiamo l'ID dal callback per l'edit, ma la UI ora è contestualizzata
-    self.edit_veloce(bot, callback.message.chat.id, callback.message.message_id, ui)
+  self.edit_veloce(bot, c_id, m_id, ui)
+end
+
+def self.edit_veloce(bot, chat_id, message_id, markup)
+  # Se chat_id è un oggetto Context o Chat, estraiamo l'id numerico
+  final_c_id = chat_id.respond_to?(:chat_id) ? chat_id.chat_id : chat_id
+  final_c_id = final_c_id.id if final_c_id.respond_to?(:id)
+
+  # Se message_id è un oggetto CallbackQuery o Message, estraiamo l'id numerico
+  final_m_id = if message_id.respond_to?(:message)
+                 message_id.message.message_id
+               elsif message_id.respond_to?(:message_id)
+                 message_id.message_id
+               else
+                 message_id
+               end
+
+  # Se markup è ancora l'intero Hash del generatore, estraiamo solo il markup
+  final_markup = markup.is_a?(Hash) ? markup[:markup] : markup
+
+  puts "📡 [API_EDIT] Chat:#{final_c_id} | Msg:#{final_m_id}"
+
+bot.api.edit_message_reply_markup(
+    chat_id: final_c_id.to_i,
+    message_id: final_m_id.to_i,
+    reply_markup: final_markup
+  )
+rescue Telegram::Bot::Exceptions::ResponseError => e
+  if e.message.include?("message is not modified")
+    puts "ℹ️ [API_INFO] Refresh ignorato: contenuto identico."
+  else
+    puts "❌ [API_ERR] #{e.message}"
   end
+end
+
 
   def self.handle_approve_user(bot, callback_query, chat_id, target_user_id, username, full_name)
     # ✅ Azione su DB centralizzata in Whitelist
@@ -602,22 +684,4 @@ class CallbackHandler
     end
   end
 
-  def self.edit_veloce(bot, chat_id_or_context, callback, ui)
-    # Se è un oggetto context, prendiamo l'id, altrimenti usiamo il valore così com'è
-    c_id = chat_id_or_context.respond_to?(:chat_id) ? chat_id_or_context.chat_id : chat_id_or_context
-
-    bot.api.edit_message_text(
-      chat_id: c_id,
-      message_id: callback.message.message_id,
-      text: ui[:text],
-      reply_markup: ui[:markup],
-      parse_mode: "HTML",
-    )
-  rescue Telegram::Bot::Exceptions::ResponseError => e
-    # Silenziamo il log se il messaggio è identico, è un comportamento previsto
-    return if e.message.include?("message is not modified")
-    puts "[REFRESH] Errore API: #{e.message}"
-  rescue => e
-    puts "[REFRESH] Errore Generico: #{e.message}"
-  end
 end

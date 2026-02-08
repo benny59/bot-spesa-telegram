@@ -560,6 +560,16 @@ puts "g_id_db #{g_id_db} telegram_chat_id: #{telegram_chat_id}"
   end
 end
 
+
+def self.get_nome_articolo(item_id)
+    nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id.to_i])
+    puts "🔍 [DB_TRACE] ID:#{item_id} -> Nome recuperato: '#{nome}'"
+    nome
+  end
+  
+	
+       
+  
 def self.prendi_destinazioni_censite(user_id)
     destinazioni = [{ "chat_id" => 0, "topic_id" => 0, "nome" => "👤 Lista Personale", "g_nome" => "Privata" }]
 

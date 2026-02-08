@@ -229,7 +229,7 @@ class MessageHandler
       if real_chat_id
         mio_item = items.find { |i| i["creato_da"] == u_id }
         init = mio_item ? mio_item["autore_init"] : u_name[0..1].upcase
-        bot.api.send_message(chat_id: real_chat_id, message_thread_id: (t_id > 0 ? t_id : nil), text: "➕ <b>#{init}</b>: #{testo_pulito}", parse_mode: "HTML", disable_notification: true)
+        bot.api.send_message(chat_id: real_chat_id, message_thread_id: (t_id > 0 ? t_id : nil), text: "➕ <b>#{u_name}</b> ha aggiunto: #{testo_pulito}", parse_mode: "HTML", disable_notification: true)
       end
     end
 
