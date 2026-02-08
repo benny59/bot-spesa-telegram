@@ -47,13 +47,32 @@ class MessageHandler
 
     Whitelist.salva_nome_utente(u_id, first_name, last_name)
 
-    # Caricamento contesto forzato
-    if context.config["db_id"].nil?
-      config_salvata = DataManager.carica_config_utente(u_id) || {}
-      context.config["db_id"] = (config_salvata["db_id"] || config_salvata["target_g"] || 0).to_i
-      context.config["topic_id"] = (config_salvata["topic_id"] || config_salvata["target_t"] || 0).to_i
+# 1. Tenta il caricamento della config salvata
+    config_salvata = DataManager.carica_config_utente(u_id)
+
+    # 2. SE config_salvata è nil, creiamo un hash di default basato sul gruppo attuale
+    if config_salvata.nil? || config_salvata.empty?
+      # Usa il tuo metodo già esistente in db.rb
+      gruppo_row = DataManager.prendi_gruppo_da_chat_id(msg.chat.id)
+      
+      g_id_auto = gruppo_row ? gruppo_row["id"].to_i : 0
+      t_id_auto = msg.respond_to?(:message_thread_id) ? (msg.message_thread_id || 0) : 0
+      
+      config_salvata = { "db_id" => g_id_auto, "topic_id" => t_id_auto }
+      puts "🔄 [AUTO-ADAPT] Config generata per #{u_id} -> G:#{g_id_auto}"
     end
 
+    # 3. FIX CRASH: Se l'oggetto config nel contesto è nil, dobbiamo inizializzarlo 
+    # Usiamo l'istanza per bypassare il problema del nil su attr_reader
+    if context.config.nil?
+      context.instance_variable_set(:@config, {})
+    end
+
+    # 4. Ora puoi popolare senza errori
+    context.config["db_id"] = config_salvata["db_id"].to_i
+    context.config["topic_id"] = config_salvata["topic_id"].to_i
+        
+    
     effective_g_id = context.config["db_id"].to_i
     effective_t_id = context.config["topic_id"].to_i
 
