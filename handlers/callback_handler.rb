@@ -206,13 +206,14 @@ when /^ui_back_to_list:(-?\d+):(\d+)/
 
       # 1. Aggiorna il target nel database
       Context.set_private_context(user_id, g_id, t_id)
-
+      context.reload!
       # 2. Popup di conferma
       nomi = DataManager.recupera_nomi_contesto(g_id, t_id)
       etichetta = (nomi[:nome] == "Privata") ? nomi[:topic] : "#{nomi[:nome]} #{nomi[:topic]}".strip
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🎯 Target: #{etichetta}")
 
-      # 3. ⚠️ RIMOSSO: KeyboardGenerator.show_private_keyboard(...)
+
+      KeyboardGenerator.show_private_keyboard(bot, context.chat_id, context) if context.private_chat?
       # Non chiamare la tastiera fisica qui! Altrimenti sovrascrive il menu gruppi.
 
       # 4. Refresh solo del contenuto del messaggio (i pallini 🎯/📂)
