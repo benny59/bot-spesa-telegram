@@ -8,6 +8,15 @@ require_relative "handlers/message_handler"
 require_relative "handlers/callback_handler"
 require_relative "utils/command_setter"
 
+
+# In bot_spesa.rb
+PID_FILE = File.join(__dir__, "bot_spesa.pid")
+File.write(PID_FILE, Process.pid)
+
+# Opzionale: cancella il file quando il bot si spegne pulitamente
+at_exit { File.delete(PID_FILE) if File.exist?(PID_FILE) }
+
+
 # 1. GESTIONE TOKEN SICURA (Priorità: ENV > DB)
 TOKEN = ENV["TELEGRAM_BOT_TOKEN"] || begin
   env = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") || "development"
