@@ -19,10 +19,10 @@ class Context
   # ==============================================================================
   # FACTORY METHODS (ENTRY POINTS)
   # ==============================================================================
-def reload!
-  @config = DataManager.carica_config_utente(@user_id)
-  puts "[CONTEXT] ♻️ Istanza ricaricata per U:#{@user_id}"
-end
+  def reload!
+    @config = DataManager.carica_config_utente(@user_id)
+    puts "[CONTEXT] ♻️ Istanza ricaricata per U:#{@user_id}"
+  end
 
   def self.from_message(msg)
     chat = msg.chat

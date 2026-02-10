@@ -16,9 +16,8 @@ class MessageHandler
 
     raw_text = msg.text.to_s.strip
     text = raw_text.split("@").first # Prende solo "/newgroup" da "/newgroup@bot"
-    
-    DataManager.aggiorna_membership(msg.from.id, msg.chat.id)
 
+    DataManager.aggiorna_membership(msg.from.id, msg.chat.id)
 
     # Estrazione dati per Whitelist e User_Names
     username = msg.from.username || "Unknown"
@@ -47,22 +46,22 @@ class MessageHandler
 
     Whitelist.salva_nome_utente(u_id, first_name, last_name)
 
-# 1. Tenta il caricamento della config salvata
+    # 1. Tenta il caricamento della config salvata
     config_salvata = DataManager.carica_config_utente(u_id)
 
     # 2. SE config_salvata è nil, creiamo un hash di default basato sul gruppo attuale
     if config_salvata.nil? || config_salvata.empty?
       # Usa il tuo metodo già esistente in db.rb
       gruppo_row = DataManager.prendi_gruppo_da_chat_id(msg.chat.id)
-      
+
       g_id_auto = gruppo_row ? gruppo_row["id"].to_i : 0
       t_id_auto = msg.respond_to?(:message_thread_id) ? (msg.message_thread_id || 0) : 0
-      
+
       config_salvata = { "db_id" => g_id_auto, "topic_id" => t_id_auto }
       puts "🔄 [AUTO-ADAPT] Config generata per #{u_id} -> G:#{g_id_auto}"
     end
 
-    # 3. FIX CRASH: Se l'oggetto config nel contesto è nil, dobbiamo inizializzarlo 
+    # 3. FIX CRASH: Se l'oggetto config nel contesto è nil, dobbiamo inizializzarlo
     # Usiamo l'istanza per bypassare il problema del nil su attr_reader
     if context.config.nil?
       context.instance_variable_set(:@config, {})
@@ -71,8 +70,7 @@ class MessageHandler
     # 4. Ora puoi popolare senza errori
     context.config["db_id"] = config_salvata["db_id"].to_i
     context.config["topic_id"] = config_salvata["topic_id"].to_i
-        
-    
+
     effective_g_id = context.config["db_id"].to_i
     effective_t_id = context.config["topic_id"].to_i
 
@@ -283,59 +281,49 @@ class MessageHandler
     File.delete(local_path) if File.exist?(local_path)
   end
 
-  def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
-    is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
-    real_message = is_callback ? message.message : message
-    groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
-    return if groups_and_topics.empty?
-
-    conf = DataManager.carica_config_utente(user_id) || {}
-    per_page = 5
-    total_pages = (groups_and_topics.size.to_f / per_page).ceil
-    page = [[page, 0].max, total_pages - 1].min
-    slice = groups_and_topics.slice(page * per_page, per_page) || []
-
-    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I MIEI ARTICOLI"
-    text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
-    item_buttons = []
-
-    slice.each do |row|
-      g_id, t_id = row["gruppo_id"], row["topic_id"]
-      is_active = (g_id == conf["db_id"].to_i && t_id == conf["topic_id"].to_i)
-      info = DataManager.recupera_nomi_contesto(g_id, t_id)
-      label = info[:nome] == "Privata" ? info[:topic] : (info[:topic] == "Generale" ? info[:nome] : "#{info[:nome]}: #{info[:topic]}")
-      prefix = is_active ? "🎯 " : "📂 "
-
-      item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{prefix}#{label.upcase}", callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}")]
-      DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all).each do |art|
-        status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
-        tag = (show_all && g_id != 0) ? "[#{art["autore_init"] || "?"}] " : ""
-
-        icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 📸" : ""
-        label_articolo = "#{status} #{tag}#{art["nome"]}#{icona_foto}"
-
-        item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: label_articolo,
-          callback_data: "myallcomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
-        )]
-      end
-    end
-
-    nav = []
-    nav << Telegram::Bot::Types::InlineKeyboardButton.new(text: "◀️", callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}") if page > 0
-    nav << Telegram::Bot::Types::InlineKeyboardButton.new(text: "▶️", callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}") if page < total_pages - 1
-
-    keyboard = item_buttons
-    keyboard << nav unless nav.empty?
-    keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"), Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0")]
-
-    markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
-    if is_callback
-      bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, reply_markup: markup, parse_mode: "HTML") rescue nil
-    else
-      bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
-    end
+def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
+puts "🔍 [DEBUG HANDLE] Entrato per U:#{user_id} | ShowAll:#{show_all}"
+  is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
+  real_message = is_callback ? message.message : message
+  groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
+  puts "🔍 [DEBUG HANDLE] Gruppi trovati: #{groups_and_topics.size}"
+  if groups_and_topics.any?
+     # Stampiamo il primo per vedere se contiene ancora articoli completati
+     puts "🔍 [DEBUG HANDLE] Esempio Gruppo: #{groups_and_topics.first['nome']} | ID: #{groups_and_topics.first['id']}"
   end
+  
+  
+if groups_and_topics.empty?
+    text = "<b>#{title}</b>\n\n✅ Lista pulita! Non ci sono articoli completati."
+    if is_callback
+      bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, parse_mode: "HTML") rescue nil
+    else
+      bot.api.send_message(chat_id: chat_id, text: text, parse_mode: "HTML")
+    end
+    return # Esce dopo aver pulito l'interfaccia
+  end
+  
+   
+  conf = DataManager.carica_config_utente(user_id) || {}
+  per_page = 5
+  total_pages = (groups_and_topics.size.to_f / per_page).ceil
+  page = [[page, 0].max, total_pages - 1].min
+  slice = groups_and_topics.slice(page * per_page, per_page) || []
+
+  title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I MIEI ARTICOLI"
+  text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
+
+  # CHIAMATA AL GENERATORE ESTERNO
+  markup = KeyboardGenerator.markup_lista_globale(user_id, slice, conf, page, total_pages, show_all, chat_id)
+
+  if is_callback
+    bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, reply_markup: markup, parse_mode: "HTML") rescue nil
+  else
+    bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
+  end
+end
+  
+  
 
   def self.handle_newgroup(bot, msg, chat_id, user_id)
     puts "🔍 /newgroup richiesto da: #{msg.from.first_name} (ID: #{user_id})"

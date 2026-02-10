@@ -158,13 +158,62 @@ class KeyboardGenerator
       one_time_keyboard: false,
     )
 
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: "passato a #{etichetta_lista}",
-      reply_markup: keyboard,
-      parse_mode: "Markdown",
-    )
+        bot.api.send_message(
+          chat_id: chat_id,
+          text: "passato a #{etichetta_lista}",
+          reply_markup: keyboard,
+          parse_mode: "Markdown",
+        )
   end
+
+def self.markup_lista_globale(user_id, groups_and_topics, conf, page, total_pages, show_all, chat_id)
+  item_buttons = []
+
+  groups_and_topics.each do |row|
+    g_id, t_id = row["gruppo_id"], row["topic_id"]
+    is_active = (g_id == conf["db_id"].to_i && t_id == conf["topic_id"].to_i)
+    info = DataManager.recupera_nomi_contesto(g_id, t_id)
+    
+    label = info[:nome] == "Privata" ? info[:topic] : (info[:topic] == "Generale" ? info[:nome] : "#{info[:nome]}: #{info[:topic]}")
+    prefix = is_active ? "🎯 " : "📂 "
+
+    # Tasto Contesto
+    item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{prefix}#{label.upcase}", callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}")]
+    
+    # Tasti Articoli
+    DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all).each do |art|
+      status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
+      tag = (show_all && g_id != 0) ? "[#{art["autore_init"] || "?"}] " : ""
+      icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 📸" : ""
+      
+      item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "#{status} #{tag}#{art["nome"]}#{icona_foto}",
+        callback_data: "myallcomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}"
+      )]
+    end
+  end
+
+  # --- IL NUOVO TASTO DELICATISSIMO ---
+  testo_scopetta = show_all ? "🧹 SUPERSCOPETTA (TUTTI)" : "🧹 SUPERSCOPETTA (MIEI)"
+  item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: testo_scopetta, callback_data: "superscopetta:#{show_all ? 1 : 0}")]
+
+  # Navigazione
+  nav = []
+  nav << Telegram::Bot::Types::InlineKeyboardButton.new(text: "◀️", callback_data: "myitems_page:#{user_id}:#{page - 1}:#{show_all ? 1 : 0}") if page > 0
+  nav << Telegram::Bot::Types::InlineKeyboardButton.new(text: "▶️", callback_data: "myitems_page:#{user_id}:#{page + 1}:#{show_all ? 1 : 0}") if page < total_pages - 1
+  
+  item_buttons << nav unless nav.empty?
+  
+  # Chiusura e Refresh
+  item_buttons << [
+    Telegram::Bot::Types::InlineKeyboardButton.new(text: "🔄", callback_data: "myitems_refresh:#{user_id}:#{page}:#{show_all ? 1 : 0}"), 
+    Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{chat_id}:0")
+  ]
+
+  Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: item_buttons)
+end
+
+
 
   def self.show_group_selector(bot, user_id, message_id = nil)
     # 1. Recupero la config attuale dell'utente per evidenziare la scelta attiva

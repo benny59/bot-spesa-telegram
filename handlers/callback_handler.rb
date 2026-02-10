@@ -124,7 +124,7 @@ class CallbackHandler
         reply_markup: ui[:markup],
         parse_mode: "HTML",
       )
-when /^ui_back_to_list:(-?\d+):(\d+)/
+    when /^ui_back_to_list:(-?\d+):(\d+)/
       g_id, t_id = $1.to_i, $2.to_i
       items = DataManager.prendi_articoli_ordinati(g_id, t_id)
       header = DataManager.genera_header_contesto(g_id, t_id)
@@ -144,9 +144,7 @@ when /^ui_back_to_list:(-?\d+):(\d+)/
 
       # Chiamata sicura
       self.edit_veloce(bot, context, callback, markup_finale)
-      
-      
-          when /^myitems_refresh:(\d+):(\d+):(\d)$/
+    when /^myitems_refresh:(\d+):(\d+):(\d)$/
       u_id, page, s_all = $1.to_i, $2.to_i, $3.to_i
       show_all = (s_all == 1)
 
@@ -212,7 +210,6 @@ when /^ui_back_to_list:(-?\d+):(\d+)/
       etichetta = (nomi[:nome] == "Privata") ? nomi[:topic] : "#{nomi[:nome]} #{nomi[:topic]}".strip
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🎯 Target: #{etichetta}")
 
-
       KeyboardGenerator.show_private_keyboard(bot, context.chat_id, context) if context.private_chat?
       # Non chiamare la tastiera fisica qui! Altrimenti sovrascrive il menu gruppi.
 
@@ -270,43 +267,91 @@ when /^ui_back_to_list:(-?\d+):(\d+)/
       # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
       # --------------------------------------------------------------------------
-      # callback_handler.rb
-when /^ui_cleanup:(-?\d+):(\d+)$/
+when /^superscopetta:(\d)$/
+  puts "DEBUG: Entrato in Superscopetta" 
+  is_all = ($1.to_i == 1)
+  u_name = callback.from.first_name # Recuperiamo il nome per la notifica
+  
+  articoli = DataManager.articoli_da_superscopetta(user_id, is_all)
+  puts "DEBUG: Articoli trovati: #{articoli.size}" 
+  
+  if articoli.any?
+    mappa = articoli.group_by { |a| [a['gruppo_id'], a['topic_id']] }
+    totale = 0
+
+    mappa.each do |(g_id, t_id), items|
+      ids = items.map { |i| i['id'] }
+      rimossi = DataManager.esegui_scopetta(g_id, t_id, ids)
+      totale += rimossi
+      
+      # Notifica nei gruppi (escluso privato g_id=0)
+      if rimossi > 0 && g_id != 0
+        chat_id_dest = DataManager.get_real_chat_id(g_id)
+        
+        # --- LOGICA DRY: Usiamo il metodo esistente per vedere cosa resta ---
+        articoli_attuali = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, is_all)
+        # Contiamo quelli che hanno 'comprato' vuoto (ancora da prendere)
+        articoli_rimasti = articoli_attuali.count { |a| a['comprato'].to_s.strip.empty? }
+
+        msg = if articoli_rimasti == 0
+                "🛒 <b>#{u_name}</b> ha terminato la spesa."
+              else
+                "🛒 <b>#{u_name}</b> ha terminato la spesa, controlla gli articoli rimasti."
+              end
+
+        bot.api.send_message(
+          chat_id: chat_id_dest, 
+          message_thread_id: (t_id != 0 ? t_id : nil), 
+          text: msg, 
+          parse_mode: "HTML"
+        ) rescue nil
+      end
+    end
+    bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Pulizia: #{totale} articoli.")
+  else
+    bot.api.answer_callback_query(callback_query_id: callback.id, text: "Nessun articolo da pulire.")
+  end
+
+  # REFRESH UI
+  puts "DEBUG: Provo il refresh..."
+  target_chat_id = chat_id || callback.message.chat.id
+  puts "DEBUG: Lancio Refresh post-scopetta..."
+  MessageHandler.handle_myitems(bot, target_chat_id, user_id, callback, 0, is_all)
+  
+  
+  
+    when /^ui_cleanup:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
 
       # 1. Eseguiamo la pulizia
       DataManager.esegui_scopetta(g_id, t_id)
-      
+
       # 2. Controllo articoli rimasti per il messaggio condizionale
       articoli_rimasti = DataManager.prendi_articoli_ordinati(g_id, t_id).size
 
       # 3. Notifica al gruppo (solo se l'utente opera dalla sua chat privata)
-      if g_id != 0 && callback.message.chat.type == 'private'
+      if g_id != 0 && callback.message.chat.type == "private"
         target_chat = DataManager.get_real_chat_id(g_id)
         u_name = callback.from.first_name
-        
+
         testo_notifica = if articoli_rimasti == 0
-                           "🛒 **#{u_name}** ha terminato la spesa."
-                         else
-                           "🛒 **#{u_name}** ha terminato la spesa, controlla gli articoli rimasti."
-                         end
+            "🛒 **#{u_name}** ha terminato la spesa."
+          else
+            "🛒 **#{u_name}** ha terminato la spesa, controlla gli articoli rimasti."
+          end
 
         bot.api.send_message(
           chat_id: target_chat,
           text: testo_notifica,
-          parse_mode: 'Markdown',
-          message_thread_id: (t_id != 0 ? t_id : nil)
+          parse_mode: "Markdown",
+          message_thread_id: (t_id != 0 ? t_id : nil),
         )
       end
 
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🧹 Lista pulita!")
-      
+
       # Torna sempre a pagina 0 dopo la pulizia
       self.refresh_ui(bot, callback, context, g_id, t_id, 0, 0)
-            
-      
-      
-      
     when /^pin_refresh:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🔄 Lista aggiornata")
@@ -454,34 +499,32 @@ when /^ui_cleanup:(-?\d+):(\d+)$/
         message_id: callback.message.message_id,
         reply_markup: nuovo_markup,
       )
-when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
-  item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
-  
-  nome_art = DataManager.get_nome_articolo(item_id)
-  DataManager.rimuovi_item_diretto(item_id)
-  bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Rimosso")
+    when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
+      item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
 
-  # NOTIFICA: Solo se l'azione parte dalla chat privata
-  is_in_private = callback.message.chat.type == 'private'
-  
-  if g_id != 0 && is_in_private
-    target_chat = DataManager.get_real_chat_id(g_id)
-    begin
-      bot.api.send_message(
-        chat_id: target_chat,
-        text: "❌ <b>#{callback.from.first_name}</b> ha cancellato: #{nome_art}",
-        parse_mode: 'html',
-        message_thread_id: (t_id != 0 ? t_id : nil)
-      )
-    rescue => e
-      puts "⚠️ [NOTIFICA_SKIP] #{e.message}"
-    end
-  end
+      nome_art = DataManager.get_nome_articolo(item_id)
+      DataManager.rimuovi_item_diretto(item_id)
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Rimosso")
 
-  # Refresh dell'interfaccia
-  self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
-  
-              
+      # NOTIFICA: Solo se l'azione parte dalla chat privata
+      is_in_private = callback.message.chat.type == "private"
+
+      if g_id != 0 && is_in_private
+        target_chat = DataManager.get_real_chat_id(g_id)
+        begin
+          bot.api.send_message(
+            chat_id: target_chat,
+            text: "❌ <b>#{callback.from.first_name}</b> ha cancellato: #{nome_art}",
+            parse_mode: "html",
+            message_thread_id: (t_id != 0 ? t_id : nil),
+          )
+        rescue => e
+          puts "⚠️ [NOTIFICA_SKIP] #{e.message}"
+        end
+      end
+
+      # Refresh dell'interfaccia
+      self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
     when /^set_target:(.+):(.+)$/
       g_db_id = $1.to_i # L'ID interno (es: 50)
       t_id = $2.to_i    # L'ID del topic (es: 2)
@@ -582,61 +625,60 @@ when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
   # handlers/callback_handler.rb
 
   # In handlers/callback_handler.rb
-def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
-  items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-  header = DataManager.genera_header_contesto(g_id, t_id)
-  
-  # Determiniamo se siamo in chat privata o gruppo per le opzioni
-  is_private = callback.message.chat.type == 'private'
-  options = { nome_target: header, is_group: !is_private, page: page.to_i }
+  def self.refresh_ui(bot, callback, context, g_id, t_id, page, s_all)
+    items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+    header = DataManager.genera_header_contesto(g_id, t_id)
 
-  # Qui sta il trucco: genera_lista restituisce un HASH
-  result = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
-  
-  # Estraiamo il markup dall'hash
-  ui = result[:markup] 
-  
-  # LOG DI CONTROLLO
-  puts "📟 [UI_REFRESH] Articoli: #{items.size} | Righe tastiera: #{ui.inline_keyboard.size}"
+    # Determiniamo se siamo in chat privata o gruppo per le opzioni
+    is_private = callback.message.chat.type == "private"
+    options = { nome_target: header, is_group: !is_private, page: page.to_i }
 
-  c_id = callback.message.chat.id
-  m_id = callback.message.message_id
+    # Qui sta il trucco: genera_lista restituisce un HASH
+    result = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
 
-  self.edit_veloce(bot, c_id, m_id, ui)
-end
+    # Estraiamo il markup dall'hash
+    ui = result[:markup]
 
-def self.edit_veloce(bot, chat_id, message_id, markup)
-  # Se chat_id è un oggetto Context o Chat, estraiamo l'id numerico
-  final_c_id = chat_id.respond_to?(:chat_id) ? chat_id.chat_id : chat_id
-  final_c_id = final_c_id.id if final_c_id.respond_to?(:id)
+    # LOG DI CONTROLLO
+    puts "📟 [UI_REFRESH] Articoli: #{items.size} | Righe tastiera: #{ui.inline_keyboard.size}"
 
-  # Se message_id è un oggetto CallbackQuery o Message, estraiamo l'id numerico
-  final_m_id = if message_id.respond_to?(:message)
-                 message_id.message.message_id
-               elsif message_id.respond_to?(:message_id)
-                 message_id.message_id
-               else
-                 message_id
-               end
+    c_id = callback.message.chat.id
+    m_id = callback.message.message_id
 
-  # Se markup è ancora l'intero Hash del generatore, estraiamo solo il markup
-  final_markup = markup.is_a?(Hash) ? markup[:markup] : markup
-
-  puts "📡 [API_EDIT] Chat:#{final_c_id} | Msg:#{final_m_id}"
-
-bot.api.edit_message_reply_markup(
-    chat_id: final_c_id.to_i,
-    message_id: final_m_id.to_i,
-    reply_markup: final_markup
-  )
-rescue Telegram::Bot::Exceptions::ResponseError => e
-  if e.message.include?("message is not modified")
-    puts "ℹ️ [API_INFO] Refresh ignorato: contenuto identico."
-  else
-    puts "❌ [API_ERR] #{e.message}"
+    self.edit_veloce(bot, c_id, m_id, ui)
   end
-end
 
+  def self.edit_veloce(bot, chat_id, message_id, markup)
+    # Se chat_id è un oggetto Context o Chat, estraiamo l'id numerico
+    final_c_id = chat_id.respond_to?(:chat_id) ? chat_id.chat_id : chat_id
+    final_c_id = final_c_id.id if final_c_id.respond_to?(:id)
+
+    # Se message_id è un oggetto CallbackQuery o Message, estraiamo l'id numerico
+    final_m_id = if message_id.respond_to?(:message)
+        message_id.message.message_id
+      elsif message_id.respond_to?(:message_id)
+        message_id.message_id
+      else
+        message_id
+      end
+
+    # Se markup è ancora l'intero Hash del generatore, estraiamo solo il markup
+    final_markup = markup.is_a?(Hash) ? markup[:markup] : markup
+
+    puts "📡 [API_EDIT] Chat:#{final_c_id} | Msg:#{final_m_id}"
+
+    bot.api.edit_message_reply_markup(
+      chat_id: final_c_id.to_i,
+      message_id: final_m_id.to_i,
+      reply_markup: final_markup,
+    )
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    if e.message.include?("message is not modified")
+      puts "ℹ️ [API_INFO] Refresh ignorato: contenuto identico."
+    else
+      puts "❌ [API_ERR] #{e.message}"
+    end
+  end
 
   def self.handle_approve_user(bot, callback_query, chat_id, target_user_id, username, full_name)
     # ✅ Azione su DB centralizzata in Whitelist
@@ -684,5 +726,4 @@ end
       puts "⚠️ Impossibile notificare utente rifiutato: #{e.message}"
     end
   end
-
 end

@@ -220,57 +220,41 @@ class DataManager
   # LA SCOPETTA (Cleanup & Storico)
   # ----------------------------------------------------------------------------
   # Cancella gli articoli comprati e aggiorna il conteggio nello storico
-  def self.esegui_scopetta(gruppo_id, topic_id = 0)
-    puts "[DATA_MONITOR] 🧹 Scopetta: elaborazione diciture esatte per G:#{gruppo_id}"
+def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
+    if target_ids && !target_ids.empty?
+      placeholders = target_ids.map { '?' }.join(',')
+      query = "SELECT id, nome, creato_da, comprato FROM items WHERE id IN (#{placeholders})"
+      params = target_ids
+    else
+      query = "SELECT id, nome, creato_da, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''"
+      params = [gruppo_id, topic_id]
+    end
 
-    comprati = DB.execute(
-      "SELECT nome, creato_da, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''",
-      [gruppo_id, topic_id]
-    )
-    return if comprati.empty?
+    comprati = DB.execute(query, params)
+    return 0 if comprati.empty?
 
     DB.transaction do
       comprati.each do |item|
-        nome_esatto = item["nome"].to_s.strip # Puliamo solo gli spazi esterni
-        c_da = item["creato_da"]
-        comp_da = item["comprato"]
-
-        # Ricerca ESATTA (Rimosso LOWER)
-        esistente = DB.get_first_row(
-          "SELECT id FROM storico_articoli WHERE nome = ? AND gruppo_id = ? AND topic_id = ?",
-          [nome_esatto, gruppo_id, topic_id]
-        )
-
+        nome_esatto = item["nome"].to_s.strip
+        esistente = DB.get_first_row("SELECT id FROM storico_articoli WHERE nome = ? AND gruppo_id = ? AND topic_id = ?", [nome_esatto, gruppo_id, topic_id])
+        
         if esistente
-          DB.execute(
-            "UPDATE storico_articoli SET 
-           conteggio = conteggio + 1, 
-           creato_da = ?, 
-           comprato_da = ?, 
-           updated_at = datetime('now') 
-           WHERE id = ?",
-            [c_da, comp_da, esistente["id"]]
-          )
+          DB.execute("UPDATE storico_articoli SET conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, updated_at = datetime('now') WHERE id = ?", [item["creato_da"], item["comprato"], esistente["id"]])
         else
-          DB.execute(
-            "INSERT OR IGNORE INTO storico_articoli 
-           (gruppo_id, topic_id, nome, conteggio, creato_da, comprato_da, ultima_aggiunta) 
-           VALUES (?, ?, ?, 1, ?, ?, datetime('now'))",
-            [gruppo_id, topic_id, nome_esatto, c_da, comp_da]
-          )
+          DB.execute("INSERT OR IGNORE INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, creato_da, comprato_da, ultima_aggiunta) VALUES (?, ?, ?, 1, ?, ?, datetime('now'))", [gruppo_id, topic_id, nome_esatto, item["creato_da"], item["comprato"]])
         end
       end
-      DB.execute(
-        "DELETE FROM item_images WHERE item_id IN (
-          SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''
-        )",
-        [gruppo_id, topic_id]
-      )
 
-      DB.execute("DELETE FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''", [gruppo_id, topic_id])
+      ids_del = comprati.map { |i| i["id"] }
+      p_del = ids_del.map { '?' }.join(',')
+      DB.execute("DELETE FROM item_images WHERE item_id IN (#{p_del})", ids_del)
+      DB.execute("DELETE FROM items WHERE id IN (#{p_del})", ids_del)
     end
+    comprati.size
   end
-  # ----------------------------------------------------------------------------
+  
+  
+    # ----------------------------------------------------------------------------
   # REGISTRAZIONE UTENTE (WHITELIST)
   # ----------------------------------------------------------------------------
   def self.registra_utente(user_id, first_name, last_name)
@@ -538,39 +522,35 @@ class DataManager
     DB.execute(query, [u_id, u_id])
   end
 
- def self.aggiorna_membership(u_id, telegram_chat_id)
-  # 1. Recuperiamo l'ID primario del database per quel gruppo
-  g_id_db = DB.get_first_value("SELECT id FROM gruppi WHERE chat_id = ?", [telegram_chat_id])
-puts "g_id_db #{g_id_db} telegram_chat_id: #{telegram_chat_id}"
-  # Se il gruppo non esiste ancora nel DB, non possiamo creare la membership
-  return if g_id_db.nil?
+  def self.aggiorna_membership(u_id, telegram_chat_id)
+    # 1. Recuperiamo l'ID primario del database per quel gruppo
+    g_id_db = DB.get_first_value("SELECT id FROM gruppi WHERE chat_id = ?", [telegram_chat_id])
+    puts "g_id_db #{g_id_db} telegram_chat_id: #{telegram_chat_id}"
+    # Se il gruppo non esiste ancora nel DB, non possiamo creare la membership
+    return if g_id_db.nil?
 
-  # 2. Ora inseriamo usando l'ID corretto (es. 48 invece di -100...)
-  query = <<-SQL
+    # 2. Ora inseriamo usando l'ID corretto (es. 48 invece di -100...)
+    query = <<-SQL
     INSERT INTO memberships (user_id, gruppo_id, last_seen)
     VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(user_id, gruppo_id) DO UPDATE SET
     last_seen = CURRENT_TIMESTAMP
   SQL
 
-  begin
-    DB.execute(query, [u_id, g_id_db])
-  rescue SQLite3::Exception => e
-    puts "❌ [DB ERROR] Errore aggiorna_membership: #{e.message}"
+    begin
+      DB.execute(query, [u_id, g_id_db])
+    rescue SQLite3::Exception => e
+      puts "❌ [DB ERROR] Errore aggiorna_membership: #{e.message}"
+    end
   end
-end
 
-
-def self.get_nome_articolo(item_id)
+  def self.get_nome_articolo(item_id)
     nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id.to_i])
     puts "🔍 [DB_TRACE] ID:#{item_id} -> Nome recuperato: '#{nome}'"
     nome
   end
-  
-	
-       
-  
-def self.prendi_destinazioni_censite(user_id)
+
+  def self.prendi_destinazioni_censite(user_id)
     destinazioni = [{ "chat_id" => 0, "topic_id" => 0, "nome" => "👤 Lista Personale", "g_nome" => "Privata" }]
 
     sql = <<-SQL
@@ -596,7 +576,7 @@ def self.prendi_destinazioni_censite(user_id)
     end
     destinazioni
   end
-    # In db.rb
+  # In db.rb
   def self.prendi_ultimi_acquisti_con_nomi(gruppo_id, topic_id, limite = 15)
     sql = <<-SQL
     SELECT s.nome,
@@ -681,8 +661,32 @@ def self.prendi_destinazioni_censite(user_id)
       ["context:#{user_id}", config_hash.to_json]
     )
   end
-
-  # ----------------------------------------------------------------------------
+# ==============================================================================
+  # SUPERSCOPETTA: Pulizia trasversale (Miei o Tutti)
+  # ==============================================================================
+# In db.rb (DataManager)
+def self.articoli_da_superscopetta(user_id, show_all)
+    if show_all
+      # Query corretta basata sul tuo db.rb
+      sql = <<-SQL
+        SELECT i.id, i.nome, i.gruppo_id, i.topic_id
+        FROM items i
+        WHERE i.comprato != '' AND i.comprato IS NOT NULL
+        AND (
+          (i.gruppo_id = 0 AND i.creato_da = ?) 
+          OR 
+          i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
+        )
+      SQL
+      params = [user_id, user_id]
+    else
+      sql = "SELECT id, nome, gruppo_id, topic_id FROM items WHERE (comprato != '' AND comprato IS NOT NULL) AND creato_da = ?"
+      params = [user_id]
+    end
+    DB.execute(sql, params)
+  end
+    
+        # ----------------------------------------------------------------------------
   # GESTIONE AZIONI IN SOSPESO (PENDING ACTIONS)
   # ----------------------------------------------------------------------------
   # In db.rb, all'interno della classe DataManager
