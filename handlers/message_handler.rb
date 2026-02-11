@@ -281,49 +281,45 @@ class MessageHandler
     File.delete(local_path) if File.exist?(local_path)
   end
 
-def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
-puts "🔍 [DEBUG HANDLE] Entrato per U:#{user_id} | ShowAll:#{show_all}"
-  is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
-  real_message = is_callback ? message.message : message
-  groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
-  puts "🔍 [DEBUG HANDLE] Gruppi trovati: #{groups_and_topics.size}"
-  if groups_and_topics.any?
-     # Stampiamo il primo per vedere se contiene ancora articoli completati
-     puts "🔍 [DEBUG HANDLE] Esempio Gruppo: #{groups_and_topics.first['nome']} | ID: #{groups_and_topics.first['id']}"
-  end
-  
-  
-if groups_and_topics.empty?
-    text = "<b>#{title}</b>\n\n✅ Lista pulita! Non ci sono articoli completati."
-    if is_callback
-      bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, parse_mode: "HTML") rescue nil
-    else
-      bot.api.send_message(chat_id: chat_id, text: text, parse_mode: "HTML")
+  def self.handle_myitems(bot, chat_id, user_id, message, page = 0, show_all = false)
+    puts "🔍 [DEBUG HANDLE] Entrato per U:#{user_id} | ShowAll:#{show_all}"
+    is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
+    real_message = is_callback ? message.message : message
+    groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
+    puts "🔍 [DEBUG HANDLE] Gruppi trovati: #{groups_and_topics.size}"
+    if groups_and_topics.any?
+      # Stampiamo il primo per vedere se contiene ancora articoli completati
+      puts "🔍 [DEBUG HANDLE] Esempio Gruppo: #{groups_and_topics.first["nome"]} | ID: #{groups_and_topics.first["id"]}"
     end
-    return # Esce dopo aver pulito l'interfaccia
+
+    if groups_and_topics.empty?
+      text = "<b>#{title}</b>\n\n✅ Lista pulita! Non ci sono articoli completati."
+      if is_callback
+        bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, parse_mode: "HTML") rescue nil
+      else
+        bot.api.send_message(chat_id: chat_id, text: text, parse_mode: "HTML")
+      end
+      return # Esce dopo aver pulito l'interfaccia
+    end
+
+    conf = DataManager.carica_config_utente(user_id) || {}
+    per_page = 5
+    total_pages = (groups_and_topics.size.to_f / per_page).ceil
+    page = [[page, 0].max, total_pages - 1].min
+    slice = groups_and_topics.slice(page * per_page, per_page) || []
+
+    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I MIEI ARTICOLI"
+    text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
+
+    # CHIAMATA AL GENERATORE ESTERNO
+    markup = KeyboardGenerator.markup_lista_globale(user_id, slice, conf, page, total_pages, show_all, chat_id)
+
+    if is_callback
+      bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, reply_markup: markup, parse_mode: "HTML") rescue nil
+    else
+      bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
+    end
   end
-  
-   
-  conf = DataManager.carica_config_utente(user_id) || {}
-  per_page = 5
-  total_pages = (groups_and_topics.size.to_f / per_page).ceil
-  page = [[page, 0].max, total_pages - 1].min
-  slice = groups_and_topics.slice(page * per_page, per_page) || []
-
-  title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I MIEI ARTICOLI"
-  text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
-
-  # CHIAMATA AL GENERATORE ESTERNO
-  markup = KeyboardGenerator.markup_lista_globale(user_id, slice, conf, page, total_pages, show_all, chat_id)
-
-  if is_callback
-    bot.api.edit_message_text(chat_id: chat_id, message_id: real_message.message_id, text: text, reply_markup: markup, parse_mode: "HTML") rescue nil
-  else
-    bot.api.send_message(chat_id: chat_id, text: text, reply_markup: markup, parse_mode: "HTML")
-  end
-end
-  
-  
 
   def self.handle_newgroup(bot, msg, chat_id, user_id)
     puts "🔍 /newgroup richiesto da: #{msg.from.first_name} (ID: #{user_id})"

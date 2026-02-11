@@ -18,11 +18,11 @@ class CallbackHandler
     # In CallbackHandler (o nel blocco case del callback in bot_spesa.rb)
     when /^adm_app:(\d+):(.+):(.+)$/
       target_id, target_user, target_name = $1.to_i, $2, $3.gsub("_", " ")
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Utente approvato!")
 
       # ✅ Azione su DB: Approva l'utente
       Whitelist.approve_user(target_id, target_user, target_name)
 
-      bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Utente approvato!")
       bot.api.edit_message_text(
         chat_id: callback.message.chat.id,
         message_id: callback.message.message_id,
@@ -33,9 +33,10 @@ class CallbackHandler
       bot.api.send_message(chat_id: target_id, text: "🎉 La tua richiesta è stata approvata!")
     when /^adm_rej:(\d+)$/
       target_id = $1.to_i
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Richiesta rifiutata")
+
       Whitelist.remove_pending_request(target_id)
 
-      bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Richiesta rifiutata")
       bot.api.edit_message_text(
         chat_id: callback.message.chat.id,
         message_id: callback.message.message_id,
@@ -79,8 +80,12 @@ class CallbackHandler
       bot.api.answer_callback_query(callback_query_id: callback.id)
       bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id) rescue nil
     when /^carte_confirm_delete:(\d+)$/
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+
       CarteFedelta.delete_card(bot, context.user_id, $1.to_i)
     when "carte_cancel_delete"
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+
       bot.api.delete_message(chat_id: context.chat_id, message_id: callback.message.message_id)
       # Nel blocco 'when' che gestisce i callback
     when /^ui_cards:(\d+):(\d+)$/
@@ -89,6 +94,7 @@ class CallbackHandler
 
       # Chiamiamo il metodo che ora userà DataManager.carte_disponibili_nel_gruppo(g_id)
       # Passiamo g_id esplicito per non farlo cercare a caso nel context
+      bot.api.answer_callback_query(callback_query_id: callback.id)
       CarteFedeltaGruppo.show_group_cards(bot, g_id, context.chat_id, user_id, t_id)
     when /^ui_page:(\d+):(\d+):(\d+)$/
       g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i
@@ -223,6 +229,8 @@ class CallbackHandler
         (s_all == 1)
       )
     when /^mycomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
+      bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
+
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
 
       # 1. Logica DB (La tua)
@@ -249,6 +257,8 @@ class CallbackHandler
 
       # --- RAMO 2: LISTA "TUTTI GLI ARTICOLI" (Refresh Differenziato) ---
     when /^myallcomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
+      bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
+
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
 
       # 1. Logica DB (IDENTICA - DRY)
@@ -267,61 +277,57 @@ class CallbackHandler
       # --------------------------------------------------------------------------
       # LA SCOPETTA (Svuota carrello -> Storico)
       # --------------------------------------------------------------------------
-when /^superscopetta:(\d)$/
-  puts "DEBUG: Entrato in Superscopetta" 
-  is_all = ($1.to_i == 1)
-  u_name = callback.from.first_name # Recuperiamo il nome per la notifica
-  
-  articoli = DataManager.articoli_da_superscopetta(user_id, is_all)
-  puts "DEBUG: Articoli trovati: #{articoli.size}" 
-  
-  if articoli.any?
-    mappa = articoli.group_by { |a| [a['gruppo_id'], a['topic_id']] }
-    totale = 0
+    when /^superscopetta:(\d)$/
+      puts "DEBUG: Entrato in Superscopetta"
+      is_all = ($1.to_i == 1)
+      u_name = callback.from.first_name
 
-    mappa.each do |(g_id, t_id), items|
-      ids = items.map { |i| i['id'] }
-      rimossi = DataManager.esegui_scopetta(g_id, t_id, ids)
-      totale += rimossi
-      
-      # Notifica nei gruppi (escluso privato g_id=0)
-      if rimossi > 0 && g_id != 0
-        chat_id_dest = DataManager.get_real_chat_id(g_id)
-        
-        # --- LOGICA DRY: Usiamo il metodo esistente per vedere cosa resta ---
-        articoli_attuali = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, is_all)
-        # Contiamo quelli che hanno 'comprato' vuoto (ancora da prendere)
-        articoli_rimasti = articoli_attuali.count { |a| a['comprato'].to_s.strip.empty? }
+      # 1. RISPOSTA IMMEDIATA (Sblocca l'interfaccia ed evita il timeout 400)
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🧹 Pulizia in corso...") rescue nil
 
-        msg = if articoli_rimasti == 0
+      articoli = DataManager.articoli_da_superscopetta(user_id, is_all)
+      puts "DEBUG: Articoli trovati: #{articoli.size}"
+
+      if articoli.any?
+        mappa = articoli.group_by { |a| [a["gruppo_id"], a["topic_id"]] }
+        totale = 0
+
+        mappa.each do |(g_id, t_id), items|
+          ids = items.map { |i| i["id"] }
+          rimossi = DataManager.esegui_scopetta(g_id, t_id, ids)
+          totale += rimossi
+
+          if rimossi > 0 && g_id != 0
+            chat_id_dest = DataManager.get_real_chat_id(g_id)
+            articoli_attuali = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, is_all)
+
+            # Conta articoli con colonna 'comprato' vuota (ancora da prendere)
+            articoli_rimasti = articoli_attuali.count { |a| a["comprato"].to_s.strip.empty? }
+
+            msg = if articoli_rimasti == 0
                 "🛒 <b>#{u_name}</b> ha terminato la spesa."
               else
                 "🛒 <b>#{u_name}</b> ha terminato la spesa, controlla gli articoli rimasti."
               end
 
-        bot.api.send_message(
-          chat_id: chat_id_dest, 
-          message_thread_id: (t_id != 0 ? t_id : nil), 
-          text: msg, 
-          parse_mode: "HTML"
-        ) rescue nil
+            bot.api.send_message(
+              chat_id: chat_id_dest,
+              message_thread_id: (t_id != 0 ? t_id : nil),
+              text: msg,
+              parse_mode: "HTML",
+            ) rescue nil
+          end
+        end
+        # NOTA: Abbiamo rimosso il secondo answer_callback_query qui
       end
-    end
-    bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Pulizia: #{totale} articoli.")
-  else
-    bot.api.answer_callback_query(callback_query_id: callback.id, text: "Nessun articolo da pulire.")
-  end
 
-  # REFRESH UI
-  puts "DEBUG: Provo il refresh..."
-  target_chat_id = chat_id || callback.message.chat.id
-  puts "DEBUG: Lancio Refresh post-scopetta..."
-  MessageHandler.handle_myitems(bot, target_chat_id, user_id, callback, 0, is_all)
-  
-  
-  
+      # REFRESH UI
+      puts "DEBUG: Lancio Refresh post-scopetta..."
+      target_chat_id = chat_id || callback.message.chat.id
+      MessageHandler.handle_myitems(bot, target_chat_id, user_id, callback, 0, is_all)
     when /^ui_cleanup:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🧹 Lista pulita!")
 
       # 1. Eseguiamo la pulizia
       DataManager.esegui_scopetta(g_id, t_id)
@@ -347,8 +353,6 @@ when /^superscopetta:(\d)$/
           message_thread_id: (t_id != 0 ? t_id : nil),
         )
       end
-
-      bot.api.answer_callback_query(callback_query_id: callback.id, text: "🧹 Lista pulita!")
 
       # Torna sempre a pagina 0 dopo la pulizia
       self.refresh_ui(bot, callback, context, g_id, t_id, 0, 0)
@@ -426,10 +430,13 @@ when /^superscopetta:(\d)$/
     when /^ui_checklist:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
 
-      # Generiamo la tastiera dei suggerimenti dallo StoricoManager
+      # 1. Generiamo il markup
       markup = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
 
       if markup
+        # 2a. Risposta "vuota" (toglie solo l'orologino)
+        bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
+
         bot.api.edit_message_text(
           chat_id: context.chat_id,
           message_id: callback.message.message_id,
@@ -438,7 +445,9 @@ when /^superscopetta:(\d)$/
           parse_mode: "Markdown",
         )
       else
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "Storico ancora vuoto!")
+        # 2b. Risposta con testo (mostra il bannerino "Storico vuoto")
+        # Questa è l'UNICA risposta inviata in questo ramo
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "Storico ancora vuoto!") rescue nil
       end
 
       # --------------------------------------------------------------------------
@@ -472,7 +481,7 @@ when /^superscopetta:(\d)$/
         parse_mode: "HTML",
       )
 
-      bot.api.answer_callback_query(callback_query_id: callback.id)
+      #bot.api.answer_callback_query(callback_query_id: callback.id)
     when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       nome, g_id, t_id = $1, $2.to_i, $3.to_i
 
@@ -613,7 +622,6 @@ when /^superscopetta:(\d)$/
       puts "[CALLBACK] ❓ Azione non gestita: #{data}"
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "Funzione in fase di refactoring")
     end
-    bot.api.answer_callback_query(callback_query_id: callback.id)
   end
 
   # ==============================================================================

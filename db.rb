@@ -220,9 +220,9 @@ class DataManager
   # LA SCOPETTA (Cleanup & Storico)
   # ----------------------------------------------------------------------------
   # Cancella gli articoli comprati e aggiorna il conteggio nello storico
-def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
+  def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
     if target_ids && !target_ids.empty?
-      placeholders = target_ids.map { '?' }.join(',')
+      placeholders = target_ids.map { "?" }.join(",")
       query = "SELECT id, nome, creato_da, comprato FROM items WHERE id IN (#{placeholders})"
       params = target_ids
     else
@@ -237,7 +237,7 @@ def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
       comprati.each do |item|
         nome_esatto = item["nome"].to_s.strip
         esistente = DB.get_first_row("SELECT id FROM storico_articoli WHERE nome = ? AND gruppo_id = ? AND topic_id = ?", [nome_esatto, gruppo_id, topic_id])
-        
+
         if esistente
           DB.execute("UPDATE storico_articoli SET conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, updated_at = datetime('now') WHERE id = ?", [item["creato_da"], item["comprato"], esistente["id"]])
         else
@@ -246,15 +246,14 @@ def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
       end
 
       ids_del = comprati.map { |i| i["id"] }
-      p_del = ids_del.map { '?' }.join(',')
+      p_del = ids_del.map { "?" }.join(",")
       DB.execute("DELETE FROM item_images WHERE item_id IN (#{p_del})", ids_del)
       DB.execute("DELETE FROM items WHERE id IN (#{p_del})", ids_del)
     end
     comprati.size
   end
-  
-  
-    # ----------------------------------------------------------------------------
+
+  # ----------------------------------------------------------------------------
   # REGISTRAZIONE UTENTE (WHITELIST)
   # ----------------------------------------------------------------------------
   def self.registra_utente(user_id, first_name, last_name)
@@ -661,11 +660,11 @@ def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
       ["context:#{user_id}", config_hash.to_json]
     )
   end
-# ==============================================================================
+  # ==============================================================================
   # SUPERSCOPETTA: Pulizia trasversale (Miei o Tutti)
   # ==============================================================================
-# In db.rb (DataManager)
-def self.articoli_da_superscopetta(user_id, show_all)
+  # In db.rb (DataManager)
+  def self.articoli_da_superscopetta(user_id, show_all)
     if show_all
       # Query corretta basata sul tuo db.rb
       sql = <<-SQL
@@ -685,8 +684,8 @@ def self.articoli_da_superscopetta(user_id, show_all)
     end
     DB.execute(sql, params)
   end
-    
-        # ----------------------------------------------------------------------------
+
+  # ----------------------------------------------------------------------------
   # GESTIONE AZIONI IN SOSPESO (PENDING ACTIONS)
   # ----------------------------------------------------------------------------
   # In db.rb, all'interno della classe DataManager
