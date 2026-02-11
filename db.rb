@@ -256,22 +256,59 @@ class DataManager
   # ----------------------------------------------------------------------------
   # REGISTRAZIONE UTENTE (WHITELIST)
   # ----------------------------------------------------------------------------
-  def self.registra_utente(user_id, first_name, last_name)
-    # Calcoliamo le iniziali per comodità di visualizzazione futura
-    initials = "#{first_name.to_s[0]}#{last_name.to_s[0]}".upcase
+def self.registra_utente(user_id, first_name, last_name)
+    fn = first_name.to_s.upcase.gsub(/[^A-Z]/, '')
+    ln = last_name.to_s.upcase.gsub(/[^A-Z]/, '')
+    
+    # 1. Costruiamo il vettore di tutte le combinazioni possibili (senza duplicati)
+    possibilita = []
+    
+    # A. Nome fisso (prima lettera) + scorrimento lettere cognome (es: MB, ME, MN...)
+    if fn[0]
+      ln.chars.each { |char_l| possibilita << "#{fn[0]}#{char_l}" }
+    end
+    
+    # B. Cognome fisso (prima lettera) + scorrimento lettere nome (es: MB, AB, RB...)
+    if ln[0]
+      fn.chars.each { |char_f| possibilita << "#{char_f}#{ln[0]}" }
+    end
+    
+    # C. Tutte le combinazioni incrociate rimanenti (es: MA, MT, EB, EN...)
+    fn.chars.each do |char_f|
+      ln.chars.each { |char_l| possibilita << "#{char_f}#{char_l}" }
+    end
 
+    # Pulizia: togliamo duplicati e stringhe corte
+    possibilita = possibilita.uniq.select { |p| p.length == 2 }
+    
+    # 2. Cerchiamo la prima libera nel database
+    initials = nil
+    possibilita.each do |p|
+      # Verifichiamo se p è già usato da un ALTRO utente
+      count = DB.get_first_value("SELECT COUNT(*) FROM user_names WHERE initials = ? AND user_id != ?", [p, user_id]).to_i
+      if count == 0
+        initials = p
+        break
+      end
+    end
+
+    # 3. Fallback estremo
+    initials ||= "UT"
+
+    # 4. Salvataggio (Logica originale mantenuta)
     DB.execute(
       "INSERT OR REPLACE INTO user_names (user_id, first_name, last_name, initials, aggiornato_il) 
        VALUES (?, ?, ?, ?, datetime('now'))",
       [user_id, first_name, last_name, initials]
     )
-
-    # Assicuriamoci che sia anche nella whitelist base
+    
     DB.execute("INSERT OR IGNORE INTO whitelist (user_id, added_at) VALUES (?, datetime('now'))", [user_id])
+    
+    puts "🎨 [INITIALS] Per #{first_name} #{last_name} assegnato: [#{initials}]"
   rescue => e
     puts "❌ [DATA_ERROR] Errore registrazione utente: #{e.message}"
   end
-
+  	
   # ----------------------------------------------------------------------------
   # PILASTRO '+': AGGIUNTA ARTICOLI
   # ----------------------------------------------------------------------------

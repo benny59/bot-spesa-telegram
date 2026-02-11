@@ -17,6 +17,16 @@ class MessageHandler
     raw_text = msg.text.to_s.strip
     text = raw_text.split("@").first # Prende solo "/newgroup" da "/newgroup@bot"
 
+
+# --- STEP 1: GESTIONE INOLTRO ---
+    if msg.forward_origin
+      return self.handle_forward(bot, msg, context)
+    end
+# -------------------------------
+        
+    
+
+
     DataManager.aggiorna_membership(msg.from.id, msg.chat.id)
 
     # Estrazione dati per Whitelist e User_Names
@@ -73,6 +83,9 @@ class MessageHandler
 
     effective_g_id = context.config["db_id"].to_i
     effective_t_id = context.config["topic_id"].to_i
+
+
+
 
     # --- GESTIONE FOTO ---
     if msg.photo && !msg.photo.empty?
@@ -380,6 +393,42 @@ class MessageHandler
       text: "📨 La tua richiesta di accesso è stata inviata all'amministratore.\nRiceverai una notifica quando verrà approvata.",
     )
   end
+  
+def self.handle_forward(bot, msg, context)
+    u_id = msg.from.id
+    origin = msg.forward_origin
+
+    # 1. Recupero dati e censimento
+    if origin.type == 'user'
+      f_id   = origin.sender_user.id
+      f_name = origin.sender_user.first_name || "Utente"
+      f_last = origin.sender_user.last_name || ""
+    else
+      return puts "⚠️ [FORWARD] Origine non supportata."
+    end
+
+    DataManager.registra_utente(f_id, f_name, f_last)
+    res = DB.get_first_row("SELECT initials FROM user_names WHERE user_id = ?", [f_id])
+    iniziali = res ? res["initials"] : "??"
+
+    # 2. TRASFORMAZIONE LISTA (Uso delle parentesi quadre [])
+    raw_items = msg.text.to_s.split(/,|\n/)
+    
+    processed_text = raw_items.map do |item| 
+      item_pulito = item.strip
+      next if item_pulito.empty?
+      # USIAMO LE QUADRE PER EVITARE ERRORI DI PARSING HTML
+      "(#{iniziali}) #{item_pulito}"
+    end.compact.join(", ")
+
+    # 3. MEMORIZZAZIONE
+    puts "🚀 [FORWARD_PROCESS] Aggiunta articoli per conto di [#{iniziali}]: #{processed_text}"
+    
+    # Chiamiamo il tuo metodo esistente
+    self.core_aggiunta(bot, context, processed_text, false, msg)
+  end
+  
+          
 
   def self.handle_newgroup_approved(bot, msg, chat_id, user_id)
     nome_gruppo = msg.chat.title || "Lista di #{msg.from.first_name}"
