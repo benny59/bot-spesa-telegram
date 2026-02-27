@@ -108,9 +108,17 @@ class CallbackHandler
       # --------------------------------------------------------------------------
       # In handlers/callback_handler.rb
 
-    when /^trigger_list:(-?\d+):(\d+)$/
-      g_id, t_id = $1.to_i, $2.to_i
+when /^trigger_list:(-?\d*):(\d*)$/
+  g_id = $1.empty? ? context.config["db_id"].to_i : $1.to_i
+  t_id = $2.empty? ? context.config["topic_id"].to_i : $2.to_i
+  
+  # Se ancora non abbiamo un g_id valido, proviamo a recuperarlo dal chat_id
+  if g_id == 0 && callback.message.chat.id < 0
+    g_id = DataManager.prendi_gruppo_da_chat_id(callback.message.chat.id)&.[]("id") || 0
+  end
 
+  puts "DEBUG: Trigger List recuperato -> G:#{g_id} T:#{t_id}"
+  
       items = DataManager.prendi_articoli_ordinati(g_id, t_id)
       header = DataManager.genera_header_contesto(g_id, t_id)
 

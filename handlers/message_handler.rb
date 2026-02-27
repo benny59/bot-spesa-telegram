@@ -160,16 +160,63 @@ class MessageHandler
     DataManager.salva_config_utente(u_id, context.config)
 
     case text
+    
+  when "/ss", "/share"
+  # Recuperiamo l'ID del gruppo dal contesto (gestisce già privata vs gruppo)
+  g_id = context.config["db_id"].to_i
+  t_id = context.config["topic_id"].to_i
+
+  if g_id == 0
+    # Caso Lista Personale
+    gruppo_obj = { "id" => 0, "nome" => "Personale" }
+    self.handle_share_text(bot, msg, gruppo_obj, 0)
+  else
+    # Caso Lista Condivisa: recuperiamo i dati reali del gruppo dal DB
+    # Usiamo un metodo esistente per avere l'hash del gruppo (id, nome, etc)
+    gruppo_obj = DB.get_first_row("SELECT * FROM gruppi WHERE id = ?", [g_id])
+    
+    if gruppo_obj
+      self.handle_share_text(bot, msg, gruppo_obj, t_id)
+    else
+      bot.api.send_message(chat_id: msg.chat.id, text: "⚠️ Errore: Gruppo #{g_id} non trovato.")
+    end
+  end  
+    
     when /^\/(start|help)/
       self.core_start(bot, context)
       KeyboardGenerator.show_private_keyboard(bot, context.chat_id, context) if context.private_chat?
-    when "/setup_pin"
-      g_id = context.config["db_id"].to_i
-      t_id = context.config["topic_id"].to_i
-      kb = [[Telegram::Bot::Types::InlineKeyboardButton.new(text: "🛒 MOSTRA LISTA AGGIORNATA", callback_data: "trigger_list:#{g_id}:#{t_id}")]]
-      sent = bot.api.send_message(chat_id: msg.chat.id, message_thread_id: (t_id > 0 ? t_id : nil), text: "📌 <b>Pannello Spesa</b>", reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb), parse_mode: "HTML")
-      bot.api.pin_chat_message(chat_id: msg.chat.id, message_id: sent.message_id)
-    when /^\/checklist/
+when "/setup_pin"
+  # 1. Recupero ID Gruppo dal contesto
+  g_id = context.config["db_id"].to_i
+  t_id = context.config["topic_id"].to_i
+
+  # 2. FALLBACK: Se siamo in un gruppo ma g_id è 0, recuperiamolo dal chat_id reale
+  if g_id == 0 && msg.chat.id < 0
+    gruppo_db = DataManager.prendi_gruppo_da_chat_id(msg.chat.id)
+    g_id = gruppo_db["id"] if gruppo_db
+  end
+
+  # 3. Costruzione Tastiera con salvataggio (usiamo || 0 per evitare i "::")
+  kb = [[Telegram::Bot::Types::InlineKeyboardButton.new(
+    text: "🛒 MOSTRA LISTA AGGIORNATA", 
+    callback_data: "trigger_list:#{g_id || 0}:#{t_id || 0}"
+  )]]
+
+  # 4. Invio e Pin
+  begin
+    sent = bot.api.send_message(
+      chat_id: msg.chat.id, 
+      message_thread_id: (msg.chat.id < 0 && t_id > 0 ? t_id : nil), 
+      text: "📌 <b>Pannello Spesa</b>\nUtilizza il tasto sotto per visualizzare la lista sempre aggiornata in questo reparto.", 
+      reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb), 
+      parse_mode: "HTML"
+    )
+    bot.api.pin_chat_message(chat_id: msg.chat.id, message_id: sent.message_id)
+  rescue => e
+    puts "❌ Errore durante setup_pin: #{e.message}"
+    bot.api.send_message(chat_id: msg.chat.id, text: "⚠️ Non posso fissare il messaggio. Assicurati che io sia amministratore.")
+  end
+      when /^\/checklist/
       g_id = context.config["db_id"].to_i
       t_id = context.config["topic_id"].to_i
       kb = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
@@ -273,6 +320,48 @@ def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = ni
     parse_mode: "HTML"
   )
 end
+
+def self.handle_share_text(bot, msg, gruppo, topic_id)
+  g_id = gruppo["id"]
+  t_id = topic_id.to_i
+  
+  # Recupero dati consolidati
+  items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+  info = DataManager.recupera_nomi_contesto(g_id, t_id)
+
+  # Filtro: teniamo solo gli articoli NON comprati
+  da_comprare = items.reject { |i| i["comprato"] && !i["comprato"].empty? }
+
+  if da_comprare.empty?
+    bot.api.send_message(
+      chat_id: msg.chat.id,
+      message_thread_id: (msg.chat.id < 0 ? t_id : nil),
+      text: "📝 Nessun articolo da comprare nella lista <b>#{info[:nome]}</b>.",
+      parse_mode: "HTML"
+    )
+    return
+  end
+
+  # Costruzione messaggio
+  testo = "🛒 <b>LISTA SPESA: #{info[:nome].upcase}</b>\n"
+  testo += "📍 <b>Reparto:</b> #{info[:topic]}\n\n"
+
+  da_comprare.each do |item|
+    testo += "▫️ <b>#{item['nome']}</b>\n"
+  end
+
+  # Chiusura asciutta con timestamp
+  testo += "\n" + "—" * 15
+  testo += "\n<i>Aggiornato il: #{Time.now.strftime("%d/%m/%Y alle %H:%M")}</i>"
+
+  bot.api.send_message(
+    chat_id: msg.chat.id,
+    message_thread_id: (msg.chat.id < 0 ? t_id : nil),
+    text: testo,
+    parse_mode: "HTML"
+  )
+end
+
 
   def self.handle_pending_responses(bot, msg, context, forced_t_id = nil)
     t_id = forced_t_id || context.topic_id || 0
