@@ -308,7 +308,47 @@ def self.registra_utente(user_id, first_name, last_name)
   rescue => e
     puts "❌ [DATA_ERROR] Errore registrazione utente: #{e.message}"
   end
-  	
+  
+  # In db.rb -> class DataManager
+
+# Verifica se l'articolo è già "attivo" in lista
+def self.in_lista?(g_id, t_id, nome)
+  DB.get_first_value(
+    "SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND (comprato IS NULL OR comprato = '')",
+    [g_id, t_id, nome.downcase]
+  )
+end
+
+# Rimuove l'articolo attivo (per la deselezione dalla checklist)
+def self.rimuovi_da_lista(item_id)
+  DB.execute("DELETE FROM items WHERE id = ?", [item_id])
+end
+
+# Inserimento atomico per la checklist
+def self.ripristina_da_storico(g_id, t_id, nome, user_id)
+  DB.execute(
+    "INSERT INTO items (gruppo_id, topic_id, nome, creato_da) VALUES (?, ?, ?, ?)",
+    [g_id, t_id, nome, user_id]
+  )
+end
+# In db.rb -> class DataManager
+
+# Metodo per il ripristino secco (usato dalla checklist)
+def self.ripristina_da_checklist(g_id, t_id, nome, user_id)
+  # Usiamo INSERT OR IGNORE per evitare doppioni se l'utente clicca due volte velocemente
+  DB.execute(
+    "INSERT OR IGNORE INTO items (gruppo_id, topic_id, nome, creato_da) VALUES (?, ?, ?, ?)",
+    [g_id, t_id, nome, user_id]
+  )
+end
+
+# Verifichiamo che questo metodo esista (riga 259 del tuo file)
+def self.prendi_telegram_chat_id(g_id)
+  return nil if g_id == 0
+  DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [g_id])
+end
+
+	
   # ----------------------------------------------------------------------------
   # PILASTRO '+': AGGIUNTA ARTICOLI
   # ----------------------------------------------------------------------------

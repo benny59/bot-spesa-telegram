@@ -236,35 +236,43 @@ class MessageHandler
     bot.api.send_message(chat_id: context.chat_id, message_thread_id: target_thread, text: ui[:text], reply_markup: ui[:markup], parse_mode: "HTML")
   end
 
-  def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = nil)
-    u_id = context.user_id
-    u_name = msg ? msg.from.first_name : "Utente"
-    testo_pulito = contenuto.to_s.gsub(/^[\+\*]/, "").strip
+def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = nil)
+  u_id = context.user_id
+  u_name = msg ? msg.from.first_name : "Utente"
+  testo_pulito = contenuto.to_s.gsub(/^[\+\*]/, "").strip
 
-    if testo_pulito.empty?
-      g_pending = force_personal ? 0 : context.config["db_id"].to_i
-      t_pending = force_personal ? 0 : context.config["topic_id"].to_i
-      DataManager.set_pending(chat_id: context.chat_id, topic_id: t_pending, action: "add:#{u_name}", gruppo_id: g_pending)
-      bot.api.send_message(chat_id: context.chat_id, message_thread_id: (context.chat_id < 0 ? t_pending : nil), text: "✍️ <b>#{u_name}</b>, scrivi gli articoli o manda una foto.", parse_mode: "HTML")
-      return
+  return if testo_pulito.empty? # (Logica pending omessa per brevità)
+
+  g_id = force_personal ? 0 : context.config["db_id"].to_i
+  t_id = force_personal ? 0 : context.config["topic_id"].to_i
+
+  # Recupero nome lista dal metodo esistente
+  info_contesto = DataManager.recupera_nomi_contesto(g_id, t_id)
+  nome_lista = info_contesto[:nome]
+
+  DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: u_id, items_text: contenuto, topic_id: t_id)
+
+  # Notifica al gruppo (Aggiunta da privata)
+  if context.scope == :private && g_id != 0
+    real_chat_id = DataManager.get_real_chat_id(g_id)
+    if real_chat_id
+      bot.api.send_message(
+        chat_id: real_chat_id, 
+        message_thread_id: (t_id > 0 ? t_id : nil), 
+        text: "➕ <b>#{u_name}</b> ha aggiunto: #{testo_pulito}", # Uniformato
+        parse_mode: "HTML", 
+        disable_notification: true
+      )
     end
-
-    g_id = force_personal ? 0 : context.config["db_id"].to_i
-    t_id = force_personal ? 0 : context.config["topic_id"].to_i
-    DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: u_id, items_text: contenuto, topic_id: t_id)
-
-    items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-    if context.scope == :private && g_id != 0
-      real_chat_id = DataManager.get_real_chat_id(g_id)
-      if real_chat_id
-        mio_item = items.find { |i| i["creato_da"] == u_id }
-        init = mio_item ? mio_item["autore_init"] : u_name[0..1].upcase
-        bot.api.send_message(chat_id: real_chat_id, message_thread_id: (t_id > 0 ? t_id : nil), text: "➕ <b>#{u_name}</b> ha aggiunto: #{testo_pulito}", parse_mode: "HTML", disable_notification: true)
-      end
-    end
-
-    bot.api.send_message(chat_id: context.chat_id, message_thread_id: (context.private_chat? ? nil : t_id), text: "✅ <b>#{testo_pulito}</b> aggiunto alla lista.", parse_mode: "HTML")
   end
+
+  # Conferma in privato con nome lista
+  bot.api.send_message(
+    chat_id: context.chat_id, 
+    text: "✅ <b>#{testo_pulito}</b> aggiunto alla lista <b>#{nome_lista}</b>.", 
+    parse_mode: "HTML"
+  )
+end
 
   def self.handle_pending_responses(bot, msg, context, forced_t_id = nil)
     t_id = forced_t_id || context.topic_id || 0

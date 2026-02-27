@@ -482,33 +482,50 @@ class CallbackHandler
       )
 
       #bot.api.answer_callback_query(callback_query_id: callback.id)
-    when /^add_from_hist:(.+):(-?\d+):(\d+)$/
-      nome, g_id, t_id = $1, $2.to_i, $3.to_i
+when /^add_from_hist:(.+):(-?\d+):(\d+)$/
+  nome, g_id, t_id = $1, $2.to_i, $3.to_i
+  bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
 
-      # Controllo se esiste già
-      esiste = DB.get_first_value(
-        "SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND (comprato IS NULL OR comprato = '')",
-        [g_id, t_id, nome.downcase]
+  # Recupero nome utente (Uniforme a core_aggiunta)
+  u_name = callback.from.first_name
+  t_chat_id = DataManager.prendi_telegram_chat_id(g_id)
+
+  esiste_id = DB.get_first_value(
+    "SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND (comprato IS NULL OR comprato = '')",
+    [g_id, t_id, nome.downcase]
+  )
+
+  if esiste_id
+    DataManager.rimuovi_da_lista(esiste_id)
+    
+    # MESSAGGIO UNIFORMATO (Rimozione)
+    if t_chat_id && t_chat_id != callback.message.chat.id
+      bot.api.send_message(
+        chat_id: t_chat_id,
+        text: "➖ <b>#{u_name}</b> ha rimosso: #{nome}", # Stesso stile: Nome + Grassetto
+        parse_mode: "HTML",
+        message_thread_id: t_id != 0 ? t_id : nil
       )
-
-      if esiste
-        # Se esiste, lo rimuoviamo (Deselezione)
-        DB.execute("DELETE FROM items WHERE id = ?", [esiste])
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "Rimosso: #{nome}")
-      else
-        # Se non esiste, lo aggiungiamo
-        DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: context.user_id, items_text: nome, topic_id: t_id)
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "Aggiunto: #{nome}")
-      end
-
-      # Refresh immediato della tastiera checklist per cambiare l'icona (+ / ✅)
-      nuovo_markup = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
-      bot.api.edit_message_reply_markup(
-        chat_id: callback.message.chat.id,
-        message_id: callback.message.message_id,
-        reply_markup: nuovo_markup,
+    end
+  else
+    DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: user_id, items_text: nome, topic_id: t_id)
+    
+    # MESSAGGIO UNIFORMATO (Aggiunta)
+    if t_chat_id && t_chat_id != callback.message.chat.id
+      bot.api.send_message(
+        chat_id: t_chat_id,
+        text: "➕ <b>#{u_name}</b> ha aggiunto: #{nome}", # Icona ➕ come nel core_aggiunta
+        parse_mode: "HTML",
+        message_thread_id: t_id != 0 ? t_id : nil
       )
-    when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
+    end
+  end
+
+  # Refresh UI
+  nuovo_markup = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
+  bot.api.edit_message_reply_markup(chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: nuovo_markup)
+   
+      when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
       item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
 
       nome_art = DataManager.get_nome_articolo(item_id)
