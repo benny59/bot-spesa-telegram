@@ -11,7 +11,7 @@ class CallbackHandler
     data = callback.data
     user_id = callback.from.id
     user_name = callback.from.first_name
-
+    bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
     puts "[CALLBACK] 🖱️ Ricevuto: '#{data}' da #{user_name}"
 
     case data
@@ -109,6 +109,8 @@ class CallbackHandler
       # In handlers/callback_handler.rb
 
 when /^trigger_list:(-?\d*):(\d*)$/
+# ✅ CHIUDI SUBITO IL CALLBACK
+  bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
   g_id = $1.empty? ? context.config["db_id"].to_i : $1.to_i
   t_id = $2.empty? ? context.config["topic_id"].to_i : $2.to_i
   
@@ -138,26 +140,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
         reply_markup: ui[:markup],
         parse_mode: "HTML",
       )
-    when /^ui_back_to_list:(-?\d+):(\d+)/
-      g_id, t_id = $1.to_i, $2.to_i
-      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
-      header = DataManager.genera_header_contesto(g_id, t_id)
 
-      # Prepariamo l'hash options
-      options = {
-        nome_target: header,
-        is_group: !context.private_chat?,
-      }
-
-      # genera_lista restituisce l'hash {text: "...", markup: ...}
-      ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, options)
-
-      # ESTRAIAMO IL MARKUP (Telegram vuole solo l'oggetto InlineKeyboardMarkup)
-      # Se la tua edit_veloce non lo fa internamente, estrailo qui:
-      markup_finale = ui.is_a?(Hash) ? ui[:markup] : ui
-
-      # Chiamata sicura
-      self.edit_veloce(bot, context, callback, markup_finale)
     when /^myitems_refresh:(\d+):(\d+):(\d)$/
       u_id, page, s_all = $1.to_i, $2.to_i, $3.to_i
       show_all = (s_all == 1)
