@@ -13,28 +13,8 @@ class StoricoManager
 
     DB.transaction do
       articoli_nomi.each do |nome|
-        nome_norm = nome.downcase.strip
-
-        # UPSERT: Se esiste incrementa, altrimenti crea.
-        # Usiamo ON CONFLICT per garantire l'atomicità se hai l'indice UNIQUE,
-        # altrimenti usiamo la logica UPDATE + INSERT.
-
-        updated = DB.execute(
-          "UPDATE storico_articoli 
-           SET conteggio = conteggio + 1, 
-               ultima_aggiunta = datetime('now'), 
-               updated_at = datetime('now')
-           WHERE nome = ? AND gruppo_id = ? AND topic_id = ?",
-          [nome_norm, gruppo_id, topic_id]
-        )
-
-        if DB.changes == 0
-          DB.execute(
-            "INSERT INTO storico_articoli (nome, gruppo_id, topic_id, conteggio, ultima_aggiunta, updated_at)
-             VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))",
-            [nome_norm, gruppo_id, topic_id]
-          )
-        end
+        # Usa il metodo DRY unificato da DataManager (parametri creato_da e comprato_da opzionali)
+        DataManager.upsert_storico_articolo(gruppo_id, topic_id, nome)
       end
     end
     puts "[STORICO] 📈 Incrementato storico per #{articoli_nomi.size} articoli."

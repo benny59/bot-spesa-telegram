@@ -216,7 +216,29 @@ class DataManager
     "#{t_id}" # Torna 'sperimentale' se lo trova, altrimenti '2'
   end
 
-  # ----------------------------------------------------------------------------
+  # Helper DRY per UPSERT storico_articoli (consolidato da esegui_scopetta e storico_manager)
+  # Parametri creato_da_id e comprato_da_id sono opzionali (usati da esegui_scopetta, nil da storico_manager)
+  def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil)
+    # Normalizza il nome: case-insensitive (Insalata = insalata)
+    nome_normalizzato = nome.to_s.strip.downcase
+    esistente = DB.get_first_row("SELECT id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ? AND topic_id = ?", [nome_normalizzato, gruppo_id, topic_id])
+
+    if esistente
+      # Se creato_da_id è presente, aggiorna anche questi campi; altrimenti solo conteggio
+      if creato_da_id && comprato_da_id
+        DB.execute("UPDATE storico_articoli SET conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, updated_at = datetime('now') WHERE id = ?", [creato_da_id, comprato_da_id, esistente["id"]])
+      else
+        DB.execute("UPDATE storico_articoli SET conteggio = conteggio + 1, ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?", [esistente["id"]])
+      end
+    else
+      if creato_da_id && comprato_da_id
+        DB.execute("INSERT OR IGNORE INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, creato_da, comprato_da, ultima_aggiunta) VALUES (?, ?, ?, 1, ?, ?, datetime('now'))", [gruppo_id, topic_id, nome_normalizzato, creato_da_id, comprato_da_id])
+      else
+        DB.execute("INSERT OR IGNORE INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))", [gruppo_id, topic_id, nome_normalizzato])
+      end
+    end
+  end
+
   # LA SCOPETTA (Cleanup & Storico)
   # ----------------------------------------------------------------------------
   # Cancella gli articoli comprati e aggiorna il conteggio nello storico
@@ -235,14 +257,8 @@ class DataManager
 
     DB.transaction do
       comprati.each do |item|
-        nome_esatto = item["nome"].to_s.strip
-        esistente = DB.get_first_row("SELECT id FROM storico_articoli WHERE nome = ? AND gruppo_id = ? AND topic_id = ?", [nome_esatto, gruppo_id, topic_id])
-
-        if esistente
-          DB.execute("UPDATE storico_articoli SET conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, updated_at = datetime('now') WHERE id = ?", [item["creato_da"], item["comprato"], esistente["id"]])
-        else
-          DB.execute("INSERT OR IGNORE INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, creato_da, comprato_da, ultima_aggiunta) VALUES (?, ?, ?, 1, ?, ?, datetime('now'))", [gruppo_id, topic_id, nome_esatto, item["creato_da"], item["comprato"]])
-        end
+        # Usa il metodo DRY unificato per UPSERT storico
+        self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"])
       end
 
       ids_del = comprati.map { |i| i["id"] }
@@ -295,14 +311,16 @@ def self.registra_utente(user_id, first_name, last_name)
     # 3. Fallback estremo
     initials ||= "UT"
 
-    # 4. Salvataggio (Logica originale mantenuta)
-    DB.execute(
-      "INSERT OR REPLACE INTO user_names (user_id, first_name, last_name, initials, aggiornato_il) 
-       VALUES (?, ?, ?, ?, datetime('now'))",
-      [user_id, first_name, last_name, initials]
-    )
-    
-    DB.execute("INSERT OR IGNORE INTO whitelist (user_id, added_at) VALUES (?, datetime('now'))", [user_id])
+    # 4. Salvataggio atomico (wrappato in transazione per consistenza)
+    DB.transaction do
+      DB.execute(
+        "INSERT OR REPLACE INTO user_names (user_id, first_name, last_name, initials, aggiornato_il) 
+         VALUES (?, ?, ?, ?, datetime('now'))",
+        [user_id, first_name, last_name, initials]
+      )
+      
+      DB.execute("INSERT OR IGNORE INTO whitelist (user_id, added_at) VALUES (?, datetime('now'))", [user_id])
+    end
     
     puts "🎨 [INITIALS] Per #{first_name} #{last_name} assegnato: [#{initials}]"
   rescue => e
@@ -324,22 +342,18 @@ def self.rimuovi_da_lista(item_id)
   DB.execute("DELETE FROM items WHERE id = ?", [item_id])
 end
 
-# Inserimento atomico per la checklist
-def self.ripristina_da_storico(g_id, t_id, nome, user_id)
-  DB.execute(
-    "INSERT INTO items (gruppo_id, topic_id, nome, creato_da) VALUES (?, ?, ?, ?)",
-    [g_id, t_id, nome, user_id]
-  )
-end
-# In db.rb -> class DataManager
-
-# Metodo per il ripristino secco (usato dalla checklist)
+# Ripristino DRY unificato per inserimento da storico (usato dalla checklist)
+# Usa INSERT OR IGNORE per evitare doppioni se l'utente clicca due volte velocemente
 def self.ripristina_da_checklist(g_id, t_id, nome, user_id)
-  # Usiamo INSERT OR IGNORE per evitare doppioni se l'utente clicca due volte velocemente
   DB.execute(
     "INSERT OR IGNORE INTO items (gruppo_id, topic_id, nome, creato_da) VALUES (?, ?, ?, ?)",
     [g_id, t_id, nome, user_id]
   )
+end
+
+# Alias per retrocompatibilità (rimanda a ripristina_da_checklist)
+def self.ripristina_da_storico(g_id, t_id, nome, user_id)
+  self.ripristina_da_checklist(g_id, t_id, nome, user_id)
 end
 
 # Verifichiamo che questo metodo esista (riga 259 del tuo file)
@@ -356,22 +370,25 @@ end
     puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{gruppo_id} | T:#{topic_id} | U:#{user_id}"
 
     nomi = items_text.split(",").map(&:strip).reject(&:empty?)
+    # Normalizziamo subito i nomi in minuscolo per evitare inserimenti "sporchi"
+    nomi.map! { |n| n.downcase }
     return [] if nomi.empty?
 
     ids_creati = [] # <--- Cambiamo il contatore in un array di ID
 
     DB.transaction do
       nomi.each do |nome|
-        # Controllo duplicati esistente
-        esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome.downcase])
+        # Controllo duplicati esistente (nome già normalizzato)
+        esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome])
 
         if esiste
           ids_creati << esiste # Se esiste già, prendiamo l'ID esistente per l'eventuale foto
           next
         end
 
+        # Inseriamo il nome già normalizzato (minuscolo) per coerenza nello storico
         DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome) VALUES (?, ?, ?, ?)",
-                   [gruppo_id, topic_id, user_id, nome])
+             [gruppo_id, topic_id, user_id, nome])
         ids_creati << DB.last_insert_row_id # Recupera l'ID appena fatto
       end
     end
@@ -443,9 +460,10 @@ end
   end
 
   # In db.rb, dentro class DataManager
-  # In db.rb, dentro class DataManager
-  def self.aggiorna_nome_gruppo(chat_id, nuovo_nome)
-    puts "[DB_QUERY] 📝 Tentativo UPDATE gruppi: ChatID:#{chat_id} -> '#{nuovo_nome}'"
+  # DRY: Metodo unificato per sincronizzazione nome gruppo (usato da aggiorna_nome_gruppo e cleanup_manager)
+  def self.sincronizza_nome_gruppo(chat_id, nuovo_nome)
+    nuovo_nome_pulito = nuovo_nome.to_s.strip
+    return if nuovo_nome_pulito.empty?
 
     # Verifichiamo prima se il gruppo esiste
     esiste = DB.get_first_value("SELECT COUNT(*) FROM gruppi WHERE chat_id = ?", [chat_id])
@@ -454,10 +472,15 @@ end
       return
     end
 
-    DB.execute("UPDATE gruppi SET nome = ? WHERE chat_id = ?", [nuovo_nome, chat_id])
-    puts "[DB_QUERY] ✅ Nome gruppo aggiornato correttamente nel DB."
+    DB.execute("UPDATE gruppi SET nome = ? WHERE chat_id = ?", [nuovo_nome_pulito, chat_id])
+    puts "[DB_QUERY] ✅ Nome gruppo aggiornato: '#{nuovo_nome_pulito}'"
   rescue => e
-    puts "[DB_QUERY] ❌ CRASH UPDATE GRUPPO: #{e.message}"
+    puts "[DB_QUERY] ❌ Errore UPDATE GRUPPO: #{e.message}"
+  end
+
+  # Alias per retrocompatibilità
+  def self.aggiorna_nome_gruppo(chat_id, nuovo_nome)
+    self.sincronizza_nome_gruppo(chat_id, nuovo_nome)
   end
 
   def self.puo_visualizzare?(user_id, carta_id, chat_id)
@@ -672,8 +695,9 @@ end
     DB.execute(sql, [gruppo_id, topic_id, limite])
   end
 
-  def self.prendi_articoli_ordinati(gruppo_id, topic_id)
-    sql = <<-SQL
+  # Helper DRY: Base query articoli con JOIN a user_names (riutilizzato in più metodi)
+  def self.get_base_query_articoli_con_metadata
+    <<-SQL
     SELECT i.*, 
            IFNULL(s.conteggio, 0) as volte, 
            u1.initials AS autore_init,
@@ -683,7 +707,12 @@ end
     LEFT JOIN storico_articoli s ON LOWER(i.nome) = LOWER(s.nome) 
       AND i.gruppo_id = s.gruppo_id AND i.topic_id = s.topic_id
     LEFT JOIN user_names u1 ON i.creato_da = u1.user_id 
-    LEFT JOIN user_names u2 ON i.comprato = u2.user_id 
+    LEFT JOIN user_names u2 ON i.comprato = u2.user_id
+    SQL
+  end
+
+  def self.prendi_articoli_ordinati(gruppo_id, topic_id)
+    sql = self.get_base_query_articoli_con_metadata + <<-SQL
     WHERE i.gruppo_id = ? AND i.topic_id = ?
     ORDER BY 
       -- 1. I comprati vanno in fondo (0 se non comprato, 1 se comprato)
@@ -692,7 +721,7 @@ end
       volte DESC, 
       -- 3. I più recenti per primi tra quelli con stesse 'volte'
       i.id DESC
-  SQL
+    SQL
     DB.execute(sql, [gruppo_id.to_i, topic_id.to_i])
   end
 
@@ -711,8 +740,8 @@ end
     params = [gruppo_id, topic_id]
 
     if query
-      sql += " AND nome LIKE ?"
-      params << "%#{query}%"
+      sql += " AND LOWER(nome) LIKE ?"
+      params << "%#{query.downcase}%"
     end
 
     sql += " ORDER BY conteggio DESC, ultima_aggiunta DESC LIMIT 20"
@@ -728,6 +757,16 @@ end
   rescue => e
     puts "❌ [DATA_ERROR] Errore parsing config user #{user_id}: #{e.message}"
     nil
+  end
+
+  # Helper DRY: Carica config con default integrati
+  def self.get_config_completa_utente(user_id, fallback_g_id = 0, fallback_t_id = 0)
+    config = self.carica_config_utente(user_id)
+    return {
+      "db_id" => fallback_g_id,
+      "topic_id" => fallback_t_id
+    } if config.nil? || config.empty?
+    config
   end
 
   def self.salva_config_utente(user_id, config_hash)
@@ -798,14 +837,9 @@ end
   def self.rimuovi_pending(chat_id, topic_id = 0)
     puts "[DB_TRACE] 🧹 Rimozione Pending -> Chat:#{chat_id} | Topic:#{topic_id}"
 
-    # Cancellazione mirata per liberare la chiave primaria
+    # Cancellazione mirata per liberare la chiave primaria (unico metodo di delete)
     sql = "DELETE FROM pending_actions WHERE chat_id = ? AND topic_id = ?"
     DB.execute(sql, [chat_id, topic_id])
-  end
-
-  def self.clear_pending(chat_id:, topic_id: 0)
-    DB.execute("DELETE FROM pending_actions WHERE chat_id = ? AND topic_id = ?", [chat_id, topic_id])
-    puts "[DATA_MONITOR] 🧹 Pending rimosse per Chat:#{chat_id} Topic:#{topic_id}"
   end
 
   def self.salva_nuova_carta(u_id, nome, codice, formato, img_path)
@@ -831,9 +865,9 @@ end
   end
 
   # In db.rb all'interno di class DataManager
-  # Aggiungi in class DataManager in db.rb
+  # Recupera gruppo da chat_id Telegram. Torna hash vuoto se non trovato (fallback sicuro)
   def self.prendi_gruppo_da_chat_id(chat_id_telegram)
-    DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id_telegram])
+    DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id_telegram]) || {}
   end
 
   # In db.rb all'interno di class DataManager
