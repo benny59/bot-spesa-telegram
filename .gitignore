@@ -1,0 +1,18 @@
+# Database files
+*.db
+
+# Workspace settings
+*.code-workspace
+
+# Office documents
+*.doc
+
+# Output files
+outputs/
+show.txt
+
+# Data files
+data/
+
+# Test folder
+test/

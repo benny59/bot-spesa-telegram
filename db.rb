@@ -147,6 +147,24 @@ DB = init_db
 # CLASSE DATA_MANAGER (MONITOR ARCHITETTURALE)
 # ==============================================================================
 class DataManager
+  def self.backup_database
+    require 'fileutils'
+    backup_dir = "data/backups"
+    FileUtils.mkdir_p(backup_dir)
+    
+    timestamp = Time.now.strftime("%Y%m%d_%H%M%S")
+    backup_file = File.join(backup_dir, "spesa_#{timestamp}.db")
+    
+    if File.exist?(DB_PATH)
+      FileUtils.cp(DB_PATH, backup_file)
+      puts "✅ [DB] Backup creato con successo: #{backup_file}"
+      return backup_file
+    else
+      puts "❌ [DB] File database non trovato, impossibile creare il backup"
+      return nil
+    end
+  end
+
   def self.setup_database
     puts "[DATA_MONITOR] 🔍 Verifica integrità database..."
     # Chiamiamo la funzione init_db che abbiamo già nel file
@@ -221,21 +239,84 @@ class DataManager
   def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil)
     # Normalizza il nome: case-insensitive (Insalata = insalata)
     nome_normalizzato = nome.to_s.strip.downcase
-    esistente = DB.get_first_row("SELECT id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ? AND topic_id = ?", [nome_normalizzato, gruppo_id, topic_id])
+    nome_formattato = nome_normalizzato.capitalize
+
+    puts "  📝 [UPSERT] Elaborazione: '#{nome_formattato}' (G:#{gruppo_id}, T:#{topic_id})"
+
+    # CONSOLIDAMENTO: Se esistono duplicati case-different (o in topic_id diversi), consolidarli PRIMA
+    # ATTENZIONE: Il constraint unico è UNIQUE(nome, gruppo_id), quindi non filtriamo per topic_id qui!
+    duplicati = DB.execute(
+      "SELECT id, conteggio, topic_id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ? ORDER BY id ASC",
+      [nome_normalizzato, gruppo_id]
+    )
+
+    puts "  📊 [UPSERT] Trovati #{duplicati.size} record pre-esistenti per il nome"
+
+    if duplicati.size > 1
+      # Manteniamo il primo (ID più basso), consolidando gli altri
+      keep_id = duplicati[0]["id"]
+      total_count = duplicati.reduce(0) { |sum, rec| sum + rec["conteggio"].to_i }
+      to_delete_ids = duplicati[1..-1].map { |rec| rec["id"] }
+
+      puts "  ⚠️ [CONSOLIDAMENTO PRE-UPSERT] Mantenimento ID=#{keep_id}, Eliminazione IDs=#{to_delete_ids.inspect}"
+
+      # Recupera le date più recenti
+      max_dates = DB.execute(
+        "SELECT MAX(updated_at) AS max_upd, MAX(ultima_aggiunta) AS max_ult FROM storico_articoli WHERE id IN (#{duplicati.map { "?" }.join(",")})",
+        duplicati.map { |rec| rec["id"] }
+      )[0]
+
+      # Aggiorna il record da mantenere al conteggio totale e nome Capitalize, e all'ultimo topic_id
+      DB.execute(
+        "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = ?, updated_at = ?, ultima_aggiunta = ? WHERE id = ?",
+        [nome_formattato, topic_id, total_count, max_dates["max_upd"], max_dates["max_ult"], keep_id]
+      )
+
+      puts "  ✅ [UPSERT] Record #{keep_id} aggiornato con conteggio=#{total_count}"
+
+      # Elimina i duplicati
+      to_delete_ids.each do |del_id|
+        DB.execute("DELETE FROM storico_articoli WHERE id = ?", [del_id])
+        puts "  ✅ [UPSERT] Record #{del_id} eliminato"
+      end
+    end
+
+    # ORA procedi con UPDATE o INSERT sul record (che ora è unico per nome+gruppo_id)
+    esistente = DB.get_first_row(
+      "SELECT id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ?",
+      [nome_normalizzato, gruppo_id]
+    )
 
     if esistente
-      # Se creato_da_id è presente, aggiorna anche questi campi; altrimenti solo conteggio
+      # Aggiorna il record consolidato
+      puts "  🔄 [UPSERT] UPDATE - Record esiste (ID=#{esistente["id"]})"
       if creato_da_id && comprato_da_id
-        DB.execute("UPDATE storico_articoli SET conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, updated_at = datetime('now') WHERE id = ?", [creato_da_id, comprato_da_id, esistente["id"]])
+        DB.execute(
+          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, updated_at = datetime('now') WHERE id = ?",
+          [nome_formattato, topic_id, creato_da_id, comprato_da_id, esistente["id"]]
+        )
       else
-        DB.execute("UPDATE storico_articoli SET conteggio = conteggio + 1, ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?", [esistente["id"]])
+        DB.execute(
+          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+          [nome_formattato, topic_id, esistente["id"]]
+        )
       end
+      puts "  ✅ [UPSERT] UPDATE completato"
     else
+      # Inserisce il nuovo record in formato Capitalize
+      puts "  ➕ [UPSERT] INSERT - Nuovo record"
       if creato_da_id && comprato_da_id
-        DB.execute("INSERT OR IGNORE INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, creato_da, comprato_da, ultima_aggiunta) VALUES (?, ?, ?, 1, ?, ?, datetime('now'))", [gruppo_id, topic_id, nome_normalizzato, creato_da_id, comprato_da_id])
+        DB.execute(
+          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, creato_da, comprato_da, ultima_aggiunta) VALUES (?, ?, ?, 1, ?, ?, datetime('now'))",
+          [gruppo_id, topic_id, nome_formattato, creato_da_id, comprato_da_id]
+        )
       else
-        DB.execute("INSERT OR IGNORE INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))", [gruppo_id, topic_id, nome_normalizzato])
+        DB.execute(
+          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))",
+          [gruppo_id, topic_id, nome_formattato]
+        )
       end
+      puts "  ✅ [UPSERT] INSERT completato"
     end
   end
 
@@ -243,29 +324,41 @@ class DataManager
   # ----------------------------------------------------------------------------
   # Cancella gli articoli comprati e aggiorna il conteggio nello storico
   def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
+    puts "\n🧹 [SCOPETTA] Inizio esegui_scopetta - G:#{gruppo_id}, T:#{topic_id}"
+    
     if target_ids && !target_ids.empty?
       placeholders = target_ids.map { "?" }.join(",")
       query = "SELECT id, nome, creato_da, comprato FROM items WHERE id IN (#{placeholders})"
       params = target_ids
+      puts "🧹 [SCOPETTA] Modalità: target_ids (#{target_ids.size} items)"
     else
       query = "SELECT id, nome, creato_da, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''"
       params = [gruppo_id, topic_id]
+      puts "🧹 [SCOPETTA] Modalità: query da DB"
     end
 
     comprati = DB.execute(query, params)
+    puts "🧹 [SCOPETTA] Articoli comprati trovati: #{comprati.size}"
     return 0 if comprati.empty?
 
     DB.transaction do
       comprati.each do |item|
+        puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         # Usa il metodo DRY unificato per UPSERT storico
         self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"])
       end
 
+      puts "🧹 [SCOPETTA] Cancellazione items..."
       ids_del = comprati.map { |i| i["id"] }
       p_del = ids_del.map { "?" }.join(",")
       DB.execute("DELETE FROM item_images WHERE item_id IN (#{p_del})", ids_del)
+      puts "🧹 [SCOPETTA] Images cancellate: #{ids_del.size}"
+      
       DB.execute("DELETE FROM items WHERE id IN (#{p_del})", ids_del)
+      puts "🧹 [SCOPETTA] Items cancellati: #{ids_del.size}"
     end
+    
+    puts "✅ [SCOPETTA] Completata - #{comprati.size} articoli elaborati\n"
     comprati.size
   end
 
@@ -370,23 +463,22 @@ end
     puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{gruppo_id} | T:#{topic_id} | U:#{user_id}"
 
     nomi = items_text.split(",").map(&:strip).reject(&:empty?)
-    # Normalizziamo subito i nomi in minuscolo per evitare inserimenti "sporchi"
-    nomi.map! { |n| n.downcase }
+    # non forziamo il minuscolo: lasciamo libera la formattazione dell'utente
     return [] if nomi.empty?
 
     ids_creati = [] # <--- Cambiamo il contatore in un array di ID
 
     DB.transaction do
       nomi.each do |nome|
-        # Controllo duplicati esistente (nome già normalizzato)
-        esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome])
+        # Controllo duplicati esistente (case‑insensitive)
+        esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome.downcase])
 
         if esiste
           ids_creati << esiste # Se esiste già, prendiamo l'ID esistente per l'eventuale foto
           next
         end
 
-        # Inseriamo il nome già normalizzato (minuscolo) per coerenza nello storico
+        # Inseriamo esattamente come scritto dall'utente (libertà di formattazione)
         DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome) VALUES (?, ?, ?, ?)",
              [gruppo_id, topic_id, user_id, nome])
         ids_creati << DB.last_insert_row_id # Recupera l'ID appena fatto
@@ -400,6 +492,82 @@ end
     raise e
   end
 
+  # ========================================
+  # 🔧 NORMALIZZAZIONE STORICO ARTICOLI
+  # Questa routine viene eseguita occasionalmente dal cleanup_manager,
+  # e può essere richiamata soltanto dal creatore dell'app (whitelist).
+  # L'obiettivo è:
+  # 1. salvare i nuovi record con nomi capitalizzati (prima lettera maiuscola)
+  # 2. unire righe duplicate create solo per differenze di case
+  # L'operazione è idempotente e avvolta in transazione.
+  # ========================================
+  # 🔧 NORMALIZZAZIONE STORICO ARTICOLI
+  # Questa routine viene eseguita occasionalmente dal cleanup_manager,
+  # e può essere richiamata soltanto dal creatore dell'app (whitelist).
+  # L'obiettivo è:
+  # 1. salvare i nuovi record con nomi capitalizzati (prima lettera maiuscola)
+  # 2. unire righe duplicate create solo per differenze di case
+  # L'operazione è idempotente e avvolta in transazione.
+  def self.pulisci_storico_capitalize
+    puts "\n🔧 [CLEANUP] Inizio pulisci_storico_capitalize..."
+    
+    DB.transaction do
+      # 1. Pulisci i record con nome vuoto/NULL
+      empty_records = DB.execute("SELECT id FROM storico_articoli WHERE nome IS NULL OR nome = ''")
+      if empty_records.size > 0
+        ids_to_delete = empty_records.map { |r| r["id"] }
+        placeholders = ids_to_delete.map { "?" }.join(",")
+        DB.execute("DELETE FROM storico_articoli WHERE id IN (#{placeholders})", ids_to_delete)
+        puts "   ✓ Eliminati #{ids_to_delete.size} record con nome vuoto"
+      end
+      
+      # 2. Trova e consolida i duplicati che l'UPDATE creerebbe
+      # L'indice del DB usa UNIQUE(nome, gruppo_id)
+      duplicates_query = <<~SQL
+        SELECT 
+          UPPER(SUBSTR(LOWER(nome),1,1)) || SUBSTR(LOWER(nome),2) as nome_normalizzato,
+          gruppo_id,
+          MAX(topic_id) as topic_id_scelto,
+          GROUP_CONCAT(id) as ids,
+          SUM(conteggio) as total_count
+        FROM storico_articoli
+        GROUP BY UPPER(SUBSTR(LOWER(nome),1,1)) || SUBSTR(LOWER(nome),2), gruppo_id
+        HAVING COUNT(*) > 1
+      SQL
+      
+      duplicates = DB.execute(duplicates_query)
+      if duplicates.size > 0
+        duplicates.each do |dup|
+          ids = dup["ids"].split(",").map(&:to_i)
+          total = dup["total_count"]
+          topic_scelto = dup["topic_id_scelto"] || 0
+          
+          # Elimina tutti i duplicati
+          placeholders = ids.map { "?" }.join(",")
+          DB.execute("DELETE FROM storico_articoli WHERE id IN (#{placeholders})", ids)
+          
+          # Inserisce uno consolidato
+          DB.execute(
+            "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, updated_at, ultima_aggiunta) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            [dup["gruppo_id"], topic_scelto, dup["nome_normalizzato"], total]
+          )
+        end
+        puts "   ✓ Consolidati #{duplicates.size} insiemi di duplicati pre-esistenti"
+      end
+      
+      # 3. Normalizza tutti i nomi
+      count_before = DB.get_first_value("SELECT COUNT(*) FROM storico_articoli").to_i
+      DB.execute("UPDATE storico_articoli SET nome = UPPER(SUBSTR(LOWER(nome),1,1)) || SUBSTR(LOWER(nome),2)")
+      count_after = DB.get_first_value("SELECT COUNT(*) FROM storico_articoli").to_i
+      
+      puts "   ✓ Normalizzazione completata (#{count_before} → #{count_after} record)"
+    end
+    
+    puts "✅ [CLEANUP] pulisci_storico_capitalize COMPLETATA CON SUCCESSO"
+  rescue => e
+    puts "❌ [DATA_ERROR] pulisci_storico_capitalize fallita: #{e.message}"
+    raise
+  end
   def self.salva_foto_articolo(item_id, file_id, file_unique_id)
     DB.execute(
       "INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",

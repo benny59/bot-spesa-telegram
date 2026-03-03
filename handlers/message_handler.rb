@@ -5,6 +5,7 @@ require_relative "../models/carte_fedelta"
 require_relative "../models/carte_fedelta_gruppo"
 require_relative "./storico_manager"
 require_relative "../db"
+require_relative "./cleanup_manager"  # needed for /cleanup command
 
 class MessageHandler
   # ==============================================================================
@@ -160,6 +161,12 @@ class MessageHandler
     DataManager.salva_config_utente(u_id, context.config)
 
     case text
+
+    when "/cleanup"
+      puts "🔧 comando /cleanup ricevuto da #{u_id}"
+      CleanupManager.esegui_cleanup(bot, msg.chat.id, u_id)
+      puts "🔧 cleanup eseguito (ritorno al router)"
+      return
     
   when "/ss", "/share"
   # Recuperiamo l'ID del gruppo dal contesto (gestisce già privata vs gruppo)
