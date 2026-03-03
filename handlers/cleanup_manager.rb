@@ -296,7 +296,7 @@ class CleanupManager
   # ========================================
   def self.pulisci_items_orfani
     begin
-      rows = DB.execute("SELECT id, nome, gruppo_id, topic_id FROM items WHERE gruppo_id NOT IN (SELECT id FROM gruppi)")
+      rows = DB.execute("SELECT id, nome, gruppo_id, topic_id FROM items WHERE gruppo_id != 0 AND gruppo_id NOT IN (SELECT id FROM gruppi)")
       if rows.any?
         puts "🗂️ Cancello items orfani (#{rows.size}):"
         rows.each { |r| puts "   - id=#{r['id']} nome=#{r['nome']} gruppo=#{r['gruppo_id']} topic=#{r['topic_id']}" }
@@ -305,7 +305,7 @@ class CleanupManager
       end
 
       count_prima = rows.size
-      DB.execute("DELETE FROM items WHERE gruppo_id NOT IN (SELECT id FROM gruppi)")
+      DB.execute("DELETE FROM items WHERE gruppo_id != 0 AND gruppo_id NOT IN (SELECT id FROM gruppi)")
       rimossi = count_prima
       puts "✅ Puliti #{rimossi} items orfani"
       rimossi
