@@ -326,7 +326,7 @@ class CleanupManager
       stats_pre = {
         pending_actions_vecchie: DB.get_first_value("SELECT COUNT(*) FROM pending_actions WHERE creato_il < datetime('now', '-1 day')") || 0,
         storico_vecchio: DB.get_first_value("SELECT COUNT(*) FROM storico_articoli WHERE conteggio = 1 AND ultima_aggiunta < datetime('now', '-1 year')") || 0,
-        items_orfani: DB.get_first_value("SELECT COUNT(*) FROM items WHERE gruppo_id NOT IN (SELECT id FROM gruppi)") || 0,
+        items_orfani: DB.get_first_value("SELECT COUNT(*) FROM items WHERE gruppo_id != 0 AND gruppo_id NOT IN (SELECT id FROM gruppi)") || 0,
       }
     rescue => e
       puts "❌ Errore statistiche pre-cleanup: #{e.message}"
@@ -377,7 +377,7 @@ class CleanupManager
         pending_actions_vecchie: DB.get_first_value("SELECT COUNT(*) FROM pending_actions WHERE creato_il < datetime('now', '-1 day')"),
         storico_articoli: DB.get_first_value("SELECT COUNT(*) FROM storico_articoli"),
         storico_vecchio: DB.get_first_value("SELECT COUNT(*) FROM storico_articoli WHERE conteggio = 1 AND ultima_aggiunta < datetime('now', '-1 year')"),
-        items_orfani: DB.get_first_value("SELECT COUNT(*) FROM items WHERE gruppo_id NOT IN (SELECT id FROM gruppi)"),
+        items_orfani: DB.get_first_value("SELECT COUNT(*) FROM items WHERE gruppo_id != 0 AND gruppo_id NOT IN (SELECT id FROM gruppi)"),
       }
       stats
     rescue => e
