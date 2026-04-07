@@ -125,7 +125,7 @@ class CarteFedelta
 
         bot.api.send_photo(
           chat_id: dest_id,
-          message_thread_id: (origin_thread.to_i == 0 ? nil : origin_thread.to_i),
+          message_thread_id: safe_message_thread_id(dest_id, origin_thread),
           photo: Faraday::UploadIO.new(img_path, "image/png"),
           caption: "💳 #{row["nome"]}\n🔢 #{row["codice"]}",
           parse_mode: "Markdown",
@@ -284,6 +284,12 @@ class CarteFedelta
     Dir.glob(File.join(DATA_DIR, "#{nome_file}_#{user_id}_*.png")).each { |f| File.delete(f) if File.exist?(f) }
   end
 
+  def self.safe_message_thread_id(chat_id, topic_id)
+    c_id = chat_id.to_i
+    t_id = topic_id.to_i
+    c_id < 0 && t_id > 0 ? t_id : nil
+  end
+
   # In carte_fedelta.rb
   # In carte_fedelta.rb
   def self.mostra_singola_carta(bot, chat_id, owner_id, carta_id, t_id = nil) # <--- t_id opzionale
@@ -305,7 +311,11 @@ class CarteFedelta
         img_path = result[:img_path]
         DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [img_path, carta_id])
       else
-        return bot.api.send_message(chat_id: chat_id, text: "❌ Errore nella generazione del barcode.", message_thread_id: t_id)
+        return bot.api.send_message(
+          chat_id: chat_id,
+          text: "❌ Errore nella generazione del barcode.",
+          message_thread_id: safe_message_thread_id(chat_id, t_id),
+        )
       end
     end
 
@@ -316,7 +326,7 @@ class CarteFedelta
 
     bot.api.send_photo(
       chat_id: chat_id,
-      message_thread_id: (t_id.to_i > 0 ? t_id : nil), # <--- AGGIUNTO QUI
+      message_thread_id: safe_message_thread_id(chat_id, t_id),
       photo: Faraday::UploadIO.new(img_path, "image/png"),
       caption: "💳 <b>#{carta["nome"]}</b>\n🔢 <code>#{carta["codice"]}</code>",
       parse_mode: "HTML",
@@ -324,15 +334,21 @@ class CarteFedelta
     )
   rescue => e
     puts "🚨 Errore critico: #{e.message}"
-    bot.api.send_message(chat_id: chat_id, text: "⚠️ Errore tecnico: #{e.message}", message_thread_id: t_id)
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "⚠️ Errore tecnico: #{e.message}",
+      message_thread_id: safe_message_thread_id(chat_id, t_id),
+    )
   end
 
   # METODO UI UNIVERSALE: Disegna la griglia di tasti
   # METODO UNIVERSALE DI RENDERING
   # In carte_fedelta.rb
   def self.mostra_griglia(bot, chat_id, user_id, topic_id, carte, titolo)
+    thread_id = safe_message_thread_id(chat_id, topic_id)
+
     if carte.empty?
-      bot.api.send_message(chat_id: chat_id, text: "📭 Nessuna carta disponibile qui.", message_thread_id: topic_id)
+      bot.api.send_message(chat_id: chat_id, text: "📭 Nessuna carta disponibile qui.", message_thread_id: thread_id)
       return
     end
 
@@ -355,7 +371,7 @@ class CarteFedelta
       text: "<b>#{titolo}</b>\nSeleziona una carta:",
       reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: grid),
       parse_mode: "HTML",
-      message_thread_id: (topic_id.to_i > 0 ? topic_id : nil),
+      message_thread_id: thread_id,
     )
   end
 
