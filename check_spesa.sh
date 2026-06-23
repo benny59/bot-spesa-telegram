@@ -18,8 +18,27 @@ WAKELOCK_BIN=$(command -v termux-wake-lock 2>/dev/null)
 LOG_FILE="$BOT_DIR/bot_spesa.log"
 PID_FILE="$BOT_DIR/bot_spesa.pid"
 
+# Verifica che il PID sia vivo E sia realmente il bot Ruby atteso.
+is_bot_running() {
+    [ -f "$PID_FILE" ] || return 1
+
+    PID=$(cat "$PID_FILE" 2>/dev/null)
+    case "$PID" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+
+    kill -0 "$PID" 2>/dev/null || return 1
+
+    if [ -r "/proc/$PID/cmdline" ]; then
+        CMDLINE=$(tr '\000' ' ' < "/proc/$PID/cmdline")
+        echo "$CMDLINE" | grep -q "bot_spesa.rb" || return 1
+    fi
+
+    return 0
+}
+
 # 1. Controlla se il processo è realmente vivo usando il PID salvato
-if [ -f "$PID_FILE" ] && kill -0 $(cat "$PID_FILE") 2>/dev/null; then
+if is_bot_running; then
     # Il bot è vivo e vegeto
     # echo "$(date '+%Y-%m-%d %H:%M:%S') - Bot attivo (PID: $(cat $PID_FILE))" >> $LOG_FILE
     exit 0
@@ -34,7 +53,7 @@ else
     [ -n "$WAKELOCK_BIN" ] && "$WAKELOCK_BIN"
     cd "$BOT_DIR"
     if [ -n "$RUBY_BIN" ]; then
-        "$RUBY_BIN" bot_spesa.rb >> "$LOG_FILE" 2>&1 &
+        nohup "$RUBY_BIN" bot_spesa.rb >> "$LOG_FILE" 2>&1 < /dev/null &
     else
         echo "$(date '+%Y-%m-%d %H:%M:%S') - ERRORE: ruby non trovato nel PATH" >> "$LOG_FILE"
         exit 1
