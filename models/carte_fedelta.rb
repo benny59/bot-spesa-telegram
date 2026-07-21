@@ -274,8 +274,9 @@ class CarteFedelta
     when "upca", "upc_a" then :ean13 # Forza EAN13 per compatibilità UE
     when "qrcode", "qr_code" then :qrcode
     when "ean8", "ean_8" then :ean8
-    when "code39" then :code39
-    when "itf", "itf14", "code25interleaved" then :code25interleaved
+    when "code39", "code_39", "code-39", "code 39" then :code39
+    when "code128", "code_128", "code-128", "code 128" then :code128
+    when "itf", "itf14", "itf_14", "itf-14", "code25interleaved", "code_25_interleaved", "code-25-interleaved" then :code25interleaved
     else f.to_sym rescue :code128
     end
   end
