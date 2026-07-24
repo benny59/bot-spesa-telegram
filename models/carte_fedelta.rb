@@ -249,13 +249,14 @@ class CarteFedelta
         barcode = Barby::Code128.new(codice)
       end
 
-      png_data = barcode.to_png(height: 100, margin: 10, xdim: 2)
+      barcode_height = formato == :code39 ? 120 : 110
+      png_data = barcode.to_png(height: barcode_height, margin: 10, xdim: 2)
       File.open(img_path, "wb") { |f| f.write(png_data) }
       { success: true, img_path: img_path, formato: formato }
     rescue => e
       puts "🚨 Errore generazione #{formato}, uso fallback Code128: #{e.message}"
       barcode = Barby::Code128.new(codice)
-      png_data = barcode.to_png(height: 100, margin: 10, xdim: 2)
+      png_data = barcode.to_png(height: 110, margin: 10, xdim: 2)
       File.open(img_path, "wb") { |f| f.write(png_data) }
       { success: true, img_path: img_path, formato: :code128, provider: :fallback }
     end
