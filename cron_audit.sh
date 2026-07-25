@@ -137,19 +137,41 @@ if [ -f "$HEARTBEAT_FILE" ]; then
   if command -v date >/dev/null 2>&1; then
     echo "-- gaps > 90s --"
     awk '
-      {
+      function parse_epoch(line,   ts, cmd, out) {
+        # Format A: Sat Jul 25 18:19:00 CEST 2026 CRON_TICK
+        ts = $1 " " $2 " " $3 " " $4 " " $5 " " $6
+        cmd = "date -d \"" ts "\" +%s"
+        cmd | getline out
+        close(cmd)
+        if (out != "") {
+          return out
+        }
+
+        # Format B: 2026-07-25 18:19:00 CRON_TICK
         ts = $1 " " $2
         cmd = "date -d \"" ts "\" +%s"
-        cmd | getline cur
+        cmd | getline out
         close(cmd)
+        return out
+      }
+
+      {
+        cur = parse_epoch($0)
         if (cur == "") {
           next
         }
         if (prev != "" && (cur - prev) > 90) {
-          printf "GAP %ds between %s and %s\n", (cur - prev), prev_ts, ts
+          printf "GAP %ds between %s and %s\n", (cur - prev), prev_ts, $0
+          found = 1
         }
         prev = cur
-        prev_ts = ts
+        prev_ts = $0
+      }
+
+      END {
+        if (!found) {
+          print "No gaps > 90s detected"
+        }
       }
     ' "$HEARTBEAT_FILE" 2>/dev/null || echo "Gap analysis unavailable (date -d not supported?)"
   fi
