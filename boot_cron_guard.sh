@@ -8,8 +8,30 @@ export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr
 TERMUX_HOME="${TERMUX_HOME:-/data/data/com.termux/files/home}"
 SPESA_DIR="${SPESA_DIR:-$TERMUX_HOME/spesa}"
 LOG_FILE="${LOG_FILE:-$SPESA_DIR/boot_cron_report.log}"
-WAIT_SECONDS="${WAIT_SECONDS:-90}"
+WAIT_SECONDS="${WAIT_SECONDS:-30}"
 AUTO_RESTART_CROND="${AUTO_RESTART_CROND:-1}"
+MAX_LOG_KB="${MAX_LOG_KB:-256}"
+ROTATE_KEEP="${ROTATE_KEEP:-3}"
+
+rotate_log_if_needed() {
+  [ -f "$LOG_FILE" ] || return 0
+
+  SIZE_BYTES=$(wc -c < "$LOG_FILE" 2>/dev/null)
+  [ -n "$SIZE_BYTES" ] || return 0
+
+  MAX_BYTES=$((MAX_LOG_KB * 1024))
+  [ "$SIZE_BYTES" -lt "$MAX_BYTES" ] && return 0
+
+  i=$ROTATE_KEEP
+  while [ "$i" -ge 2 ]; do
+    prev=$((i - 1))
+    [ -f "${LOG_FILE}.${prev}" ] && mv "${LOG_FILE}.${prev}" "${LOG_FILE}.${i}"
+    i=$prev
+  done
+
+  mv "$LOG_FILE" "${LOG_FILE}.1"
+  : > "$LOG_FILE"
+}
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S %Z') | $*" >> "$LOG_FILE"
@@ -18,9 +40,10 @@ log() {
 mkdir -p "$SPESA_DIR" 2>/dev/null || true
 
 touch "$LOG_FILE" 2>/dev/null || exit 1
+rotate_log_if_needed
 
 log "===== BOOT CRON GUARD START ====="
-log "TERMUX_HOME=$TERMUX_HOME SPESA_DIR=$SPESA_DIR WAIT_SECONDS=$WAIT_SECONDS AUTO_RESTART_CROND=$AUTO_RESTART_CROND"
+log "TERMUX_HOME=$TERMUX_HOME SPESA_DIR=$SPESA_DIR WAIT_SECONDS=$WAIT_SECONDS AUTO_RESTART_CROND=$AUTO_RESTART_CROND MAX_LOG_KB=$MAX_LOG_KB ROTATE_KEEP=$ROTATE_KEEP"
 
 if command -v pgrep >/dev/null 2>&1; then
   pgrep -a -f "runsv|crond|svlogd" >> "$LOG_FILE" 2>&1 || log "No runsv/crond/svlogd processes found at start"
