@@ -12,6 +12,8 @@ WAIT_SECONDS="${WAIT_SECONDS:-30}"
 AUTO_RESTART_CROND="${AUTO_RESTART_CROND:-1}"
 MAX_LOG_KB="${MAX_LOG_KB:-256}"
 ROTATE_KEEP="${ROTATE_KEEP:-3}"
+RUNIT_CROND_DIR="/data/data/com.termux/files/usr/var/service/crond"
+RUNIT_READY_WAIT="${RUNIT_READY_WAIT:-120}"
 
 rotate_log_if_needed() {
   [ -f "$LOG_FILE" ] || return 0
@@ -37,13 +39,31 @@ log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S %Z') | $*" >> "$LOG_FILE"
 }
 
+wait_for_runit_crond_dir() {
+  elapsed=0
+  while [ "$elapsed" -lt "$RUNIT_READY_WAIT" ]; do
+    if [ -d "$RUNIT_CROND_DIR" ]; then
+      return 0
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+  return 1
+}
+
 mkdir -p "$SPESA_DIR" 2>/dev/null || true
 
 touch "$LOG_FILE" 2>/dev/null || exit 1
 rotate_log_if_needed
 
 log "===== BOOT CRON GUARD START ====="
-log "TERMUX_HOME=$TERMUX_HOME SPESA_DIR=$SPESA_DIR WAIT_SECONDS=$WAIT_SECONDS AUTO_RESTART_CROND=$AUTO_RESTART_CROND MAX_LOG_KB=$MAX_LOG_KB ROTATE_KEEP=$ROTATE_KEEP"
+log "TERMUX_HOME=$TERMUX_HOME SPESA_DIR=$SPESA_DIR WAIT_SECONDS=$WAIT_SECONDS AUTO_RESTART_CROND=$AUTO_RESTART_CROND MAX_LOG_KB=$MAX_LOG_KB ROTATE_KEEP=$ROTATE_KEEP RUNIT_READY_WAIT=$RUNIT_READY_WAIT"
+
+if wait_for_runit_crond_dir; then
+  log "Detected runit crond service dir: $RUNIT_CROND_DIR"
+else
+  log "Runit crond service dir not found after ${RUNIT_READY_WAIT}s: $RUNIT_CROND_DIR"
+fi
 
 if command -v pgrep >/dev/null 2>&1; then
   pgrep -a -f "runsv|crond|svlogd" >> "$LOG_FILE" 2>&1 || log "No runsv/crond/svlogd processes found at start"
@@ -52,7 +72,11 @@ else
 fi
 
 if command -v sv >/dev/null 2>&1; then
-  sv status crond >> "$LOG_FILE" 2>&1 || log "sv status crond failed"
+  if [ -d "$RUNIT_CROND_DIR" ]; then
+    sv status crond >> "$LOG_FILE" 2>&1 || log "sv status crond failed"
+  else
+    log "Skipping sv status crond: service dir not ready"
+  fi
 else
   log "sv command not found"
 fi
@@ -75,7 +99,7 @@ else
 
   if [ "$AUTO_RESTART_CROND" = "1" ]; then
     log "Trying: sv restart crond"
-    if command -v sv >/dev/null 2>&1; then
+    if command -v sv >/dev/null 2>&1 && [ -d "$RUNIT_CROND_DIR" ]; then
       sv restart crond >> "$LOG_FILE" 2>&1 || log "sv restart crond failed"
       sleep 3
       if is_crond_alive; then
@@ -85,7 +109,7 @@ else
       fi
       sv status crond >> "$LOG_FILE" 2>&1 || true
     else
-      log "Cannot restart: sv command not found"
+      log "Cannot restart: sv command not found or service dir not ready"
     fi
   else
     log "AUTO_RESTART_CROND=0, restart skipped"
