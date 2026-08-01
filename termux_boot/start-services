@@ -1,0 +1,103 @@
+#!/data/data/com.termux/files/usr/bin/sh
+
+# Canonical Termux boot entrypoint for runit services.
+# Keeps startup idempotent and ensures sshd/crond are up.
+
+export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/bin/applets:/system/bin:/system/xbin:$PATH"
+export SVDIR="/data/data/com.termux/files/usr/var/service"
+export LOGDIR="/data/data/com.termux/files/usr/var/log"
+
+TERMUX_HOME="${TERMUX_HOME:-/data/data/com.termux/files/home}"
+SPESA_DIR="${SPESA_DIR:-$TERMUX_HOME/spesa}"
+LOG_FILE="${LOG_FILE:-$SPESA_DIR/start-services.log}"
+LOCKFILE="${LOCKFILE:-/data/data/com.termux/files/usr/tmp/start-services.lock}"
+
+RUNSVDIR_BIN="/data/data/com.termux/files/usr/bin/runsvdir"
+SV_BIN="/data/data/com.termux/files/usr/bin/sv"
+
+log() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S %Z') | $*" >> "$LOG_FILE"
+}
+
+list_runsvdir_lines() {
+  pgrep -a -x runsvdir 2>/dev/null
+}
+
+find_matching_runsvdir_pid() {
+  MATCHING_PID=""
+
+  while IFS= read -r LINE; do
+    [ -n "$LINE" ] || continue
+
+    case "$LINE" in
+      *" $SVDIR")
+        PID="${LINE%% *}"
+        case "$PID" in
+          ''|*[!0-9]*) continue ;;
+        esac
+
+        MATCHING_PID="$PID"
+        break
+        ;;
+    esac
+  done <<EOF
+$(list_runsvdir_lines)
+EOF
+
+  echo "$MATCHING_PID"
+}
+
+ensure_paths() {
+  mkdir -p "$SPESA_DIR" 2>/dev/null || true
+  mkdir -p "$(dirname "$LOCKFILE")" 2>/dev/null || true
+  touch "$LOG_FILE" 2>/dev/null || exit 1
+}
+
+acquire_lock() {
+  if (set -o noclobber; echo "$$" > "$LOCKFILE") 2>/dev/null; then
+    trap 'rm -f "$LOCKFILE"' EXIT INT TERM
+    return 0
+  fi
+  return 1
+}
+
+start_runsvdir_once() {
+  EXISTING_PID="$(find_matching_runsvdir_pid)"
+  if [ -n "$EXISTING_PID" ]; then
+    log "runsvdir already running for $SVDIR (pid=$EXISTING_PID)"
+    return 0
+  fi
+
+  nohup env SVDIR="$SVDIR" LOGDIR="$LOGDIR" "$RUNSVDIR_BIN" "$SVDIR" >> "$LOG_FILE" 2>&1 < /dev/null &
+  log "runsvdir started for $SVDIR"
+  sleep 2
+}
+
+ensure_services_up() {
+  env SVDIR="$SVDIR" LOGDIR="$LOGDIR" "$SV_BIN" up sshd >> "$LOG_FILE" 2>&1 || true
+  env SVDIR="$SVDIR" LOGDIR="$LOGDIR" "$SV_BIN" up crond >> "$LOG_FILE" 2>&1 || true
+}
+
+snapshot() {
+  pgrep -a -f "runsvdir|runsv sshd|runsv crond|sshd -D -e|crond -n" >> "$LOG_FILE" 2>&1 || true
+}
+
+main() {
+  ensure_paths
+
+  if ! acquire_lock; then
+    log "start-services skipped: lock busy"
+    exit 0
+  fi
+
+  log "===== START-SERVICES BEGIN ====="
+  termux-wake-lock >> "$LOG_FILE" 2>&1 || true
+
+  start_runsvdir_once
+  ensure_services_up
+  snapshot
+
+  log "===== START-SERVICES END ====="
+}
+
+main "$@"
