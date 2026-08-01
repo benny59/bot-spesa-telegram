@@ -1,5 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/sh
 
+# Canonical Termux boot entrypoint for runit services.
+# Keeps startup idempotent and ensures sshd/crond are up.
+
 export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/bin/applets:/system/bin:/system/xbin:$PATH"
 export SVDIR="/data/data/com.termux/files/usr/var/service"
 export LOGDIR="/data/data/com.termux/files/usr/var/log"
@@ -14,6 +17,34 @@ SV_BIN="/data/data/com.termux/files/usr/bin/sv"
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S %Z') | $*" >> "$LOG_FILE"
+}
+
+list_runsvdir_lines() {
+  pgrep -a -x runsvdir 2>/dev/null
+}
+
+find_matching_runsvdir_pid() {
+  MATCHING_PID=""
+
+  while IFS= read -r LINE; do
+    [ -n "$LINE" ] || continue
+
+    case "$LINE" in
+      *" $SVDIR")
+        PID="${LINE%% *}"
+        case "$PID" in
+          ''|*[!0-9]*) continue ;;
+        esac
+
+        MATCHING_PID="$PID"
+        break
+        ;;
+    esac
+  done <<EOF
+$(list_runsvdir_lines)
+EOF
+
+  echo "$MATCHING_PID"
 }
 
 ensure_paths() {
@@ -31,13 +62,14 @@ acquire_lock() {
 }
 
 start_runsvdir_once() {
-  if pgrep -x runsvdir >/dev/null 2>&1; then
-    log "runsvdir already running"
+  EXISTING_PID="$(find_matching_runsvdir_pid)"
+  if [ -n "$EXISTING_PID" ]; then
+    log "runsvdir already running for $SVDIR (pid=$EXISTING_PID)"
     return 0
   fi
 
   nohup env SVDIR="$SVDIR" LOGDIR="$LOGDIR" "$RUNSVDIR_BIN" "$SVDIR" >> "$LOG_FILE" 2>&1 < /dev/null &
-  log "runsvdir started"
+  log "runsvdir started for $SVDIR"
   sleep 2
 }
 

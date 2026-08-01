@@ -1,5 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/sh
 
+# Boot-time guard for runit startup races in Termux.
+# For a short window, keep only one runsvdir and force sshd/crond supervision.
+
 export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/bin/applets:/system/bin:/system/xbin:$PATH"
 export SVDIR="/data/data/com.termux/files/usr/var/service"
 export LOGDIR="/data/data/com.termux/files/usr/var/log"
@@ -32,33 +35,70 @@ acquire_lock() {
   return 1
 }
 
-list_runsvdir_pids() {
-  pgrep -x runsvdir 2>/dev/null
+list_runsvdir_lines() {
+  pgrep -a -x runsvdir 2>/dev/null
 }
 
 pick_keeper_pid() {
-  KEEP=""
-  for PID in "$@"; do
-    case "$PID" in
-      ''|*[!0-9]*) continue ;;
+  MATCHING_PIDS=""
+
+  while IFS= read -r LINE; do
+    [ -n "$LINE" ] || continue
+
+    case "$LINE" in
+      *" $SVDIR")
+        PID="${LINE%% *}"
+        case "$PID" in
+          ''|*[!0-9]*) continue ;;
+        esac
+
+        MATCHING_PIDS="$MATCHING_PIDS $PID"
+        ;;
     esac
-    if [ -z "$KEEP" ] || [ "$PID" -lt "$KEEP" ]; then
-      KEEP="$PID"
+  done <<EOF
+$1
+EOF
+
+  set -- $MATCHING_PIDS
+  case $# in
+    0)
+      echo ""
+      return 1
+      ;;
+    1)
+      echo "$1"
+      return 0
+      ;;
+  esac
+
+  KEEP_PID=""
+  for PID in "$@"; do
+    if [ -z "$KEEP_PID" ] || [ "$PID" -lt "$KEEP_PID" ]; then
+      KEEP_PID="$PID"
     fi
   done
-  echo "$KEEP"
+
+  echo "$KEEP_PID"
 }
 
 dedupe_runsvdir() {
-  PIDS="$(list_runsvdir_pids)"
-  [ -n "$PIDS" ] || return 0
+  LINES="$(list_runsvdir_lines)"
+  [ -n "$LINES" ] || return 0
 
+  PIDS="$(printf '%s\n' "$LINES" | cut -d' ' -f1)"
+
+  # shellcheck disable=SC2086
   set -- $PIDS
   COUNT=$#
   [ "$COUNT" -le 1 ] && return 0
 
-  KEEP_PID="$(pick_keeper_pid "$@")"
-  log "Duplicate runsvdir detected: $PIDS | keeping PID=$KEEP_PID"
+  KEEP_PID="$(pick_keeper_pid "$LINES")" || KEEP_PID=""
+  if [ -z "$KEEP_PID" ]; then
+    log "Duplicate runsvdir detected but no instance matched SVDIR=$SVDIR; skipping kill. lines=$(printf '%s' "$LINES")"
+    return 0
+  fi
+
+  log "Duplicate runsvdir detected: $PIDS | keeping PID=$KEEP_PID for SVDIR=$SVDIR"
 
   for PID in "$@"; do
     [ "$PID" = "$KEEP_PID" ] && continue
@@ -74,13 +114,17 @@ dedupe_runsvdir() {
     fi
   done
 
-  AFTER="$(list_runsvdir_pids)"
+  AFTER="$(list_runsvdir_lines)"
   log "runsvdir after dedupe: ${AFTER:-none}"
 }
 
 ensure_services_up() {
-  env SVDIR="$SVDIR" LOGDIR="$LOGDIR" "$SV_BIN" up sshd >> "$LOG_FILE" 2>&1 || true
-  env SVDIR="$SVDIR" LOGDIR="$LOGDIR" "$SV_BIN" up crond >> "$LOG_FILE" 2>&1 || true
+  if [ -x "$SV_BIN" ]; then
+    env SVDIR="$SVDIR" LOGDIR="$LOGDIR" "$SV_BIN" up sshd >> "$LOG_FILE" 2>&1 || true
+    env SVDIR="$SVDIR" LOGDIR="$LOGDIR" "$SV_BIN" up crond >> "$LOG_FILE" 2>&1 || true
+  else
+    log "sv binary not found at $SV_BIN"
+  fi
 }
 
 snapshot() {
@@ -90,6 +134,7 @@ snapshot() {
 
 main() {
   ensure_paths
+
   if ! acquire_lock; then
     log "Guard already running, exiting"
     exit 0
@@ -103,6 +148,7 @@ main() {
     dedupe_runsvdir
     ensure_services_up
     snapshot
+
     sleep "$SLEEP_SECONDS"
     ELAPSED=$((ELAPSED + SLEEP_SECONDS))
   done
