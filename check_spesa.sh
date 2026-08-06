@@ -17,6 +17,8 @@ WAKELOCK_BIN=$(command -v termux-wake-lock 2>/dev/null)
 
 LOG_FILE="$BOT_DIR/bot_spesa.log"
 PID_FILE="$BOT_DIR/bot_spesa.pid"
+API_PID_FILE="$BOT_DIR/api_server.pid"
+API_LOG_FILE="$BOT_DIR/api_server.log"
 
 # Verifica che il PID sia vivo E sia realmente il bot Ruby atteso.
 is_bot_running() {
@@ -32,6 +34,24 @@ is_bot_running() {
     if [ -r "/proc/$PID/cmdline" ]; then
         CMDLINE=$(tr '\000' ' ' < "/proc/$PID/cmdline")
         echo "$CMDLINE" | grep -q "bot_spesa.rb" || return 1
+    fi
+
+    return 0
+}
+
+is_api_running() {
+    [ -f "$API_PID_FILE" ] || return 1
+
+    PID=$(cat "$API_PID_FILE" 2>/dev/null)
+    case "$PID" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+
+    kill -0 "$PID" 2>/dev/null || return 1
+
+    if [ -r "/proc/$PID/cmdline" ]; then
+        CMDLINE=$(tr '\000' ' ' < "/proc/$PID/cmdline")
+        echo "$CMDLINE" | grep -q "api_server.rb" || return 1
     fi
 
     return 0
@@ -58,4 +78,21 @@ else
         echo "$(date '+%Y-%m-%d %H:%M:%S') - ERRORE: ruby non trovato nel PATH" >> "$LOG_FILE"
         exit 1
     fi
+fi
+
+# --- Controlla e riavvia il daemon HTTP api_server ---
+if is_api_running; then
+    exit 0
+fi
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - api_server non attivo, riavvio..." >> "$API_LOG_FILE"
+[ -f "$API_PID_FILE" ] && rm "$API_PID_FILE"
+[ -n "$WAKELOCK_BIN" ] && "$WAKELOCK_BIN"
+cd "$BOT_DIR"
+BUNDLE_BIN=$(command -v bundle 2>/dev/null)
+if [ -n "$BUNDLE_BIN" ]; then
+    nohup "$BUNDLE_BIN" exec "$RUBY_BIN" api_server.rb >> "$API_LOG_FILE" 2>&1 < /dev/null &
+    echo $! > "$API_PID_FILE"
+else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - ERRORE: bundle non trovato nel PATH" >> "$API_LOG_FILE"
 fi
