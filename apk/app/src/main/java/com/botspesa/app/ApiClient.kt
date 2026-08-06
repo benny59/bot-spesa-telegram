@@ -1,0 +1,165 @@
+package com.botspesa.app
+
+import android.content.Context
+import coil.ImageLoader
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
+
+object ApiClient {
+
+    private val gson = Gson()
+    private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    private var baseUrl = "http://10.0.2.2:4567"
+    private var token = ""
+
+    fun configure(url: String, tok: String) {
+        baseUrl = url.trimEnd('/')
+        token = tok
+    }
+
+    private fun Request.Builder.auth(): Request.Builder = apply {
+        if (token.isNotEmpty()) header("Authorization", "Bearer $token")
+    }
+
+    fun ping(): Boolean {
+        val req = Request.Builder().url("$baseUrl/ping").auth().build()
+        return runCatching { http.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
+    }
+
+    fun getGruppi(): List<Map<String, Any>> {
+        val req = Request.Builder().url("$baseUrl/gruppi").auth().build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        return gson.fromJson(body, type)
+    }
+
+    fun getLista(gruppoId: Int, topicId: Int = 0): List<SpesaItem> {
+        val req = Request.Builder()
+            .url("$baseUrl/lista?gruppo_id=$gruppoId&topic_id=$topicId")
+            .auth()
+            .build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(body, type)
+        return raw.map { item ->
+            SpesaItem(
+                id           = (item["id"] as Double).toInt(),
+                nome         = item["nome"] as? String ?: "",
+                comprato     = item["comprato"] as? String ?: "",
+                userInitials = item["user_initials"] as? String ?: "",
+                hasFoto      = item["has_foto"] as? Boolean ?: false
+            )
+        }
+    }
+
+    fun addItem(gruppoId: Int, topicId: Int, nome: String, userId: Int): Boolean {
+        val payload = gson.toJson(mapOf(
+            "gruppo_id" to gruppoId,
+            "topic_id"  to topicId,
+            "nome"      to nome,
+            "user_id"   to userId
+        ))
+        val req = Request.Builder()
+            .url("$baseUrl/lista")
+            .post(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun toggleItem(gruppoId: Int, itemId: Int, userId: Int): String {
+        val payload = gson.toJson(mapOf("gruppo_id" to gruppoId, "user_id" to userId))
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/toggle")
+            .patch(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val map: Map<String, Any> = gson.fromJson(body, object : TypeToken<Map<String, Any>>() {}.type)
+        return map["comprato"] as? String ?: ""
+    }
+
+    fun deleteItem(gruppoId: Int, itemId: Int, userId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId?gruppo_id=$gruppoId&user_id=$userId")
+            .delete()
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun uploadFoto(itemId: Int, imageBytes: ByteArray): Boolean {
+        val body = okhttp3.MultipartBody.Builder()
+            .setType(okhttp3.MultipartBody.FORM)
+            .addFormDataPart("file", "foto.jpg",
+                imageBytes.toRequestBody("image/jpeg".toMediaType()))
+            .build()
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/foto")
+            .post(body)
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun getFotoUrl(itemId: Int): String = "$baseUrl/foto/$itemId"
+
+    fun getToken(): String = token
+
+    fun imageLoader(context: Context): ImageLoader =
+        ImageLoader.Builder(context)
+            .okHttpClient {
+                OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .also { b ->
+                        if (token.isNotEmpty()) b.addInterceptor { chain ->
+                            chain.proceed(chain.request().newBuilder()
+                                .header("Authorization", "Bearer $token").build())
+                        }
+                    }
+                    .build()
+            }
+            .build()
+
+    fun getGruppiTyped(): List<GruppoItem> {
+        val req = Request.Builder().url("$baseUrl/gruppi").auth().build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(body, type)
+        return raw.map { GruppoItem(id = (it["id"] as Double).toInt(), nome = it["nome"] as? String ?: "") }
+    }
+
+    fun getTopics(gruppoId: Int): List<TopicItem> {
+        val req = Request.Builder().url("$baseUrl/topics?gruppo_id=$gruppoId").auth().build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(body, type)
+        return raw.map { TopicItem(topicId = (it["topic_id"] as Double).toInt(), nome = it["nome"] as? String ?: "") }
+    }
+
+    fun getCarte(gruppoId: Int): List<CartaFedeltaItem> {
+        val req = Request.Builder().url("$baseUrl/carte?gruppo_id=$gruppoId").auth().build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(body, type)
+        return raw.map { c ->
+            CartaFedeltaItem(
+                id      = (c["id"] as Double).toInt(),
+                nome    = c["nome"] as? String ?: "",
+                codice  = c["codice"] as? String ?: "",
+                formato = c["formato"] as? String ?: "qrcode"
+            )
+        }
+    }
+}

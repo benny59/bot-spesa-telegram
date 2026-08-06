@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/nav_lista"
+            android:icon="@drawable/ic_nav_lista"
+            android:title="@string/nav_lista"
+            android:checked="true" />
+        <item
+            android:id="@+id/nav_carte"
+            android:icon="@drawable/ic_nav_carte"
+            android:title="@string/nav_carte" />
+        <item
+            android:id="@+id/nav_cambia_gruppo"
+            android:icon="@drawable/ic_nav_settings"
+            android:title="@string/nav_cambia_gruppo" />
+    </group>
+    <group>
+        <item
+            android:id="@+id/nav_impostazioni"
+            android:icon="@drawable/ic_nav_settings"
+            android:title="@string/nav_impostazioni" />
+    </group>
+</menu>

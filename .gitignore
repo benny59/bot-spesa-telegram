@@ -16,3 +16,21 @@ data/
 
 # Test folder
 test/
+
+# Ruby
+.bundle/
+.rubymate/
+
+# IDE
+.vscode/
+
+# Android build artifacts e file locali
+apk/local.properties
+apk/.gradle/
+apk/build/
+apk/app/build/
+apk/app/.cxx/
+apk/app/release/
+*.apk
+*.aab
+

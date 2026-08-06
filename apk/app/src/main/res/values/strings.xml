@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lista Spesa</string>
+    <string name="aggiungi_articolo">Aggiungi articolo</string>
+    <string name="nav_lista">Lista della spesa</string>
+    <string name="nav_carte">Carte fedeltà</string>
+    <string name="nav_impostazioni">Impostazioni</string>
+    <string name="open_drawer">Apri menu</string>
+    <string name="close_drawer">Chiudi menu</string>
+    <string name="nav_cambia_gruppo">Cambia gruppo/topic</string>
+    <string name="chiudi">Chiudi</string>
+    <string name="seleziona_gruppo">Seleziona gruppo</string>
+    <string name="seleziona_topic">Seleziona topic</string>
+    <string name="aggiungi_foto">Aggiungi foto</string>
+    <string name="fotocamera">Fotocamera</string>
+    <string name="galleria">Galleria</string>
+    <string name="elimina_articolo">Elimina articolo</string>
+</resources>

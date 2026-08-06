@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="8dp"
+    android:layout_marginVertical="3dp"
+    app:cardElevation="2dp"
+    app:cardCornerRadius="8dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingVertical="10dp"
+        android:paddingHorizontal="12dp">
+
+        <!-- Cerchio iniziali di chi ha aggiunto (blu) -->
+        <TextView
+            android:id="@+id/tvInitials"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:gravity="center"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/white"
+            android:background="@drawable/circle_initials" />
+
+        <!-- Cerchio iniziali di chi ha comprato (verde, visibile solo se comprato) -->
+        <TextView
+            android:id="@+id/tvInitialsBuyer"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="4dp"
+            android:gravity="center"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/white"
+            android:background="@drawable/circle_initials_green"
+            android:visibility="gone" />
+
+        <!-- Nome articolo -->
+        <TextView
+            android:id="@+id/tvNome"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:textSize="16sp"
+            android:textColor="@color/text_primary" />
+
+        <!-- Icona foto: visibile solo se l'item ha una foto allegata -->
+        <ImageView
+            android:id="@+id/ivFoto"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_foto"
+            android:contentDescription="@string/aggiungi_foto"
+            android:visibility="gone" />
+
+        <!-- Segno di spunta se comprato -->
+        <TextView
+            android:id="@+id/tvComprato"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:textSize="18sp"
+            android:textColor="@color/green_bought" />
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>

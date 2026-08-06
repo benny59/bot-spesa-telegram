@@ -20,7 +20,7 @@ disable_backup_executables() {
 }
 
 warn_extra_executables() {
-  find "$BOOT_DIR" -maxdepth 1 -type f -perm /111 ! -name 'start-services' ! -name '90-runit-guard.sh' ! -name '10-daze-start' 2>/dev/null |
+  find "$BOOT_DIR" -maxdepth 1 -type f -perm /111 ! -name 'start-services' ! -name '90-runit-guard.sh' ! -name '95-api-server.sh' ! -name '10-daze-start' 2>/dev/null |
   while IFS= read -r FILE; do
     [ -n "$FILE" ] || continue
     echo "WARN: extra executable file in boot dir may also run: $FILE" >&2
@@ -43,10 +43,11 @@ mkdir -p "$BOOT_DIR"
 
 disable_backup_executables
 
-chmod 700 "$SOURCE_DIR/start-services" "$SOURCE_DIR/90-runit-guard.sh"
+chmod 700 "$SOURCE_DIR/start-services" "$SOURCE_DIR/90-runit-guard.sh" "$SOURCE_DIR/95-api-server.sh"
 
-install_link "$SOURCE_DIR/start-services" "$BOOT_DIR/start-services"
+install_link "$SOURCE_DIR/start-services"    "$BOOT_DIR/start-services"
 install_link "$SOURCE_DIR/90-runit-guard.sh" "$BOOT_DIR/90-runit-guard.sh"
+install_link "$SOURCE_DIR/95-api-server.sh"  "$BOOT_DIR/95-api-server.sh"
 
 # Optional: keep Daze boot script owned by the Daze repository.
 if [ -z "$DAZE_BOOT_SCRIPT" ]; then
