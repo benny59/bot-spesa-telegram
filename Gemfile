@@ -5,6 +5,5 @@ gem 'sqlite3'
 gem 'rqrcode'
 gem 'barby'
 gem 'faraday'
-gem 'debug'
 gem 'sinatra'
 gem 'puma'   # web server per sinatra in produzione
