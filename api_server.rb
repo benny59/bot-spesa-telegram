@@ -12,8 +12,8 @@ require_relative 'models/lista'
 require_relative 'models/whitelist'
 
 configure do
-  set :bind, '0.0.0.0'   # 0.0.0.0 per supportare sia localhost che LAN
-  set :port, 4567
+  set :bind, '0.0.0.0'
+  set :port, (ENV['SPESA_PORT'] || 4568).to_i   # 4567 è riservata a daze su Termux
   set :show_exceptions, false
   enable :logging
 end
