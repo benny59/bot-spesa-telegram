@@ -55,8 +55,9 @@ end
 
 before do
   content_type :json
+  next if request.path_info == '/collega'  # bootstrap: nessun token richiesto
   token = api_token
-  next if token.nil? || token.strip.empty?   # nessun token configurato = accesso libero
+  next if token.nil? || token.strip.empty?
 
   auth = request.env['HTTP_AUTHORIZATION']
   halt 401, { error: 'Unauthorized' }.to_json unless auth == "Bearer #{token}"

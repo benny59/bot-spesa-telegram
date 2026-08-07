@@ -248,15 +248,19 @@ class MainActivity : AppCompatActivity() {
                 dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                 lifecycleScope.launch {
                     val result = withContext(Dispatchers.IO) {
-                        runCatching { ApiClient.collegaPin(pin) }.getOrNull()
+                        runCatching { ApiClient.collegaPin(pin) }
                     }
                     dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
-                    if (result != null) {
-                        prefs().edit().putInt("user_id", result.userId).apply()
-                        Toast.makeText(this@MainActivity, "✓ Benvenuto, ${result.firstName}!", Toast.LENGTH_LONG).show()
-                        dlg.dismiss()
-                    } else {
-                        etPin.error = "PIN non valido o scaduto"
+                    result.onSuccess { r ->
+                        if (r != null) {
+                            prefs().edit().putInt("user_id", r.userId).apply()
+                            Toast.makeText(this@MainActivity, "\u2713 Benvenuto, ${r.firstName}!", Toast.LENGTH_LONG).show()
+                            dlg.dismiss()
+                        } else {
+                            etPin.error = "PIN non valido o scaduto"
+                        }
+                    }.onFailure { e ->
+                        etPin.error = e.message ?: "Errore di rete"
                     }
                 }
             }

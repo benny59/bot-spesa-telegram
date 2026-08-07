@@ -182,7 +182,10 @@ object ApiClient {
             .auth()
             .build()
         val resp = http.newCall(req).execute()
-        if (!resp.isSuccessful) return null
+        if (!resp.isSuccessful) {
+            val errBody = runCatching { resp.body?.string() }.getOrNull() ?: ""
+            throw Exception("HTTP ${resp.code}: $errBody")
+        }
         val map: Map<String, Any> = gson.fromJson(resp.body!!.string(), object : TypeToken<Map<String, Any>>() {}.type)
         val uid = (map["user_id"] as? Double)?.toInt() ?: return null
         val name = map["first_name"] as? String ?: ""
