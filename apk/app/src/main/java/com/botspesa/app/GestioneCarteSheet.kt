@@ -183,14 +183,34 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
         val btnFoto = Button(requireContext()).apply {
             text = "📷 Aggiungi immagine carta"
             setOnClickListener {
-                onImagePicked = { uri, codiceRilevato ->
+                onImagePicked = { uri, codiceLocale ->
                     imgPreview.setImageURI(uri)
                     imgPreview.visibility = View.VISIBLE
-                    if (!codiceRilevato.isNullOrEmpty()) {
-                        etCodice.setText(codiceRilevato)
-                        etCodice.hint = "Codice rilevato dall'immagine"
+                    // Risultato locale immediato come primo feedback
+                    if (!codiceLocale.isNullOrEmpty()) {
+                        etCodice.setText(codiceLocale)
+                        etCodice.hint = "Verifica in corso..."
                     } else {
-                        Toast.makeText(requireContext(), "Nessun codice rilevato — inseriscilo manualmente se necessario", Toast.LENGTH_LONG).show()
+                        etCodice.hint = "Scansione server in corso..."
+                    }
+                    // Server scan: più accurato, aggiorna se migliore
+                    lifecycleScope.launch {
+                        val res = withContext(Dispatchers.IO) {
+                            immagineSelezionataBytes?.let { runCatching { ApiClient.scanBarcode(it) }.getOrNull() }
+                        }
+                        when {
+                            res != null -> {
+                                etCodice.setText(res.first)
+                                etCodice.hint = "Codice rilevato automaticamente"
+                            }
+                            codiceLocale.isNullOrEmpty() -> {
+                                etCodice.hint = "Codice (numerico o alfanumerico)"
+                                Toast.makeText(requireContext(),
+                                    "Nessun codice rilevato — inseriscilo manualmente se necessario",
+                                    Toast.LENGTH_LONG).show()
+                            }
+                            else -> etCodice.hint = "Codice rilevato automaticamente"
+                        }
                     }
                 }
                 pickImage.launch("image/*")

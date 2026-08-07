@@ -224,6 +224,22 @@ object ApiClient {
         return parseCarte(body, withCondivisa = true)
     }
 
+    /** Invia immagine al server per il decode barcode. Restituisce Pair(codice, formato) o null. */
+    fun scanBarcode(imageBytes: ByteArray): Pair<String, String>? {
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("immagine", "scan.jpg", imageBytes.toRequestBody("image/jpeg".toMediaType()))
+            .build()
+        val resp = http.newCall(Request.Builder().url("$baseUrl/carte/scan").post(body).auth().build())
+            .execute()
+        if (!resp.isSuccessful) return null
+        val map: Map<String, String> = gson.fromJson(resp.body!!.string(),
+            object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type)
+        val codice  = map["codice"]  ?: return null
+        val formato = map["formato"] ?: "CODE128"
+        return Pair(codice, formato)
+    }
+
     fun creaCarta(userId: Int, nome: String, codice: String, imageBytes: ByteArray? = null): Boolean {
         val req = if (imageBytes != null) {
             val body = MultipartBody.Builder()

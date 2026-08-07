@@ -10,6 +10,7 @@ require 'faraday'
 require_relative 'db'
 require_relative 'models/lista'
 require_relative 'models/whitelist'
+require_relative 'models/barcode_scanner'
 require_relative 'handlers/storico_manager'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
@@ -457,6 +458,25 @@ get '/carte/mie' do
       formato: r['formato'].to_s, condivisa: !r['condivisa'].nil?,
       immagine_url: img_url }
   }.to_json
+end
+
+# Legge il barcode da un'immagine multipart, restituisce {codice, formato} o 404
+post '/carte/scan' do
+  img = params[:immagine]
+  halt 400, { error: 'immagine mancante' }.to_json unless img
+
+  dir = File.join(File.dirname(__FILE__), 'data', 'carte', 'tmp')
+  FileUtils.mkdir_p(dir)
+  ext      = File.extname(img[:filename].to_s.downcase)
+  ext      = '.jpg' if ext.empty?
+  tmp_path = File.join(dir, "scan_#{SecureRandom.hex(6)}#{ext}")
+  File.open(tmp_path, 'wb') { |f| f.write(img[:tempfile].read) }
+
+  result = BarcodeScanner.scan_image(tmp_path)
+  File.delete(tmp_path) rescue nil
+
+  halt 404, { error: 'nessun codice trovato' }.to_json unless result
+  { codice: result[:data], formato: result[:format] }.to_json
 end
 
 post '/carte' do
