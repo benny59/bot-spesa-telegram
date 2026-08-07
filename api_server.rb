@@ -11,6 +11,7 @@ require_relative 'db'
 require_relative 'models/lista'
 require_relative 'models/whitelist'
 require_relative 'models/barcode_scanner'
+require_relative 'models/carte_fedelta'
 require_relative 'handlers/storico_manager'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
@@ -487,6 +488,12 @@ post '/carte' do
   DB.execute("INSERT INTO carte_fedelta (user_id, nome, codice, formato) VALUES (?, ?, ?, ?)",
              [user_id, nome, codice, formato])
   carta_id = DB.last_insert_row_id
+
+  result = CarteFedelta.genera_barcode_con_nome(codice, nome, user_id, formato)
+  if result && result[:img_path]
+    DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [result[:img_path], carta_id])
+  end
+
   status 201
   { ok: true, id: carta_id, formato: formato }.to_json
 end
