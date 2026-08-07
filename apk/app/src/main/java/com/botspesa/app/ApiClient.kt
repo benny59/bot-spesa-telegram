@@ -151,7 +151,9 @@ object ApiClient {
             .url("$baseUrl/checklist?gruppo_id=$gruppoId&topic_id=$topicId")
             .auth()
             .build()
-        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val resp = http.newCall(req).execute()
+        val body = resp.use { it.body!!.string() }
+        if (!resp.isSuccessful) throw Exception("Server ${resp.code}: $body")
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { i ->

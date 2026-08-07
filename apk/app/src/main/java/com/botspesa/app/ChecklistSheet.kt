@@ -42,7 +42,7 @@ class ChecklistSheet : BottomSheetDialogFragment() {
                 runCatching { ApiClient.getChecklist(gruppoId, topicId) }
             }
             result.onSuccess { adapter.aggiorna(it) }
-                  .onFailure { Toast.makeText(requireContext(), "Errore caricamento checklist", Toast.LENGTH_SHORT).show() }
+                  .onFailure { e -> Toast.makeText(requireContext(), "Checklist: ${e.message}", Toast.LENGTH_LONG).show() }
         }
     }
 
