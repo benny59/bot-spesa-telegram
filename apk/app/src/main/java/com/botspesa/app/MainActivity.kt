@@ -127,9 +127,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<NavigationView>(R.id.navView).setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
             when (item.itemId) {
-                R.id.nav_lista             -> { vistaAttuale = ""; aggiornaLista(); caricaInfoGruppo() }
-                R.id.nav_tutti             -> { vistaAttuale = "tutti"; aggiornaLista(); caricaInfoGruppo() }
-                R.id.nav_miei              -> { vistaAttuale = "miei"; aggiornaLista(); caricaInfoGruppo() }
+                R.id.nav_lista             -> { vistaAttuale = ""; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
+                R.id.nav_tutti             -> { vistaAttuale = "tutti"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
+                R.id.nav_miei              -> { vistaAttuale = "miei"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
                 R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
                 R.id.nav_config_rete       -> mostraDialogConfigRete()
@@ -168,6 +168,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.toolbar_menu, menu)
         return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.action_checklist)?.isVisible = vistaAttuale.isEmpty()
+        return super.onPrepareOptionsMenu(menu)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {

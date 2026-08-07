@@ -12,8 +12,10 @@ require_relative 'models/lista'
 require_relative 'models/whitelist'
 require_relative 'handlers/storico_manager'
 
-# Invia notifica Telegram al gruppo dopo la scopetta
-def notifica_scopetta(gruppo_id, topic_id, user_id, articoli_rimasti)
+# Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
+def notifica_gruppo(gruppo_id, topic_id, testo)
+  return if gruppo_id.to_i == 0
+
   env   = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") || 'production'
   key   = env == 'production' ? 'token' : 'token_dev'
   token = DB.get_first_value("SELECT value FROM config WHERE key = ?", [key])
@@ -22,15 +24,7 @@ def notifica_scopetta(gruppo_id, topic_id, user_id, articoli_rimasti)
   chat_id = DataManager.get_real_chat_id(gruppo_id)
   return unless chat_id
 
-  nome = DB.get_first_value(
-    "SELECT first_name FROM user_names WHERE user_id = ?", [user_id]
-  ) || 'Utente'
-
-  testo = articoli_rimasti == 0 \
-    ? "\u{1F6D2} <b>#{nome}</b> ha terminato la spesa."\
-    : "\u{1F6D2} <b>#{nome}</b> ha terminato la spesa, controlla gli articoli rimasti."
-
-  payload = { chat_id: chat_id, text: testo, parse_mode: 'HTML' }
+  payload = { chat_id: chat_id, text: testo, parse_mode: 'HTML', disable_notification: true }
   payload[:message_thread_id] = topic_id if topic_id.to_i != 0
 
   Faraday.post("https://api.telegram.org/bot#{token}/sendMessage") do |req|
@@ -38,7 +32,18 @@ def notifica_scopetta(gruppo_id, topic_id, user_id, articoli_rimasti)
     req.body = payload.to_json
   end
 rescue => e
-  puts "\u26A0\uFE0F  Notifica scopetta fallita: #{e.message}"
+  puts "\u26A0\uFE0F  Notifica gruppo fallita: #{e.message}"
+end
+
+# Invia notifica Telegram al gruppo dopo la scopetta
+def notifica_scopetta(gruppo_id, topic_id, user_id, articoli_rimasti)
+  nome = DB.get_first_value(
+    "SELECT first_name FROM user_names WHERE user_id = ?", [user_id]
+  ) || 'Utente'
+  testo = articoli_rimasti == 0 \
+    ? "\u{1F6D2} <b>#{nome}</b> ha terminato la spesa."\
+    : "\u{1F6D2} <b>#{nome}</b> ha terminato la spesa, controlla gli articoli rimasti."
+  notifica_gruppo(gruppo_id, topic_id, testo)
 end
 
 configure do
@@ -157,6 +162,12 @@ post '/lista' do
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
 
   DataManager.aggiungi_articoli(gruppo_id: gruppo_id, user_id: user_id, items_text: testo, topic_id: topic_id)
+
+  if gruppo_id != 0 && user_id != 0
+    nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+    notifica_gruppo(gruppo_id, topic_id, "\u2795 <b>#{nome_utente}</b> ha aggiunto: #{testo}")
+  end
+
   status 201
   { ok: true }.to_json
 end
@@ -221,14 +232,20 @@ end
 delete '/lista/:id' do
   item_id   = params[:id].to_i
   gruppo_id = params[:gruppo_id]&.to_i
+  user_id   = params[:user_id]&.to_i || 0
 
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  # Verifica appartenenza al gruppo prima di procedere
-  item = DB.get_first_row("SELECT id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+  item = DB.get_first_row("SELECT id, nome, topic_id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
   halt 404, { error: 'item non trovato' }.to_json unless item
 
   DataManager.rimuovi_item_diretto(item_id)
+
+  if gruppo_id != 0 && user_id != 0
+    nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+    notifica_gruppo(gruppo_id, item['topic_id'], "\u2716\uFE0F <b>#{nome_utente}</b> ha eliminato: #{item['nome']}")
+  end
+
   { ok: true }.to_json
 end
 
