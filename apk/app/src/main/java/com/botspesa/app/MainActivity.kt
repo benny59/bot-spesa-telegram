@@ -56,6 +56,16 @@ class MainActivity : AppCompatActivity() {
     private val gruppoId get() = prefs().getInt("gruppo_id", 1)
     private val topicId  get() = prefs().getInt("topic_id", 0)
     private val userId   get() = prefs().getInt("user_id", 0)
+    private val firstName get() = prefs().getString("user_first_name", "") ?: ""
+    private val lastName  get() = prefs().getString("user_last_name", "") ?: ""
+
+    private fun aggiornaNomeUtente() {
+        val navView = findViewById<com.google.android.material.navigation.NavigationView>(R.id.navView)
+        val header = navView.getHeaderView(0)
+        val tvUser = header.findViewById<TextView>(R.id.tvUserName)
+        val nome = listOf(firstName, lastName).filter { it.isNotEmpty() }.joinToString(" ")
+        tvUser.text = if (nome.isNotEmpty()) "👤 $nome" else "(non collegato)"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,8 +123,7 @@ class MainActivity : AppCompatActivity() {
 
         aggiornaLista()
         caricaInfoGruppo()
-
-        // Primo avvio: nessun account collegato
+        aggiornaNomeUtente()
         if (prefs().getInt("user_id", 0) == 0) {
             mostraDialogCollegaTelegram(primoAvvio = true)
         }
@@ -192,10 +201,15 @@ class MainActivity : AppCompatActivity() {
         return getColor(res)
     }
 
-    private fun applicaColoreToolbar(topicNome: String) {
-        val p = prefs()
-        val colorKey = "topic_color_$topicId"
-        val color = if (p.contains(colorKey)) p.getInt(colorKey, 0) else topicColorDefault(topicNome)
+    private fun applicaColoreToolbar(gruppoId: Int, topicNome: String) {
+        val color = if (gruppoId == 0) {
+            android.graphics.Color.parseColor("#455A64") // Lista Personale: grigio-blu
+        } else {
+            val p = prefs()
+            val colorKey = "topic_color_$topicId"
+            if (p.contains(colorKey)) p.getInt(colorKey, 0)
+            else topicColorDefault(topicNome)
+        }
         findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar).setBackgroundColor(color)
         window.statusBarColor = color
     }
@@ -351,7 +365,7 @@ class MainActivity : AppCompatActivity() {
                                 val newColor = colorPalette[idx].first
                                 p.edit().putInt(colorKey, newColor).apply()
                                 (dot.background as android.graphics.drawable.GradientDrawable).setColor(newColor)
-                                if (topicId == topic.topicId) applicaColoreToolbar(topic.nome)
+                                if (topicId == topic.topicId) applicaColoreToolbar(gruppoId, topic.nome)
                             }
                             .show()
                     }
@@ -500,17 +514,26 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val gruppi  = ApiClient.getGruppiTyped()
-                    val topics  = ApiClient.getTopics(gruppoId)
-                    val gNome   = gruppi.find { it.id == gruppoId }?.nome ?: "Lista"
-                    val tNome   = topics.find { it.topicId == topicId }?.nome ?: "Principale"
-                    Pair(gNome, tNome)
+                    val gId    = gruppoId
+                    val tId    = topicId
+                    val gruppi = ApiClient.getGruppiTyped()
+                    val topics = ApiClient.getTopics(gId)
+                    val gNome  = if (gId == 0) "Lista Personale"
+                                 else gruppi.find { it.id == gId }?.nome ?: "Lista"
+                    val tNome  = if (gId == 0) ""
+                                 else topics.find { it.topicId == tId }?.nome ?: "Principale"
+                    Triple(gNome, tNome, gId)
                 }
             }
-            result.onSuccess { (gNome, tNome) ->
-                tvGruppo.text = "$gNome ▾"
-                tvTopic.text  = "$tNome ▾"
-                applicaColoreToolbar(tNome)
+            result.onSuccess { (gNome, tNome, gId) ->
+                tvGruppo.text = "$gNome \u25BE"
+                tvTopic.text  = if (tNome.isEmpty()) "" else "$tNome \u25BE"
+                tvTopic.visibility = if (tNome.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                applicaColoreToolbar(gId, tNome)
+                // aggiorna sottotitolo header drawer
+                val header = findViewById<com.google.android.material.navigation.NavigationView>(R.id.navView).getHeaderView(0)
+                header.findViewById<TextView>(R.id.tvGruppoNome).text =
+                    if (gId == 0) "🔒 Lista Personale" else "$gNome${if (tNome.isNotEmpty()) " • $tNome" else ""}"
             }
         }
     }
