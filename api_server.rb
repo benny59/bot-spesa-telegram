@@ -61,10 +61,9 @@ def api_token
 end
 
 before do
-  content_type :json unless request.path_info.match?(%r{^/carte/\d+/immagine$})
+  content_type :json
   next if request.path_info == '/collega'  # bootstrap: nessun token richiesto
   next if request.path_info.start_with?('/me')  # recupero nome utente
-  next if request.path_info.match?(%r{^/carte/\d+/immagine$})  # immagini carte: solo rete locale
   token = api_token
   next if token.nil? || token.strip.empty?
 
@@ -447,82 +446,47 @@ get '/carte/mie' do
   halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
 
   rows = DB.execute(
-    "SELECT c.id, c.nome, c.codice, c.formato, c.immagine_path,
+    "SELECT c.id, c.nome, c.codice, c.formato,
        (SELECT 1 FROM gruppo_carte_collegamenti g WHERE g.carta_id = c.id AND g.gruppo_id = ?) AS condivisa
      FROM carte_fedelta c WHERE c.user_id = ? ORDER BY LOWER(c.nome) ASC",
     [gruppo_id, user_id]
   )
   rows.map { |r|
-    img_url = r['immagine_path'] ? "/carte/#{r['id']}/immagine" : nil
     { id: r['id'], nome: r['nome'], codice: r['codice'],
-      formato: r['formato'].to_s, condivisa: !r['condivisa'].nil?,
-      immagine_url: img_url }
+      formato: r['formato'].to_s, condivisa: !r['condivisa'].nil? }
   }.to_json
 end
 
-# Legge il barcode da un'immagine multipart; mantiene il file per il successivo POST /carte via scan_token
+# Legge il barcode da un'immagine multipart; l'immagine viene eliminata dopo la scansione
 post '/carte/scan' do
   img = params[:immagine]
   halt 400, { error: 'immagine mancante' }.to_json unless img
 
   dir = File.join(File.dirname(__FILE__), 'data', 'carte')
   FileUtils.mkdir_p(dir)
-  ext        = File.extname(img[:filename].to_s.downcase)
-  ext        = '.jpg' if ext.empty?
-  token      = "scan_#{SecureRandom.hex(8)}#{ext}"
-  tmp_path   = File.join(dir, token)
+  ext      = File.extname(img[:filename].to_s.downcase)
+  ext      = '.jpg' if ext.empty?
+  tmp_path = File.join(dir, "scan_#{SecureRandom.hex(8)}#{ext}")
   File.open(tmp_path, 'wb') { |f| f.write(img[:tempfile].read) }
 
   result = BarcodeScanner.scan_image(tmp_path)
+  File.delete(tmp_path) rescue nil
+
   halt 404, { error: 'nessun codice trovato' }.to_json unless result
-  { codice: result[:data], formato: result[:format], scan_token: token }.to_json
+  { codice: result[:data], formato: result[:format] }.to_json
 end
 
 post '/carte' do
-  img     = nil
-  user_id = nil
-  nome    = ''
-  codice  = ''
-
-  if request.content_type&.include?('multipart')
-    user_id    = params[:user_id]&.to_i
-    nome       = params[:nome].to_s.strip
-    codice     = params[:codice].to_s.strip
-    scan_token = params[:scan_token].to_s.strip
-    img        = params[:immagine]
-  else
-    body       = json_body
-    user_id    = body['user_id']&.to_i
-    nome       = body['nome'].to_s.strip
-    codice     = body['codice'].to_s.strip
-    scan_token = body['scan_token'].to_s.strip
-  end
-  halt 400, { error: 'parametri mancanti' }.to_json if user_id.nil? || nome.empty? || (codice.empty? && img.nil? && scan_token.empty?)
+  body    = json_body
+  user_id = body['user_id']&.to_i
+  nome    = body['nome'].to_s.strip
+  codice  = body['codice'].to_s.strip
+  halt 400, { error: 'parametri mancanti' }.to_json if user_id.nil? || nome.empty? || codice.empty?
 
   formato = identifica_formato_codice(codice)
   DB.execute("INSERT INTO carte_fedelta (user_id, nome, codice, formato) VALUES (?, ?, ?, ?)",
              [user_id, nome, codice, formato])
   carta_id = DB.last_insert_row_id
-
-  if !scan_token.empty?
-    # Sposta il file già caricato dallo scan temporaneo
-    tmp_path = File.join(File.dirname(__FILE__), 'data', 'carte', scan_token)
-    if File.exist?(tmp_path)
-      ext     = File.extname(tmp_path)
-      img_rel = File.join('data', 'carte', "#{carta_id}#{ext}")
-      FileUtils.mv(tmp_path, File.join(File.dirname(__FILE__), img_rel))
-      DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [img_rel, carta_id])
-    end
-  elsif img
-    dir = File.join(File.dirname(__FILE__), 'data', 'carte')
-    FileUtils.mkdir_p(dir)
-    ext = File.extname(img[:filename].to_s.downcase)
-    ext = '.jpg' if ext.empty?
-    img_rel = File.join('data', 'carte', "#{carta_id}#{ext}")
-    File.open(File.join(File.dirname(__FILE__), img_rel), 'wb') { |f| f.write(img[:tempfile].read) }
-    DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [img_rel, carta_id])
-  end
-
   status 201
   { ok: true, id: carta_id, formato: formato }.to_json
 end
@@ -560,17 +524,4 @@ delete '/carte/:id' do
   DB.execute("DELETE FROM gruppo_carte_collegamenti WHERE carta_id = ?", [carta_id])
   DataManager.elimina_carta(carta_id, user_id)
   { ok: true }.to_json
-end
-
-get '/carte/:id/immagine' do
-  carta_id = params[:id].to_i
-  row = DB.get_first_row("SELECT immagine_path FROM carte_fedelta WHERE id = ?", [carta_id])
-  halt 404 unless row && row['immagine_path']
-
-  full_path = File.join(File.dirname(__FILE__), row['immagine_path'])
-  halt 404 unless File.exist?(full_path)
-
-  ext = File.extname(full_path).downcase
-  content_type(ext == '.png' ? 'image/png' : 'image/jpeg')
-  File.binread(full_path)
 end

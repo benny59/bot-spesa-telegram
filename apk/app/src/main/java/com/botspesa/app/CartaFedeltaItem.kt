@@ -5,6 +5,5 @@ data class CartaFedeltaItem(
     val nome: String,
     val codice: String,
     val formato: String,
-    val condivisaConGruppo: Boolean = false,
-    val immagineUrl: String? = null
+    val condivisaConGruppo: Boolean = false
 )

@@ -38,7 +38,8 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
     private lateinit var tvNessuna:  TextView
     private var carte = mutableListOf<CartaFedeltaItem>()
 
-    private var immagineSelezionataBytes: ByteArray? = null
+    // Bytes dell'immagine corrente per la scansione server (usati solo nel dialog, poi scartati)
+    private var scanBytes: ByteArray? = null
     private var onImagePicked: ((android.net.Uri, String?) -> Unit)? = null
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -52,7 +53,7 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
             else bmp
             ByteArrayOutputStream().also { out -> scaled.compress(Bitmap.CompressFormat.JPEG, 82, out) }.toByteArray()
         }
-        immagineSelezionataBytes = bytes
+        scanBytes = bytes
         onImagePicked?.invoke(uri, codiceRilevato)
     }
 
@@ -123,10 +124,9 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
 
     private fun apriBarcode(carta: CartaFedeltaItem) {
         startActivity(Intent(requireContext(), BarcodeActivity::class.java).apply {
-            putExtra(BarcodeActivity.EXTRA_NOME,         carta.nome)
-            putExtra(BarcodeActivity.EXTRA_CODICE,       carta.codice)
-            putExtra(BarcodeActivity.EXTRA_FORMATO,      carta.formato)
-            putExtra(BarcodeActivity.EXTRA_IMMAGINE_URL, carta.immagineUrl ?: "")
+            putExtra(BarcodeActivity.EXTRA_NOME,    carta.nome)
+            putExtra(BarcodeActivity.EXTRA_CODICE,  carta.codice)
+            putExtra(BarcodeActivity.EXTRA_FORMATO, carta.formato)
         })
     }
 
@@ -161,7 +161,7 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
     }
 
     private fun mostraDialogAggiunta() {
-        immagineSelezionataBytes = null
+        scanBytes = null
         val dp = resources.displayMetrics.density
 
         val layout = android.widget.LinearLayout(requireContext()).apply {
@@ -173,31 +173,21 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
             hint = "Codice (numerico o alfanumerico)"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
-        val imgPreview = ImageView(requireContext()).apply {
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (120 * dp).toInt()
-            ).also { it.topMargin = (8 * dp).toInt() }
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            visibility = View.GONE
-        }
         val btnFoto = Button(requireContext()).apply {
-            text = "📷 Aggiungi immagine carta"
+            text = "📷 Scansiona codice da immagine"
             setOnClickListener {
-                onImagePicked = { uri, codiceLocale ->
-                    imgPreview.setImageURI(uri)
-                    imgPreview.visibility = View.VISIBLE
-                    // Risultato locale immediato come primo feedback
+                onImagePicked = { _, codiceLocale ->
                     if (!codiceLocale.isNullOrEmpty()) {
                         etCodice.setText(codiceLocale)
                         etCodice.hint = "Verifica in corso..."
                     } else {
                         etCodice.hint = "Scansione server in corso..."
                     }
-                    // Server scan: più accurato, aggiorna se migliore
                     lifecycleScope.launch {
                         val res = withContext(Dispatchers.IO) {
-                            immagineSelezionataBytes?.let { runCatching { ApiClient.scanBarcode(it) }.getOrNull() }
+                            scanBytes?.let { runCatching { ApiClient.scanBarcode(it) }.getOrNull() }
                         }
+                        scanBytes = null  // scarta bytes dopo l'uso
                         when {
                             res != null -> {
                                 etCodice.setText(res.first)
@@ -206,7 +196,7 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
                             codiceLocale.isNullOrEmpty() -> {
                                 etCodice.hint = "Codice (numerico o alfanumerico)"
                                 Toast.makeText(requireContext(),
-                                    "Nessun codice rilevato — inseriscilo manualmente se necessario",
+                                    "Nessun codice rilevato — inseriscilo manualmente",
                                     Toast.LENGTH_LONG).show()
                             }
                             else -> etCodice.hint = "Codice rilevato automaticamente"
@@ -219,7 +209,6 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
         layout.addView(etNome)
         layout.addView(etCodice)
         layout.addView(btnFoto)
-        layout.addView(imgPreview)
 
         AlertDialog.Builder(requireContext())
             .setTitle("Aggiungi carta fedeltà")
@@ -232,15 +221,12 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
                     dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val nome   = etNome.text.toString().trim()
                         val codice = etCodice.text.toString().trim()
-                        if (nome.isEmpty()) { etNome.error = "Obbligatorio"; return@setOnClickListener }
-                        if (codice.isEmpty() && immagineSelezionataBytes == null) {
-                            etCodice.error = "Inserisci il codice o scegli un'immagine"
-                            return@setOnClickListener
-                        }
+                        if (nome.isEmpty())   { etNome.error   = "Obbligatorio"; return@setOnClickListener }
+                        if (codice.isEmpty()) { etCodice.error = "Obbligatorio"; return@setOnClickListener }
                         dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                         lifecycleScope.launch {
                             val ok = withContext(Dispatchers.IO) {
-                                runCatching { ApiClient.creaCarta(userId, nome, codice, immagineSelezionataBytes) }
+                                runCatching { ApiClient.creaCarta(userId, nome, codice) }
                                     .getOrDefault(false)
                             }
                             if (ok) { dlg.dismiss(); caricaCarte() }
@@ -278,10 +264,8 @@ private class CarteGestioneAdapter(
 ) : RecyclerView.Adapter<CarteGestioneAdapter.VH>() {
 
     inner class VH(v: View) : RecyclerView.ViewHolder(v) {
-        val tvNome:      TextView  = v.findViewById(R.id.tvNomeCartaGest)
-        val imgCarta:    ImageView = v.findViewById(R.id.imgCarta)
-        val viewOverlay: View      = v.findViewById(R.id.viewNomeOverlay)
-        val tvBadge:     TextView  = v.findViewById(R.id.tvBadgeCondivisa)
+        val tvNome:  TextView = v.findViewById(R.id.tvNomeCartaGest)
+        val tvBadge: TextView = v.findViewById(R.id.tvBadgeCondivisa)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
@@ -290,19 +274,6 @@ private class CarteGestioneAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val carta = carte[position]
         holder.tvNome.text = carta.nome
-
-        if (!carta.immagineUrl.isNullOrEmpty()) {
-            holder.imgCarta.visibility    = View.VISIBLE
-            holder.viewOverlay.visibility = View.VISIBLE
-            holder.tvNome.setTextColor(android.graphics.Color.WHITE)
-            holder.tvNome.gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
-            holder.imgCarta.load(carta.immagineUrl)
-        } else {
-            holder.imgCarta.visibility    = View.GONE
-            holder.viewOverlay.visibility = View.GONE
-            holder.tvNome.setTextColor(holder.tvNome.context.getColor(R.color.text_primary))
-            holder.tvNome.gravity = android.view.Gravity.CENTER
-        }
 
         holder.tvBadge.visibility = if (carta.condivisaConGruppo && gruppoNome.isNotEmpty())
             View.VISIBLE else View.GONE

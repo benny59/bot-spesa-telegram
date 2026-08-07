@@ -15,23 +15,6 @@
         android:layout_width="match_parent"
         android:layout_height="80dp">
 
-        <!-- Foto della carta (riempie la cella, visibile solo se presente) -->
-        <ImageView
-            android:id="@+id/imgCarta"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scaleType="centerCrop"
-            android:visibility="gone" />
-
-        <!-- Striscia semitrasparente al fondo per leggibilità nome -->
-        <View
-            android:id="@+id/viewNomeOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="32dp"
-            android:layout_gravity="bottom"
-            android:background="#99000000"
-            android:visibility="gone" />
-
         <TextView
             android:id="@+id/tvNomeCartaGest"
             android:layout_width="match_parent"
@@ -42,7 +25,6 @@
             android:textSize="12sp"
             android:textStyle="bold" />
 
-        <!-- Badge "✓ Gruppo" in alto a destra quando condivisa -->
         <TextView
             android:id="@+id/tvBadgeCondivisa"
             android:layout_width="wrap_content"
@@ -54,6 +36,7 @@
             android:paddingEnd="4dp"
             android:paddingTop="2dp"
             android:paddingBottom="2dp"
+            android:text="✓"
             android:textColor="#FFFFFF"
             android:textSize="9sp"
             android:visibility="gone" />

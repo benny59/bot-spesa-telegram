@@ -15,15 +15,6 @@
         android:textColor="@color/text_primary"
         android:paddingBottom="8dp" />
 
-    <!-- Foto fisca della carta (visibile solo se caricata) -->
-    <ImageView
-        android:id="@+id/imgFotoCarta"
-        android:layout_width="match_parent"
-        android:layout_height="120dp"
-        android:scaleType="centerCrop"
-        android:layout_marginBottom="8dp"
-        android:visibility="gone" />
-
     <ImageView
         android:id="@+id/imgBarcode"
         android:layout_width="match_parent"
