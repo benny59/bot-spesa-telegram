@@ -56,6 +56,7 @@ end
 before do
   content_type :json
   next if request.path_info == '/collega'  # bootstrap: nessun token richiesto
+  next if request.path_info.start_with?('/me')  # recupero nome utente
   token = api_token
   next if token.nil? || token.strip.empty?
 
@@ -102,8 +103,11 @@ get '/topics' do
     "SELECT topic_id, nome FROM topics WHERE chat_id = ? ORDER BY nome",
     [chat_id]
   )
-  risultato = [{ topic_id: 0, nome: 'Principale' }] +
-              rows.map { |r| { topic_id: r['topic_id'], nome: r['nome'] } }
+  risultato = rows.map { |r| { topic_id: r['topic_id'], nome: r['nome'] } }
+  # Aggiungi Principale solo se topic_id=0 non è già nel DB (potrebbe avere un nome diverso)
+  unless risultato.any? { |r| r[:topic_id] == 0 }
+    risultato = [{ topic_id: 0, nome: 'Principale' }] + risultato
+  end
   risultato.to_json
 end
 
@@ -270,6 +274,17 @@ post '/lista/:item_id/foto' do
   )
   status 201
   { ok: true }.to_json
+end
+
+# Dati utente per il collegamento app (esentato da auth: usato anche per recupero nome)
+get '/me' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  row = DB.get_first_row(
+    "SELECT first_name, last_name FROM user_names WHERE user_id = ?", [user_id]
+  )
+  halt 404, { error: 'utente non trovato' }.to_json unless row
+  { first_name: row['first_name'].to_s, last_name: row['last_name'].to_s }.to_json
 end
 
 # Collega account Telegram tramite PIN generato dal bot

@@ -172,6 +172,15 @@ object ApiClient {
         }
     }
 
+    /** Recupera first_name e last_name dal server per lo user_id dato. */
+    fun fetchMe(userId: Int): Pair<String, String>? {
+        val req = Request.Builder().url("$baseUrl/me?user_id=$userId").auth().build()
+        val resp = http.newCall(req).execute()
+        if (!resp.isSuccessful) return null
+        val map: Map<String, Any> = gson.fromJson(resp.body!!.string(), object : TypeToken<Map<String, Any>>() {}.type)
+        return Pair(map["first_name"] as? String ?: "", map["last_name"] as? String ?: "")
+    }
+
     /** Valida il PIN e restituisce user_id + first_name, o null se non valido. */
     data class CollegaResult(val userId: Int, val firstName: String)
     fun collegaPin(pin: String): CollegaResult? {

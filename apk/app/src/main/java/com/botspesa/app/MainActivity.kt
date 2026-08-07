@@ -64,7 +64,28 @@ class MainActivity : AppCompatActivity() {
         val header = navView.getHeaderView(0)
         val tvUser = header.findViewById<TextView>(R.id.tvUserName)
         val nome = listOf(firstName, lastName).filter { it.isNotEmpty() }.joinToString(" ")
-        tvUser.text = if (nome.isNotEmpty()) "👤 $nome" else "(non collegato)"
+        if (nome.isNotEmpty()) {
+            tvUser.text = "👤 $nome"
+        } else if (userId != 0) {
+            // nome non ancora in cache: recupera dal server
+            lifecycleScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { ApiClient.fetchMe(userId) }.getOrNull()
+                }
+                if (result != null) {
+                    prefs().edit()
+                        .putString("user_first_name", result.first)
+                        .putString("user_last_name", result.second)
+                        .apply()
+                    val n = listOf(result.first, result.second).filter { it.isNotEmpty() }.joinToString(" ")
+                    tvUser.text = "👤 $n"
+                } else {
+                    tvUser.text = "👤 utente collegato"
+                }
+            }
+        } else {
+            tvUser.text = "(non collegato)"
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
