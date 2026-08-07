@@ -776,9 +776,13 @@ end
 
   def self.prendi_miei_ovunque(u_id)
     query = <<-SQL
-    SELECT i.*, g.nome as nome_gruppo
+    SELECT i.*, g.nome as nome_gruppo,
+           COALESCE(t.nome, '') as nome_topic,
+           u.initials AS user_initials
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
+    LEFT JOIN topics t ON t.chat_id = g.chat_id AND t.topic_id = i.topic_id
+    LEFT JOIN user_names u ON i.creato_da = u.user_id
     WHERE i.creato_da = ? 
     AND (i.gruppo_id = 0 OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?))
     ORDER BY i.gruppo_id, i.creato_il DESC
@@ -788,9 +792,13 @@ end
 
   def self.prendi_tutto_ovunque(u_id)
     query = <<-SQL
-    SELECT i.*, g.nome as nome_gruppo
+    SELECT i.*, g.nome as nome_gruppo,
+           COALESCE(t.nome, '') as nome_topic,
+           u.initials AS user_initials
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
+    LEFT JOIN topics t ON t.chat_id = g.chat_id AND t.topic_id = i.topic_id
+    LEFT JOIN user_names u ON i.creato_da = u.user_id
     WHERE i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
        OR (i.gruppo_id = 0 AND i.creato_da = ?)
     ORDER BY i.gruppo_id, i.creato_il DESC

@@ -290,6 +290,9 @@ end
 
 # Helper condiviso per serializzare un item verso l'app Android
 def serializza_item(i, nome_gruppo: '')
+  # Combina gruppo e topic in un'unica etichetta
+  t_nome = i['nome_topic'].to_s.strip
+  gruppo_label = nome_gruppo.empty? ? '' : (t_nome.empty? ? nome_gruppo : "#{nome_gruppo} \u2022 #{t_nome}")
   {
     id:            i['id'],
     gruppo_id:     i['gruppo_id'],
@@ -299,7 +302,7 @@ def serializza_item(i, nome_gruppo: '')
     user_initials: i['user_initials'].to_s,
     creato_il:     i['creato_il'],
     has_foto:      false,
-    nome_gruppo:   nome_gruppo
+    nome_gruppo:   gruppo_label
   }
 end
 
