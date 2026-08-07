@@ -146,6 +146,31 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
+    fun getChecklist(gruppoId: Int, topicId: Int): List<ChecklistItem> {
+        val req = Request.Builder()
+            .url("$baseUrl/checklist?gruppo_id=$gruppoId&topic_id=$topicId")
+            .auth()
+            .build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(body, type)
+        return raw.map { i ->
+            ChecklistItem(
+                nome      = i["nome"] as? String ?: "",
+                conteggio = (i["conteggio"] as? Double)?.toInt() ?: 0,
+                inLista   = i["in_lista"] as? Boolean ?: false
+            )
+        }
+    }
+
+    fun toggleChecklistItem(gruppoId: Int, topicId: Int, nome: String, inLista: Boolean, userId: Int): Boolean {
+        val payload = mapOf("gruppo_id" to gruppoId, "topic_id" to topicId,
+                            "nome" to nome, "in_lista" to inLista, "user_id" to userId)
+        val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+        val req = Request.Builder().url("$baseUrl/checklist/toggle").post(body).auth().build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
     fun getFotoUrl(itemId: Int): String = "$baseUrl/foto/$itemId"
 
     fun getToken(): String = token

@@ -172,6 +172,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.action_checklist -> {
+                ChecklistSheet.newInstance(gruppoId, topicId, userId)
+                    .also { sheet -> sheet.setOnItemChangedListener { aggiornaLista() } }
+                    .show(supportFragmentManager, "checklist")
+                true
+            }
             R.id.action_scopetta -> { mostraScopettaConferma(); true }
             R.id.action_carte    -> { CarteSheet.newInstance(gruppoId).show(supportFragmentManager, "carte"); true }
             else -> super.onOptionsItemSelected(item)
@@ -493,6 +499,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    // Usato da ChecklistSheet per aggiornare la lista principale dopo un toggle
+    fun refreshLista() = aggiornaLista()
 
     private fun toggleItem(item: SpesaItem) {
         val gId = if (item.gruppoId != 0) item.gruppoId else gruppoId

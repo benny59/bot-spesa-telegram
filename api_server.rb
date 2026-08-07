@@ -10,6 +10,7 @@ require 'faraday'
 require_relative 'db'
 require_relative 'models/lista'
 require_relative 'models/whitelist'
+require_relative 'handlers/storico_manager'
 
 # Invia notifica Telegram al gruppo dopo la scopetta
 def notifica_scopetta(gruppo_id, topic_id, user_id, articoli_rimasti)
@@ -155,7 +156,7 @@ post '/lista' do
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
 
-  Lista.aggiungi(gruppo_id, user_id, testo, topic_id)
+  DataManager.aggiungi_articoli(gruppo_id: gruppo_id, user_id: user_id, items_text: testo, topic_id: topic_id)
   status 201
   { ok: true }.to_json
 end
@@ -220,12 +221,49 @@ end
 delete '/lista/:id' do
   item_id   = params[:id].to_i
   gruppo_id = params[:gruppo_id]&.to_i
-  user_id   = params[:user_id]&.to_i || 0
 
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  Lista.cancella(gruppo_id, item_id, user_id)
+  # Verifica appartenenza al gruppo prima di procedere
+  item = DB.get_first_row("SELECT id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+  halt 404, { error: 'item non trovato' }.to_json unless item
+
+  DataManager.rimuovi_item_diretto(item_id)
   { ok: true }.to_json
+end
+
+# Checklist: suggerimenti dallo storico (top articoli del gruppo)
+get '/checklist' do
+  gruppo_id = params[:gruppo_id]&.to_i
+  topic_id  = params[:topic_id]&.to_i || 0
+  halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
+
+  items = StoricoManager.suggerimenti_per_checklist(gruppo_id, topic_id)
+  items.map { |i| { nome: i['nome'], conteggio: i['conteggio'].to_i, in_lista: !i['in_lista'].nil? } }.to_json
+end
+
+# Checklist toggle: aggiunge o rimuove dalla lista attiva
+post '/checklist/toggle' do
+  body      = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  topic_id  = body['topic_id']&.to_i || 0
+  nome      = body['nome'].to_s.strip
+  in_lista  = body['in_lista'] == true
+  user_id   = body['user_id']&.to_i || 0
+
+  halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || nome.empty?
+
+  if in_lista
+    item_id = DB.get_first_value(
+      "SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND (comprato IS NULL OR comprato = '')",
+      [gruppo_id, topic_id, nome.downcase]
+    )
+    DataManager.rimuovi_item_diretto(item_id) if item_id
+  else
+    DataManager.ripristina_da_checklist(gruppo_id, topic_id, nome, user_id)
+  end
+
+  { ok: true, in_lista: !in_lista }.to_json
 end
 
 get '/foto/:item_id' do
