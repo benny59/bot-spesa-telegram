@@ -19,6 +19,7 @@ class SpesaAdapter(
         val tvInitials: TextView      = view.findViewById(R.id.tvInitials)
         val tvInitialsBuyer: TextView = view.findViewById(R.id.tvInitialsBuyer)
         val tvNome: TextView          = view.findViewById(R.id.tvNome)
+        val tvGruppoNome: TextView    = view.findViewById(R.id.tvGruppoNome)
         val tvComprato: TextView      = view.findViewById(R.id.tvComprato)
         val ivFoto: ImageView         = view.findViewById(R.id.ivFoto)
     }
@@ -32,6 +33,12 @@ class SpesaAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
         holder.tvNome.text = item.nome
+        if (item.nomeGruppo.isNotEmpty()) {
+            holder.tvGruppoNome.visibility = View.VISIBLE
+            holder.tvGruppoNome.text = item.nomeGruppo
+        } else {
+            holder.tvGruppoNome.visibility = View.GONE
+        }
 
         if (item.isBought) {
             holder.tvNome.paintFlags = holder.tvNome.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG

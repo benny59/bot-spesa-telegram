@@ -42,6 +42,8 @@ class MainActivity : AppCompatActivity() {
     private val items = mutableListOf<SpesaItem>()
     private var pendingFotoItemId = 0
     private var cameraImageUri: Uri? = null
+    // "": vista normale, "tutti": tutti gli articoli, "miei": i miei articoli
+    private var vistaAttuale: String = ""
 
     private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { uploadFotoFromUri(it, pendingFotoItemId) }
@@ -125,6 +127,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<NavigationView>(R.id.navView).setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
             when (item.itemId) {
+                R.id.nav_lista             -> { vistaAttuale = ""; aggiornaLista(); caricaInfoGruppo() }
+                R.id.nav_tutti             -> { vistaAttuale = "tutti"; aggiornaLista(); caricaInfoGruppo() }
+                R.id.nav_miei              -> { vistaAttuale = "miei"; aggiornaLista(); caricaInfoGruppo() }
                 R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
                 R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
                 R.id.nav_config_rete       -> mostraDialogConfigRete()
@@ -463,7 +468,13 @@ class MainActivity : AppCompatActivity() {
     private fun aggiornaLista() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getLista(gruppoId, topicId, userId) }
+                runCatching {
+                    when (vistaAttuale) {
+                        "tutti" -> ApiClient.getTutti(userId)
+                        "miei"  -> ApiClient.getMiei(userId)
+                        else    -> ApiClient.getLista(gruppoId, topicId, userId)
+                    }
+                }
             }
             result.onSuccess { nuovi ->
                 items.clear()
@@ -476,9 +487,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toggleItem(item: SpesaItem) {
+        val gId = if (item.gruppoId != 0) item.gruppoId else gruppoId
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.toggleItem(gruppoId, item.id, userId) }
+                runCatching { ApiClient.toggleItem(gId, item.id, userId) }
             }
             result.onSuccess { aggiornaLista() }
                   .onFailure { Toast.makeText(this@MainActivity, "Errore toggle", Toast.LENGTH_SHORT).show() }
@@ -495,12 +507,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun eliminaItem(item: SpesaItem) {
+        val gId = if (item.gruppoId != 0) item.gruppoId else gruppoId
         val pos = items.indexOfFirst { it.id == item.id }.takeIf { it >= 0 } ?: return
         items.removeAt(pos)
         adapter.notifyItemRemoved(pos)
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                runCatching { ApiClient.deleteItem(gruppoId, item.id, userId) }
+                runCatching { ApiClient.deleteItem(gId, item.id, userId) }
             }
         }
     }
@@ -547,10 +560,24 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             result.onSuccess { (gNome, tNome, gId) ->
-                tvGruppo.text = "$gNome \u25BE"
-                tvTopic.text  = if (tNome.isEmpty()) "" else "$tNome \u25BE"
-                tvTopic.visibility = if (tNome.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
-                applicaColoreToolbar(gId, tNome)
+                when (vistaAttuale) {
+                    "tutti" -> {
+                        tvGruppo.text = "Tutti gli articoli"
+                        tvTopic.visibility = android.view.View.GONE
+                        applicaColoreToolbar(0, "")
+                    }
+                    "miei" -> {
+                        tvGruppo.text = "I miei articoli"
+                        tvTopic.visibility = android.view.View.GONE
+                        applicaColoreToolbar(0, "")
+                    }
+                    else -> {
+                        tvGruppo.text = "$gNome \u25BE"
+                        tvTopic.text  = if (tNome.isEmpty()) "" else "$tNome \u25BE"
+                        tvTopic.visibility = if (tNome.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                        applicaColoreToolbar(gId, tNome)
+                    }
+                }
                 // aggiorna sottotitolo header drawer
                 val header = findViewById<com.google.android.material.navigation.NavigationView>(R.id.navView).getHeaderView(0)
                 header.findViewById<TextView>(R.id.tvGruppoNome).text =

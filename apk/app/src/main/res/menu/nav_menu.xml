@@ -7,6 +7,14 @@
             android:title="@string/nav_lista"
             android:checked="true" />
         <item
+            android:id="@+id/nav_tutti"
+            android:icon="@drawable/ic_nav_lista"
+            android:title="@string/nav_tutti" />
+        <item
+            android:id="@+id/nav_miei"
+            android:icon="@drawable/ic_nav_lista"
+            android:title="@string/nav_miei" />
+        <item
             android:id="@+id/nav_carte"
             android:icon="@drawable/ic_nav_carte"
             android:title="@string/nav_carte" />

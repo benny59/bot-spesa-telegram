@@ -135,6 +135,7 @@ get '/lista' do
   items.map do |i|
     {
       id:            i['id'],
+      gruppo_id:     i['gruppo_id'],
       nome:          i['nome'],
       comprato:      i['comprato'].to_s,
       creato_da:     i['creato_da'],
@@ -285,6 +286,37 @@ get '/me' do
   )
   halt 404, { error: 'utente non trovato' }.to_json unless row
   { first_name: row['first_name'].to_s, last_name: row['last_name'].to_s }.to_json
+end
+
+# Helper condiviso per serializzare un item verso l'app Android
+def serializza_item(i, nome_gruppo: '')
+  {
+    id:            i['id'],
+    gruppo_id:     i['gruppo_id'],
+    nome:          i['nome'],
+    comprato:      i['comprato'].to_s,
+    creato_da:     i['creato_da'],
+    user_initials: i['user_initials'].to_s,
+    creato_il:     i['creato_il'],
+    has_foto:      false,
+    nome_gruppo:   nome_gruppo
+  }
+end
+
+# Vista trasversale: tutti gli articoli dei gruppi dell'utente (riusa DataManager)
+get '/lista/tutti' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  items = DataManager.prendi_tutto_ovunque(user_id)
+  items.map { |i| serializza_item(i, nome_gruppo: i['nome_gruppo'].to_s) }.to_json
+end
+
+# Vista trasversale: solo i miei articoli in tutti i gruppi
+get '/lista/miei' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  items = DataManager.prendi_miei_ovunque(user_id)
+  items.map { |i| serializza_item(i, nome_gruppo: i['nome_gruppo'].to_s) }.to_json
 end
 
 # Collega account Telegram tramite PIN generato dal bot

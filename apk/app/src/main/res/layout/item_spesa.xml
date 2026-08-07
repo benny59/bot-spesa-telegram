@@ -41,15 +41,30 @@
             android:background="@drawable/circle_initials_green"
             android:visibility="gone" />
 
-        <!-- Nome articolo -->
-        <TextView
-            android:id="@+id/tvNome"
+        <!-- Colonna verticale: nome articolo + gruppo (multi-vista) -->
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="12dp"
-            android:textSize="18sp"
-            android:textColor="@color/text_primary" />
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvNome"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="18sp"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:id="@+id/tvGruppoNome"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="11sp"
+                android:textColor="#888888"
+                android:visibility="gone" />
+
+        </LinearLayout>
 
         <!-- Icona foto: visibile solo se l'item ha una foto allegata -->
         <ImageView

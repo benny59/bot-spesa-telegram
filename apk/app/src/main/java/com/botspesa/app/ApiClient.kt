@@ -49,6 +49,20 @@ object ApiClient {
             .auth()
             .build()
         val body = http.newCall(req).execute().use { it.body!!.string() }
+        return parseItems(body)
+    }
+
+    fun getMiei(userId: Int): List<SpesaItem> {
+        val req = Request.Builder().url("$baseUrl/lista/miei?user_id=$userId").auth().build()
+        return parseItems(http.newCall(req).execute().use { it.body!!.string() })
+    }
+
+    fun getTutti(userId: Int): List<SpesaItem> {
+        val req = Request.Builder().url("$baseUrl/lista/tutti?user_id=$userId").auth().build()
+        return parseItems(http.newCall(req).execute().use { it.body!!.string() })
+    }
+
+    private fun parseItems(body: String): List<SpesaItem> {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { item ->
@@ -57,7 +71,9 @@ object ApiClient {
                 nome         = item["nome"] as? String ?: "",
                 comprato     = item["comprato"] as? String ?: "",
                 userInitials = item["user_initials"] as? String ?: "",
-                hasFoto      = item["has_foto"] as? Boolean ?: false
+                hasFoto      = item["has_foto"] as? Boolean ?: false,
+                gruppoId     = (item["gruppo_id"] as? Double)?.toInt() ?: 0,
+                nomeGruppo   = item["nome_gruppo"] as? String ?: ""
             )
         }
     }
