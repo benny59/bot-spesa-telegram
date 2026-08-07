@@ -95,7 +95,8 @@ class MainActivity : AppCompatActivity() {
             drawerLayout.closeDrawers()
             when (item.itemId) {
                 R.id.nav_cambia_gruppo  -> mostraDialogCambioGruppo()
-                R.id.nav_impostazioni   -> mostraDialogImpostazioni()
+                R.id.nav_config_rete    -> mostraDialogConfigRete()
+                R.id.nav_colori_gruppi  -> mostraDialogColoriTopic()
             }
             true
         }
@@ -207,14 +208,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun mostraDialogImpostazioni() {
+    private fun mostraDialogImpostazioni() = mostraDialogConfigRete()
+
+    private fun mostraDialogConfigRete() {
         val p = prefs()
         val layout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(48, 16, 48, 8)
         }
         val etUrl = EditText(this).apply {
-            hint = "http://IP:4567"
+            hint = "http://IP:4568"
             setText(p.getString("api_url", "http://10.0.2.2:4567"))
             inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
         }
@@ -229,13 +232,8 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 16, 0, 0)
         }.also { layout.addView(it) }
         layout.addView(etToken)
-        val btnColori = android.widget.Button(this).apply {
-            text = "Colori topic..."
-            setOnClickListener { mostraDialogColoriTopic() }
-        }
-        layout.addView(btnColori)
         AlertDialog.Builder(this)
-            .setTitle("Impostazioni")
+            .setTitle(getString(R.string.nav_config_rete))
             .setView(layout)
             .setPositiveButton("Salva") { _, _ ->
                 val url   = etUrl.text.toString().trimEnd('/')

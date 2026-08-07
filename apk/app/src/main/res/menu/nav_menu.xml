@@ -15,10 +15,14 @@
             android:icon="@drawable/ic_nav_settings"
             android:title="@string/nav_cambia_gruppo" />
     </group>
-    <group>
+    <group android:checkableBehavior="none">
         <item
-            android:id="@+id/nav_impostazioni"
+            android:id="@+id/nav_config_rete"
             android:icon="@drawable/ic_nav_settings"
-            android:title="@string/nav_impostazioni" />
+            android:title="@string/nav_config_rete" />
+        <item
+            android:id="@+id/nav_colori_gruppi"
+            android:icon="@drawable/ic_nav_carte"
+            android:title="@string/nav_colori_gruppi" />
     </group>
 </menu>
