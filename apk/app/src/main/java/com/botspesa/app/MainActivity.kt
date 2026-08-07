@@ -131,7 +131,9 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_tutti            -> { vistaAttuale = "tutti"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_miei             -> { vistaAttuale = "miei"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_checklist        -> {
-                    ChecklistSheet.newInstance(gruppoId, topicId, userId)
+                    val gNome = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
+                    val tNome = tvTopic.text.toString().trimEnd('▾', ' ').trim()
+                    ChecklistSheet.newInstance(gruppoId, topicId, userId, gNome, tNome)
                         .also { it.setOnItemChangedListener { aggiornaLista() } }
                         .show(supportFragmentManager, "checklist")
                 }

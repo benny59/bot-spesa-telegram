@@ -19,6 +19,10 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,19 +39,29 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
     private var carte = mutableListOf<CartaFedeltaItem>()
 
     private var immagineSelezionataBytes: ByteArray? = null
-    private var onImagePicked: ((android.net.Uri) -> Unit)? = null
+    private var onImagePicked: ((android.net.Uri, String?) -> Unit)? = null
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@registerForActivityResult
+        var codiceRilevato: String? = null
         val bytes = requireContext().contentResolver.openInputStream(uri)?.use { stream ->
             val bmp = BitmapFactory.decodeStream(stream) ?: return@use null
+            codiceRilevato = tryDecodeBarcode(bmp)
             val scaled = if (bmp.width > 1200)
                 Bitmap.createScaledBitmap(bmp, 1200, 1200 * bmp.height / bmp.width, true)
             else bmp
             ByteArrayOutputStream().also { out -> scaled.compress(Bitmap.CompressFormat.JPEG, 82, out) }.toByteArray()
         }
         immagineSelezionataBytes = bytes
-        onImagePicked?.invoke(uri)
+        onImagePicked?.invoke(uri, codiceRilevato)
+    }
+
+    private fun tryDecodeBarcode(bmp: Bitmap): String? {
+        val pixels = IntArray(bmp.width * bmp.height)
+        bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+        val source = RGBLuminanceSource(bmp.width, bmp.height, pixels)
+        val binary = BinaryBitmap(HybridBinarizer(source))
+        return runCatching { MultiFormatReader().decode(binary)?.text }.getOrNull()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
@@ -57,6 +71,10 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
         rvMieCarte = view.findViewById(R.id.rvMieCarte)
         tvNessuna  = view.findViewById(R.id.tvNessunaCartaMia)
         rvMieCarte.layoutManager = GridLayoutManager(requireContext(), 3)
+
+        val tvTitolo = view.findViewById<TextView>(R.id.tvTitoloGestione)
+        if (gruppoNome.isNotEmpty())
+            tvTitolo.text = "🎟️ Le mie carte  •  $gruppoNome"
 
         view.findViewById<Button>(R.id.btnAggiungiCarta).setOnClickListener { mostraDialogAggiunta() }
         caricaCarte()
@@ -165,9 +183,15 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
         val btnFoto = Button(requireContext()).apply {
             text = "📷 Aggiungi immagine carta"
             setOnClickListener {
-                onImagePicked = { uri ->
+                onImagePicked = { uri, codiceRilevato ->
                     imgPreview.setImageURI(uri)
                     imgPreview.visibility = View.VISIBLE
+                    if (!codiceRilevato.isNullOrEmpty()) {
+                        etCodice.setText(codiceRilevato)
+                        etCodice.hint = "Codice rilevato dall'immagine"
+                    } else {
+                        Toast.makeText(requireContext(), "Nessun codice rilevato — inseriscilo manualmente se necessario", Toast.LENGTH_LONG).show()
+                    }
                 }
                 pickImage.launch("image/*")
             }
@@ -188,8 +212,11 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
                     dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val nome   = etNome.text.toString().trim()
                         val codice = etCodice.text.toString().trim()
-                        if (nome.isEmpty())   { etNome.error   = "Obbligatorio"; return@setOnClickListener }
-                        if (codice.isEmpty()) { etCodice.error = "Obbligatorio"; return@setOnClickListener }
+                        if (nome.isEmpty()) { etNome.error = "Obbligatorio"; return@setOnClickListener }
+                        if (codice.isEmpty() && immagineSelezionataBytes == null) {
+                            etCodice.error = "Inserisci il codice o scegli un'immagine"
+                            return@setOnClickListener
+                        }
                         dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                         lifecycleScope.launch {
                             val ok = withContext(Dispatchers.IO) {

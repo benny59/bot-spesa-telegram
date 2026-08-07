@@ -86,6 +86,7 @@ end
 # Rileva il formato barcode dal codice (stesso logic del bot, senza dipendenze barby)
 def identifica_formato_codice(codice)
   c = codice.to_s.gsub(/\s/, '')
+  return 'NESSUNO' if c.empty?
   return 'EAN13'  if c =~ /^\d{13}$/
   return 'EAN8'   if c =~ /^\d{8}$/
   return 'UPCA'   if c =~ /^\d{12}$/
@@ -475,7 +476,7 @@ post '/carte' do
     nome    = body['nome'].to_s.strip
     codice  = body['codice'].to_s.strip
   end
-  halt 400, { error: 'parametri mancanti' }.to_json if user_id.nil? || nome.empty? || codice.empty?
+  halt 400, { error: 'parametri mancanti' }.to_json if user_id.nil? || nome.empty? || (codice.empty? && img.nil?)
 
   formato = identifica_formato_codice(codice)
   DB.execute("INSERT INTO carte_fedelta (user_id, nome, codice, formato) VALUES (?, ?, ?, ?)",
