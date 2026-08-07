@@ -82,12 +82,19 @@ end
 
 get '/gruppi' do
   rows = DB.execute("SELECT id, nome, chat_id FROM gruppi ORDER BY nome")
-  rows.map { |r| { id: r['id'], nome: r['nome'], chat_id: r['chat_id'] } }.to_json
+  result = rows.map { |r| { id: r['id'], nome: r['nome'], chat_id: r['chat_id'] } }
+  # Lista Personale: virtuale, per ogni utente filtra i propri articoli
+  ([{ id: 0, nome: 'Lista Personale', chat_id: nil }] + result).to_json
 end
 
 get '/topics' do
   gruppo_id = params[:gruppo_id]&.to_i
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
+
+  # Lista Personale: nessun topic reale, solo voce fittizia
+  if gruppo_id == 0
+    return [{ topic_id: 0, nome: 'Personale' }].to_json
+  end
 
   chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [gruppo_id])
   rows = DB.execute(
@@ -104,7 +111,11 @@ get '/lista' do
   topic_id  = params[:topic_id]&.to_i || 0
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  items = Lista.tutti(gruppo_id, topic_id)
+  # Lista Personale: mostra solo i propri articoli
+  user_id_q = params[:user_id]&.to_i || 0
+  items = (gruppo_id == 0 && user_id_q != 0) \
+    ? Lista.personale(user_id_q) \
+    : Lista.tutti(gruppo_id, topic_id)
 
   # batch check quali item hanno foto
   item_ids = items.map { |i| i['id'] }
@@ -163,7 +174,16 @@ delete '/lista/comprati' do
   user_id   = params[:user_id]&.to_i  || 0
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id)
+  # Lista Personale: scopetta solo i propri articoli comprati
+  rimossi = if gruppo_id == 0 && user_id != 0
+    target = DB.execute(
+      "SELECT id FROM items WHERE gruppo_id=0 AND topic_id=? AND comprato!='' AND creato_da=?",
+      [topic_id, user_id]
+    ).map { |r| r['id'] }
+    target.any? ? DataManager.esegui_scopetta(0, topic_id, target) : 0
+  else
+    DataManager.esegui_scopetta(gruppo_id, topic_id)
+  end
 
   if rimossi > 0
     rimasti = DataManager.prendi_articoli_ordinati(gruppo_id, topic_id).size

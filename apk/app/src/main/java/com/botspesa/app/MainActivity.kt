@@ -424,7 +424,7 @@ class MainActivity : AppCompatActivity() {
     private fun aggiornaLista() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getLista(gruppoId, topicId) }
+                runCatching { ApiClient.getLista(gruppoId, topicId, userId) }
             }
             result.onSuccess { nuovi ->
                 items.clear()

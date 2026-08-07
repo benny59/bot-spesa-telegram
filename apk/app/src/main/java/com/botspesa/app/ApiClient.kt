@@ -43,9 +43,9 @@ object ApiClient {
         return gson.fromJson(body, type)
     }
 
-    fun getLista(gruppoId: Int, topicId: Int = 0): List<SpesaItem> {
+    fun getLista(gruppoId: Int, topicId: Int = 0, userId: Int = 0): List<SpesaItem> {
         val req = Request.Builder()
-            .url("$baseUrl/lista?gruppo_id=$gruppoId&topic_id=$topicId")
+            .url("$baseUrl/lista?gruppo_id=$gruppoId&topic_id=$topicId&user_id=$userId")
             .auth()
             .build()
         val body = http.newCall(req).execute().use { it.body!!.string() }

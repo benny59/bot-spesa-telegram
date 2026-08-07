@@ -13,6 +13,17 @@ class Lista
       [gruppo_id, topic_id]
     )
   end
+
+  def self.personale(user_id)
+    DB.execute(
+      "SELECT i.*, u.initials AS user_initials
+     FROM items i
+     LEFT JOIN user_names u ON i.creato_da = u.user_id
+     WHERE i.gruppo_id = 0 AND i.creato_da = ?
+     ORDER BY i.comprato, i.id",
+      [user_id]
+    )
+  end
   # models/lista.rb
   def self.toggle_comprato(gruppo_id, item_id, user_id)
     item = DB.get_first_row("SELECT comprato FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
