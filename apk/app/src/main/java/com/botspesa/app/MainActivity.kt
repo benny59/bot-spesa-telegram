@@ -167,11 +167,28 @@ class MainActivity : AppCompatActivity() {
         "tutti"   to R.color.topic_arancio
     )
 
+    // Palette predefinita per il picker colori topic
+    private val colorPalette = listOf(
+        android.graphics.Color.parseColor("#1976D2") to "Blu",
+        android.graphics.Color.parseColor("#2E7D32") to "Verde",
+        android.graphics.Color.parseColor("#00695C") to "Teal",
+        android.graphics.Color.parseColor("#E65100") to "Arancio",
+        android.graphics.Color.parseColor("#C62828") to "Rosso",
+        android.graphics.Color.parseColor("#6A1B9A") to "Viola",
+        android.graphics.Color.parseColor("#283593") to "Indaco",
+        android.graphics.Color.parseColor("#4E342E") to "Marrone"
+    )
+
+    private fun topicColorDefault(nome: String): Int {
+        val lc = nome.lowercase()
+        val res = topicColors.entries.firstOrNull { lc.contains(it.key) }?.value ?: R.color.colorPrimary
+        return getColor(res)
+    }
+
     private fun applicaColoreToolbar(topicNome: String) {
-        val nome = topicNome.lowercase()
-        val colorRes = topicColors.entries.firstOrNull { nome.contains(it.key) }?.value
-            ?: R.color.colorPrimary
-        val color = getColor(colorRes)
+        val p = prefs()
+        val colorKey = "topic_color_$topicId"
+        val color = if (p.contains(colorKey)) p.getInt(colorKey, 0) else topicColorDefault(topicNome)
         findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar).setBackgroundColor(color)
         window.statusBarColor = color
     }
@@ -212,6 +229,11 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 16, 0, 0)
         }.also { layout.addView(it) }
         layout.addView(etToken)
+        val btnColori = android.widget.Button(this).apply {
+            text = "Colori topic..."
+            setOnClickListener { mostraDialogColoriTopic() }
+        }
+        layout.addView(btnColori)
         AlertDialog.Builder(this)
             .setTitle("Impostazioni")
             .setView(layout)
@@ -224,6 +246,71 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Annulla", null)
             .show()
+    }
+
+    private fun mostraDialogColoriTopic() {
+        lifecycleScope.launch {
+            val topics = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getTopics(gruppoId) }.getOrDefault(emptyList())
+            }
+            if (topics.isEmpty()) return@launch
+            val p = prefs()
+            val dp = resources.displayMetrics.density
+            val scroll = android.widget.ScrollView(this@MainActivity)
+            val layout = android.widget.LinearLayout(this@MainActivity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding((16 * dp).toInt(), (8 * dp).toInt(), (16 * dp).toInt(), (8 * dp).toInt())
+            }
+            scroll.addView(layout)
+            topics.forEach { topic ->
+                val colorKey = "topic_color_${topic.topicId}"
+                val row = android.widget.LinearLayout(this@MainActivity).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, (10 * dp).toInt(), 0, (10 * dp).toInt())
+                }
+                val sz = (32 * dp).toInt()
+                val dot = android.view.View(this@MainActivity).apply {
+                    layoutParams = android.widget.LinearLayout.LayoutParams(sz, sz).also {
+                        it.marginEnd = (16 * dp).toInt()
+                    }
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(p.getInt(colorKey, topicColorDefault(topic.nome)))
+                    }
+                }
+                val tvNome = android.widget.TextView(this@MainActivity).apply {
+                    text = topic.nome
+                    textSize = 16f
+                    layoutParams = android.widget.LinearLayout.LayoutParams(
+                        0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val btnCambia = android.widget.Button(this@MainActivity).apply {
+                    text = "Cambia"
+                    setOnClickListener {
+                        val nomi = colorPalette.map { it.second }.toTypedArray()
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Colore per ${topic.nome}")
+                            .setItems(nomi) { _, idx ->
+                                val newColor = colorPalette[idx].first
+                                p.edit().putInt(colorKey, newColor).apply()
+                                (dot.background as android.graphics.drawable.GradientDrawable).setColor(newColor)
+                                if (topicId == topic.topicId) applicaColoreToolbar(topic.nome)
+                            }
+                            .show()
+                    }
+                }
+                row.addView(dot)
+                row.addView(tvNome)
+                row.addView(btnCambia)
+                layout.addView(row)
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Colori topic")
+                .setView(scroll)
+                .setPositiveButton("Chiudi", null)
+                .show()
+        }
     }
 
     private fun mostraMenuContestuale(item: SpesaItem, anchor: android.view.View) {
