@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginHorizontal="8dp"
-    android:layout_marginVertical="3dp"
+    android:layout_marginVertical="2dp"
     app:cardElevation="2dp"
     app:cardCornerRadius="8dp">
 
@@ -14,8 +14,8 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingVertical="10dp"
-        android:paddingHorizontal="12dp">
+        android:paddingVertical="5dp"
+        android:paddingHorizontal="10dp">
 
         <!-- Cerchio iniziali di chi ha aggiunto (blu) -->
         <TextView
@@ -48,7 +48,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="12dp"
-            android:textSize="16sp"
+            android:textSize="18sp"
             android:textColor="@color/text_primary" />
 
         <!-- Icona foto: visibile solo se l'item ha una foto allegata -->

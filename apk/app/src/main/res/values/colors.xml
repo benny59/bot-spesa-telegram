@@ -6,4 +6,10 @@
     <color name="green_bought">#388E3C</color>
     <color name="background">#F5F5F5</color>
     <color name="text_primary">#212121</color>
+    <!-- Colori toolbar per topic -->
+    <color name="topic_verde">#2E7D32</color>
+    <color name="topic_giallo">#F9A825</color>
+    <color name="topic_arancio">#E65100</color>
+    <color name="topic_rosso">#C62828</color>
+    <color name="topic_viola">#6A1B9A</color>
 </resources>

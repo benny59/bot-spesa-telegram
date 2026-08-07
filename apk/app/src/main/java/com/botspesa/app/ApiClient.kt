@@ -112,6 +112,15 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
+    fun eseguiScopetta(gruppoId: Int, topicId: Int, userId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/lista/comprati?gruppo_id=$gruppoId&topic_id=$topicId&user_id=$userId")
+            .delete()
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
     fun getFotoUrl(itemId: Int): String = "$baseUrl/foto/$itemId"
 
     fun getToken(): String = token

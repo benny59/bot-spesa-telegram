@@ -2,10 +2,14 @@ package com.botspesa.app
 
 import android.app.AlertDialog
 import android.content.Context
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.widget.EditText
 import android.widget.PopupMenu
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
@@ -33,6 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: SpesaAdapter
     private lateinit var drawerLayout: DrawerLayout
+    private lateinit var tvGruppo: TextView
+    private lateinit var tvTopic: TextView
     private val items = mutableListOf<SpesaItem>()
     private var pendingFotoItemId = 0
     private var cameraImageUri: Uri? = null
@@ -71,6 +77,13 @@ class MainActivity : AppCompatActivity() {
         drawerLayout = findViewById(R.id.drawerLayout)
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
+        supportActionBar?.setDisplayShowTitleEnabled(false)
+        val selectorView = layoutInflater.inflate(R.layout.toolbar_group_topic, toolbar, false)
+        tvGruppo = selectorView.findViewById(R.id.tvGruppoSelector)
+        tvTopic  = selectorView.findViewById(R.id.tvTopicSelector)
+        tvGruppo.setOnClickListener { mostraDialogCambioGruppo() }
+        tvTopic.setOnClickListener  { mostraDialogCambioTopic() }
+        toolbar.addView(selectorView)
         val toggle = ActionBarDrawerToggle(
             this, drawerLayout, toolbar,
             R.string.open_drawer, R.string.close_drawer
@@ -81,8 +94,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<NavigationView>(R.id.navView).setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
             when (item.itemId) {
-                R.id.nav_carte         -> CarteSheet.newInstance(gruppoId).show(supportFragmentManager, "carte")
-                R.id.nav_cambia_gruppo -> mostraDialogCambioGruppo()
+                R.id.nav_cambia_gruppo  -> mostraDialogCambioGruppo()
+                R.id.nav_impostazioni   -> mostraDialogImpostazioni()
             }
             true
         }
@@ -110,6 +123,59 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.toolbar_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_scopetta -> { mostraScopettaConferma(); true }
+            R.id.action_carte    -> { CarteSheet.newInstance(gruppoId).show(supportFragmentManager, "carte"); true }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun mostraScopettaConferma() {
+        val comprati = items.count { it.isBought }
+        if (comprati == 0) {
+            Toast.makeText(this, "Nessun articolo comprato", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.scopetta))
+            .setMessage("Rimuovere $comprati articol${if (comprati == 1) "o comprato" else "i comprati"}?")
+            .setPositiveButton("Rimuovi") { _, _ -> eseguiScopetta() }
+            .setNegativeButton("Annulla", null)
+            .show()
+    }
+
+    private fun eseguiScopetta() {
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.eseguiScopetta(gruppoId, topicId, userId) }.getOrDefault(false)
+            }
+            if (ok) aggiornaLista()
+            else Toast.makeText(this@MainActivity, "Errore scopetta", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Colori toolbar per topic: chiave = substring del nome topic (lowercase)
+    private val topicColors = mapOf(
+        "giovi"   to R.color.topic_verde,
+        "imperia" to R.color.topic_giallo,
+        "tutti"   to R.color.topic_arancio
+    )
+
+    private fun applicaColoreToolbar(topicNome: String) {
+        val nome = topicNome.lowercase()
+        val colorRes = topicColors.entries.firstOrNull { nome.contains(it.key) }?.value
+            ?: R.color.colorPrimary
+        val color = getColor(colorRes)
+        findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar).setBackgroundColor(color)
+        window.statusBarColor = color
+    }
+
     // Swipe destra = toggle comprato
     private val swipeCallback = object : ItemTouchHelper.SimpleCallback(
         0, ItemTouchHelper.RIGHT
@@ -122,6 +188,42 @@ class MainActivity : AppCompatActivity() {
             adapter.notifyItemChanged(pos)
             toggleItem(item)
         }
+    }
+
+    private fun mostraDialogImpostazioni() {
+        val p = prefs()
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 16, 48, 8)
+        }
+        val etUrl = EditText(this).apply {
+            hint = "http://IP:4567"
+            setText(p.getString("api_url", "http://10.0.2.2:4567"))
+            inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+        }
+        val etToken = EditText(this).apply {
+            hint = "Token (lascia vuoto se non richiesto)"
+            setText(p.getString("api_token", ""))
+        }
+        android.widget.TextView(this).apply { text = "URL server" }.also { layout.addView(it) }
+        layout.addView(etUrl)
+        android.widget.TextView(this).apply {
+            text = "Token"
+            setPadding(0, 16, 0, 0)
+        }.also { layout.addView(it) }
+        layout.addView(etToken)
+        AlertDialog.Builder(this)
+            .setTitle("Impostazioni")
+            .setView(layout)
+            .setPositiveButton("Salva") { _, _ ->
+                val url   = etUrl.text.toString().trimEnd('/')
+                val token = etToken.text.toString().trim()
+                p.edit().putString("api_url", url).putString("api_token", token).apply()
+                ApiClient.configure(url = url, tok = token)
+                aggiornaLista()
+            }
+            .setNegativeButton("Annulla", null)
+            .show()
     }
 
     private fun mostraMenuContestuale(item: SpesaItem, anchor: android.view.View) {
@@ -263,9 +365,28 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             result.onSuccess { (gNome, tNome) ->
-                supportActionBar?.title    = gNome
-                supportActionBar?.subtitle = tNome
+                tvGruppo.text = "$gNome ▾"
+                tvTopic.text  = "$tNome ▾"
+                applicaColoreToolbar(tNome)
             }
+        }
+    }
+
+    private fun mostraDialogCambioTopic() {
+        lifecycleScope.launch {
+            val topics = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getTopics(gruppoId) }.getOrDefault(emptyList())
+            }
+            if (topics.isEmpty()) return@launch
+            android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle(getString(R.string.seleziona_topic))
+                .setItems(topics.map { it.nome }.toTypedArray()) { _, idx ->
+                    val topic = topics[idx]
+                    prefs().edit().putInt("topic_id", topic.topicId).apply()
+                    aggiornaLista()
+                    caricaInfoGruppo()
+                }
+                .show()
         }
     }
 
