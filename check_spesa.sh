@@ -59,9 +59,7 @@ is_api_running() {
 
 # 1. Controlla se il processo è realmente vivo usando il PID salvato
 if is_bot_running; then
-    # Il bot è vivo e vegeto
-    # echo "$(date '+%Y-%m-%d %H:%M:%S') - Bot attivo (PID: $(cat $PID_FILE))" >> $LOG_FILE
-    exit 0
+    : # bot attivo, continua a controllare api_server
 else
     # Il bot è morto o il PID è stantio
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Bot non attivo, pulizia e riavvio..." >> $LOG_FILE
