@@ -560,6 +560,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostraDialogCambioTopic() {
+        if (gruppoId == 0) return  // Lista Personale non ha topics
         lifecycleScope.launch {
             val topics = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getTopics(gruppoId) }.getOrDefault(emptyList())
@@ -588,6 +589,13 @@ class MainActivity : AppCompatActivity() {
                 .setItems(gruppi.map { it.nome }.toTypedArray()) { _, idx ->
                     val gruppo = gruppi[idx]
                     lifecycleScope.launch {
+                        if (gruppo.id == 0) {
+                            // Lista Personale: nessun topic, salva direttamente
+                            prefs().edit().putInt("gruppo_id", 0).putInt("topic_id", 0).apply()
+                            aggiornaLista()
+                            caricaInfoGruppo()
+                            return@launch
+                        }
                         val topics = withContext(Dispatchers.IO) {
                             runCatching { ApiClient.getTopics(gruppo.id) }.getOrDefault(emptyList())
                         }
