@@ -127,7 +127,7 @@ class CarteFedelta
           chat_id: dest_id,
           message_thread_id: safe_message_thread_id(dest_id, origin_thread),
           photo: Faraday::UploadIO.new(img_path, "image/png"),
-          caption: "💳 #{row["nome"]}\n🔢 #{row["codice"]}",
+          caption: "💳 #{row["nome"]}\n🔢 #{row["codice"]}\n📐 #{row["formato"]}",
           parse_mode: "Markdown",
           reply_markup: keyboard,
         )
@@ -298,11 +298,9 @@ class CarteFedelta
     carta = DataManager.prendi_dettaglio_carta(carta_id, owner_id)
     return puts "❌ Carta #{carta_id} non trovata" unless carta
 
-    # 1. TENTATIVO DI FIX PATH
-    nome_file = File.basename(carta["immagine_path"] || "")
+    # 1. Determina path valido (nil se immagine_path assente, directory o troppo piccola)
     path_db = carta["immagine_path"]
-    path_locale = File.join(Dir.pwd, "data", "carte", nome_file)
-    img_path = File.exist?(path_db.to_s) ? path_db : path_locale
+    img_path = (path_db && File.exist?(path_db) && !File.directory?(path_db) && File.size?(path_db).to_i >= 100) ? path_db : nil
 
     # 2. RIGENERAZIONE SE IL FILE MANCA OVUNQUE
     if !File.exist?(img_path) || File.size?(img_path).to_i < 100
@@ -330,7 +328,7 @@ class CarteFedelta
       chat_id: chat_id,
       message_thread_id: safe_message_thread_id(chat_id, t_id),
       photo: Faraday::UploadIO.new(img_path, "image/png"),
-      caption: "💳 <b>#{carta["nome"]}</b>\n🔢 <code>#{carta["codice"]}</code>",
+      caption: "💳 <b>#{carta["nome"]}</b>\n🔢 <code>#{carta["codice"]}</code>\n📐 #{carta["formato"]}",
       parse_mode: "HTML",
       reply_markup: markup,
     )
