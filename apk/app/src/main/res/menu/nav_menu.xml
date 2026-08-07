@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
+
     <group android:checkableBehavior="single">
         <item
             android:id="@+id/nav_lista"
@@ -15,26 +16,41 @@
             android:icon="@drawable/ic_nav_lista"
             android:title="@string/nav_miei" />
         <item
-            android:id="@+id/nav_carte"
-            android:icon="@drawable/ic_nav_carte"
-            android:title="@string/nav_carte" />
-        <item
-            android:id="@+id/nav_cambia_gruppo"
-            android:icon="@drawable/ic_nav_swap"
-            android:title="@string/nav_cambia_gruppo" />
+            android:id="@+id/nav_checklist"
+            android:icon="@drawable/ic_checklist"
+            android:title="@string/checklist" />
     </group>
-    <group android:checkableBehavior="none">
-        <item
-            android:id="@+id/nav_collega_telegram"
-            android:icon="@drawable/ic_nav_telegram"
-            android:title="@string/nav_collega_telegram" />
-        <item
-            android:id="@+id/nav_config_rete"
-            android:icon="@drawable/ic_wifi"
-            android:title="@string/nav_config_rete" />
-        <item
-            android:id="@+id/nav_colori_gruppi"
-            android:icon="@drawable/ic_palette"
-            android:title="@string/nav_colori_gruppi" />
-    </group>
+
+    <item
+        android:title="@string/nav_carte"
+        android:icon="@drawable/ic_nav_carte">
+        <menu>
+            <item
+                android:id="@+id/nav_gestione_carte"
+                android:title="@string/nav_gestione_carte" />
+            <item
+                android:id="@+id/nav_cambia_gruppo"
+                android:title="@string/nav_cambia_gruppo" />
+        </menu>
+    </item>
+
+    <item
+        android:title="@string/nav_impostazioni"
+        android:icon="@drawable/ic_nav_settings">
+        <menu>
+            <item
+                android:id="@+id/nav_collega_telegram"
+                android:icon="@drawable/ic_nav_telegram"
+                android:title="@string/nav_collega_telegram" />
+            <item
+                android:id="@+id/nav_config_rete"
+                android:icon="@drawable/ic_wifi"
+                android:title="@string/nav_config_rete" />
+            <item
+                android:id="@+id/nav_colori_gruppi"
+                android:icon="@drawable/ic_palette"
+                android:title="@string/nav_colori_gruppi" />
+        </menu>
+    </item>
+
 </menu>

@@ -82,6 +82,16 @@ rescue JSON::ParserError
   halt 400, { error: 'JSON non valido' }.to_json
 end
 
+# Rileva il formato barcode dal codice (stesso logic del bot, senza dipendenze barby)
+def identifica_formato_codice(codice)
+  c = codice.to_s.gsub(/\s/, '')
+  return 'EAN13'  if c =~ /^\d{13}$/
+  return 'EAN8'   if c =~ /^\d{8}$/
+  return 'UPCA'   if c =~ /^\d{12}$/
+  return 'ITF'    if c =~ /^\d{14}$/
+  'CODE128'
+end
+
 # --- Endpoints ---
 
 get '/ping' do
@@ -425,4 +435,70 @@ get '/carte' do
     [gruppo_id]
   )
   rows.map { |r| { id: r['id'], nome: r['nome'], codice: r['codice'], formato: r['formato'] } }.to_json
+end
+
+# Le mie carte con flag condivisa per un gruppo (gruppo_id=0 → solo lista)
+get '/carte/mie' do
+  user_id   = params[:user_id]&.to_i
+  gruppo_id = params[:gruppo_id]&.to_i || 0
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+
+  rows = DB.execute(
+    "SELECT c.id, c.nome, c.codice, c.formato,
+       (SELECT 1 FROM gruppo_carte_collegamenti g WHERE g.carta_id = c.id AND g.gruppo_id = ?) AS condivisa
+     FROM carte_fedelta c WHERE c.user_id = ? ORDER BY LOWER(c.nome) ASC",
+    [gruppo_id, user_id]
+  )
+  rows.map { |r| { id: r['id'], nome: r['nome'], codice: r['codice'],
+                   formato: r['formato'].to_s, condivisa: !r['condivisa'].nil? } }.to_json
+end
+
+post '/carte' do
+  body    = json_body
+  user_id = body['user_id']&.to_i
+  nome    = body['nome'].to_s.strip
+  codice  = body['codice'].to_s.strip
+  halt 400, { error: 'parametri mancanti' }.to_json if user_id.nil? || nome.empty? || codice.empty?
+
+  formato = identifica_formato_codice(codice)
+  DB.execute("INSERT INTO carte_fedelta (user_id, nome, codice, formato) VALUES (?, ?, ?, ?)",
+             [user_id, nome, codice, formato])
+  carta_id = DB.last_insert_row_id
+  status 201
+  { ok: true, id: carta_id, formato: formato }.to_json
+end
+
+delete '/carte/:id/collega' do
+  carta_id  = params[:id].to_i
+  gruppo_id = params[:gruppo_id]&.to_i
+  halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
+
+  DB.execute("DELETE FROM gruppo_carte_collegamenti WHERE carta_id = ? AND gruppo_id = ?",
+             [carta_id, gruppo_id])
+  { ok: true }.to_json
+end
+
+post '/carte/:id/collega' do
+  carta_id  = params[:id].to_i
+  body      = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  user_id   = body['user_id']&.to_i
+  halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || user_id.nil?
+
+  halt 403, { error: 'non autorizzato' }.to_json unless DB.get_first_value(
+    "SELECT id FROM carte_fedelta WHERE id = ? AND user_id = ?", [carta_id, user_id]
+  )
+  DB.execute("INSERT OR IGNORE INTO gruppo_carte_collegamenti (gruppo_id, carta_id, added_by) VALUES (?, ?, ?)",
+             [gruppo_id, carta_id, user_id])
+  { ok: true }.to_json
+end
+
+delete '/carte/:id' do
+  carta_id = params[:id].to_i
+  user_id  = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+
+  DB.execute("DELETE FROM gruppo_carte_collegamenti WHERE carta_id = ?", [carta_id])
+  DataManager.elimina_carta(carta_id, user_id)
+  { ok: true }.to_json
 end

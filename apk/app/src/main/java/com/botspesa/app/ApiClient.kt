@@ -212,14 +212,53 @@ object ApiClient {
     fun getCarte(gruppoId: Int): List<CartaFedeltaItem> {
         val req = Request.Builder().url("$baseUrl/carte?gruppo_id=$gruppoId").auth().build()
         val body = http.newCall(req).execute().use { it.body!!.string() }
+        return parseCarte(body)
+    }
+
+    fun getMieCarte(userId: Int, gruppoId: Int = 0): List<CartaFedeltaItem> {
+        val req = Request.Builder()
+            .url("$baseUrl/carte/mie?user_id=$userId&gruppo_id=$gruppoId")
+            .auth().build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        return parseCarte(body, withCondivisa = true)
+    }
+
+    fun creaCarta(userId: Int, nome: String, codice: String): Boolean {
+        val payload = mapOf("user_id" to userId, "nome" to nome, "codice" to codice)
+        val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+        return http.newCall(Request.Builder().url("$baseUrl/carte").post(body).auth().build())
+            .execute().use { it.isSuccessful }
+    }
+
+    fun eliminaCarta(cartaId: Int, userId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/carte/$cartaId?user_id=$userId").delete().auth().build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun collegaCarta(cartaId: Int, gruppoId: Int, userId: Int): Boolean {
+        val payload = mapOf("gruppo_id" to gruppoId, "user_id" to userId)
+        val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+        return http.newCall(Request.Builder().url("$baseUrl/carte/$cartaId/collega").post(body).auth().build())
+            .execute().use { it.isSuccessful }
+    }
+
+    fun scollegaCarta(cartaId: Int, gruppoId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/carte/$cartaId/collega?gruppo_id=$gruppoId").delete().auth().build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    private fun parseCarte(body: String, withCondivisa: Boolean = false): List<CartaFedeltaItem> {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { c ->
             CartaFedeltaItem(
-                id      = (c["id"] as Double).toInt(),
-                nome    = c["nome"] as? String ?: "",
-                codice  = c["codice"] as? String ?: "",
-                formato = c["formato"] as? String ?: "qrcode"
+                id                 = (c["id"] as Double).toInt(),
+                nome               = c["nome"] as? String ?: "",
+                codice             = c["codice"] as? String ?: "",
+                formato            = c["formato"] as? String ?: "CODE128",
+                condivisaConGruppo = if (withCondivisa) c["condivisa"] as? Boolean ?: false else false
             )
         }
     }

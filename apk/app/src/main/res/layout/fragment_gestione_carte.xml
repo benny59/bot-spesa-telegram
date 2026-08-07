@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Header: titolo + bottone aggiungi -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvTitoloGestione"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🎟️ Le mie carte"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+
+        <Button
+            android:id="@+id/btnAggiungiCarta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="+ Aggiungi"
+            android:textSize="13sp"
+            style="@style/Widget.MaterialComponents.Button.TextButton" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#22000000" />
+
+    <TextView
+        android:id="@+id/tvNessunaCartaMia"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:text="Nessuna carta salvata. Usa + Aggiungi per crearne una."
+        android:textColor="#888"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvMieCarte"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <!-- Sezione condivisioni (visibile solo se gruppo_id != 0) -->
+    <TextView
+        android:id="@+id/tvTitoloCondivisioni"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="8dp"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="#888"
+        android:visibility="gone" />
+
+    <View
+        android:id="@+id/dividerCondivisioni"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#22000000"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvCondivisioni"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="24dp" />
+
+</LinearLayout>

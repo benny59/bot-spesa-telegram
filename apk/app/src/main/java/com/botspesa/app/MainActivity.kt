@@ -127,13 +127,19 @@ class MainActivity : AppCompatActivity() {
         findViewById<NavigationView>(R.id.navView).setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
             when (item.itemId) {
-                R.id.nav_lista             -> { vistaAttuale = ""; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
-                R.id.nav_tutti             -> { vistaAttuale = "tutti"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
-                R.id.nav_miei              -> { vistaAttuale = "miei"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
-                R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
-                R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
-                R.id.nav_config_rete       -> mostraDialogConfigRete()
-                R.id.nav_colori_gruppi     -> mostraDialogColoriTopic()
+                R.id.nav_lista            -> { vistaAttuale = ""; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
+                R.id.nav_tutti            -> { vistaAttuale = "tutti"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
+                R.id.nav_miei             -> { vistaAttuale = "miei"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
+                R.id.nav_checklist        -> {
+                    ChecklistSheet.newInstance(gruppoId, topicId, userId)
+                        .also { it.setOnItemChangedListener { aggiornaLista() } }
+                        .show(supportFragmentManager, "checklist")
+                }
+                R.id.nav_gestione_carte   -> apriGestioneCarte()
+                R.id.nav_cambia_gruppo    -> mostraDialogCambioGruppo()
+                R.id.nav_collega_telegram -> mostraDialogCollegaTelegram()
+                R.id.nav_config_rete      -> mostraDialogConfigRete()
+                R.id.nav_colori_gruppi    -> mostraDialogColoriTopic()
             }
             true
         }
@@ -171,18 +177,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        menu.findItem(R.id.action_checklist)?.isVisible = vistaAttuale.isEmpty()
         return super.onPrepareOptionsMenu(menu)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
-            R.id.action_checklist -> {
-                ChecklistSheet.newInstance(gruppoId, topicId, userId)
-                    .also { sheet -> sheet.setOnItemChangedListener { aggiornaLista() } }
-                    .show(supportFragmentManager, "checklist")
-                true
-            }
             R.id.action_scopetta -> { mostraScopettaConferma(); true }
             R.id.action_carte    -> { CarteSheet.newInstance(gruppoId).show(supportFragmentManager, "carte"); true }
             else -> super.onOptionsItemSelected(item)
@@ -275,6 +274,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostraDialogImpostazioni() = mostraDialogConfigRete()
 
+    private fun apriGestioneCarte() {
+        // Recupera il nome del gruppo attuale per mostrarlo nella sezione condivisioni
+        val gNome = tvGruppo.text.toString().trimEnd('▾', ' ')
+        GestioneCarteSheet.newInstance(gruppoId, userId, gNome)
+            .show(supportFragmentManager, "gestione_carte")
+    }
+
     private fun mostraDialogCollegaTelegram(primoAvvio: Boolean = false) {
         val dp = resources.displayMetrics.density
         val layout = android.widget.LinearLayout(this).apply {
@@ -334,9 +340,9 @@ class MainActivity : AppCompatActivity() {
             setPadding(48, 16, 48, 8)
         }
         val etUrl = EditText(this).apply {
-            hint = "http://IP:4568"
+            hint = "http://IP:4568  oppure  http://hostname:4568"
             setText(p.getString("api_url", "http://10.0.2.2:4567"))
-            inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
         }
         val etToken = EditText(this).apply {
             hint = "Token (lascia vuoto se non richiesto)"
