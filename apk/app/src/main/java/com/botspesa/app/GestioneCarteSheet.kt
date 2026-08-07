@@ -2,55 +2,61 @@ package com.botspesa.app
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
-import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 class GestioneCarteSheet : BottomSheetDialogFragment() {
 
-    private val gruppoId get() = arguments?.getInt(ARG_GRUPPO_ID) ?: 0
-    private val userId   get() = arguments?.getInt(ARG_USER_ID)   ?: 0
+    private val gruppoId   get() = arguments?.getInt(ARG_GRUPPO_ID)      ?: 0
+    private val userId     get() = arguments?.getInt(ARG_USER_ID)        ?: 0
     private val gruppoNome get() = arguments?.getString(ARG_GRUPPO_NOME) ?: ""
 
     private lateinit var rvMieCarte: RecyclerView
-    private lateinit var rvCondivisioni: RecyclerView
-    private lateinit var tvNessuna: TextView
-    private lateinit var tvTitoloCondivisioni: TextView
-    private lateinit var dividerCondivisioni: View
+    private lateinit var tvNessuna:  TextView
     private var carte = mutableListOf<CartaFedeltaItem>()
+
+    private var immagineSelezionataBytes: ByteArray? = null
+    private var onImagePicked: ((android.net.Uri) -> Unit)? = null
+
+    private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri ?: return@registerForActivityResult
+        val bytes = requireContext().contentResolver.openInputStream(uri)?.use { stream ->
+            val bmp = BitmapFactory.decodeStream(stream) ?: return@use null
+            val scaled = if (bmp.width > 1200)
+                Bitmap.createScaledBitmap(bmp, 1200, 1200 * bmp.height / bmp.width, true)
+            else bmp
+            ByteArrayOutputStream().also { out -> scaled.compress(Bitmap.CompressFormat.JPEG, 82, out) }.toByteArray()
+        }
+        immagineSelezionataBytes = bytes
+        onImagePicked?.invoke(uri)
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_gestione_carte, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        rvMieCarte          = view.findViewById(R.id.rvMieCarte)
-        rvCondivisioni      = view.findViewById(R.id.rvCondivisioni)
-        tvNessuna           = view.findViewById(R.id.tvNessunaCartaMia)
-        tvTitoloCondivisioni = view.findViewById(R.id.tvTitoloCondivisioni)
-        dividerCondivisioni  = view.findViewById(R.id.dividerCondivisioni)
-
-        rvMieCarte.layoutManager     = LinearLayoutManager(requireContext())
-        rvCondivisioni.layoutManager = LinearLayoutManager(requireContext())
-
-        if (gruppoId != 0) {
-            tvTitoloCondivisioni.visibility = View.VISIBLE
-            tvTitoloCondivisioni.text = "CONDIVISIONE CON $gruppoNome"
-            dividerCondivisioni.visibility = View.VISIBLE
-            rvCondivisioni.visibility = View.VISIBLE
-        }
+        rvMieCarte = view.findViewById(R.id.rvMieCarte)
+        tvNessuna  = view.findViewById(R.id.tvNessunaCartaMia)
+        rvMieCarte.layoutManager = GridLayoutManager(requireContext(), 3)
 
         view.findViewById<Button>(R.id.btnAggiungiCarta).setOnClickListener { mostraDialogAggiunta() }
         caricaCarte()
@@ -73,26 +79,45 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
 
     private fun aggiornaViste() {
         tvNessuna.visibility = if (carte.isEmpty()) View.VISIBLE else View.GONE
-
-        // Adapter per "Le mie carte" — bottone condividi nascosto
-        rvMieCarte.adapter = CartaMiaAdapter(carte, showCondividi = false,
-            onElimina  = { carta -> confermaElimina(carta) },
-            onCondividi = { _, _ -> })
-
-        // Adapter per condivisioni — bottone condividi visibile, elimina nascosto
-        if (gruppoId != 0) {
-            rvCondivisioni.adapter = CartaMiaAdapter(carte, showCondividi = true,
-                onElimina  = { _ -> },
-                onCondividi = { carta, condivisa -> toggleCondivisione(carta, condivisa) })
-        }
+        rvMieCarte.adapter = CarteGestioneAdapter(carte, gruppoNome) { carta -> mostraMenuCarta(carta) }
     }
 
-    private fun toggleCondivisione(carta: CartaFedeltaItem, eraCondivisa: Boolean) {
+    private fun mostraMenuCarta(carta: CartaFedeltaItem) {
+        val voci = buildList {
+            add("Visualizza barcode")
+            if (gruppoId != 0)
+                add(if (carta.condivisaConGruppo) "Rimuovi da $gruppoNome" else "Assegna a $gruppoNome")
+            add("Cancella carta")
+        }.toTypedArray()
+
+        AlertDialog.Builder(requireContext())
+            .setTitle(carta.nome)
+            .setItems(voci) { _, which ->
+                when (voci[which]) {
+                    "Visualizza barcode" -> apriBarcode(carta)
+                    "Cancella carta"     -> confermaElimina(carta)
+                    else                 -> toggleCondivisione(carta)
+                }
+            }
+            .setNegativeButton("Annulla", null)
+            .show()
+    }
+
+    private fun apriBarcode(carta: CartaFedeltaItem) {
+        startActivity(Intent(requireContext(), BarcodeActivity::class.java).apply {
+            putExtra(BarcodeActivity.EXTRA_NOME,         carta.nome)
+            putExtra(BarcodeActivity.EXTRA_CODICE,       carta.codice)
+            putExtra(BarcodeActivity.EXTRA_FORMATO,      carta.formato)
+            putExtra(BarcodeActivity.EXTRA_IMMAGINE_URL, carta.immagineUrl ?: "")
+        })
+    }
+
+    private fun toggleCondivisione(carta: CartaFedeltaItem) {
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
-                    if (eraCondivisa) ApiClient.scollegaCarta(carta.id, gruppoId)
-                    else             ApiClient.collegaCarta(carta.id, gruppoId, userId)
+                    if (carta.condivisaConGruppo) ApiClient.scollegaCarta(carta.id, gruppoId)
+                    else                          ApiClient.collegaCarta(carta.id, gruppoId, userId)
                 }.getOrDefault(false)
             }
             if (ok) caricaCarte()
@@ -118,7 +143,9 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
     }
 
     private fun mostraDialogAggiunta() {
+        immagineSelezionataBytes = null
         val dp = resources.displayMetrics.density
+
         val layout = android.widget.LinearLayout(requireContext()).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), 0)
@@ -128,8 +155,27 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
             hint = "Codice (numerico o alfanumerico)"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
+        val imgPreview = ImageView(requireContext()).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (120 * dp).toInt()
+            ).also { it.topMargin = (8 * dp).toInt() }
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            visibility = View.GONE
+        }
+        val btnFoto = Button(requireContext()).apply {
+            text = "📷 Aggiungi immagine carta"
+            setOnClickListener {
+                onImagePicked = { uri ->
+                    imgPreview.setImageURI(uri)
+                    imgPreview.visibility = View.VISIBLE
+                }
+                pickImage.launch("image/*")
+            }
+        }
         layout.addView(etNome)
         layout.addView(etCodice)
+        layout.addView(btnFoto)
+        layout.addView(imgPreview)
 
         AlertDialog.Builder(requireContext())
             .setTitle("Aggiungi carta fedeltà")
@@ -147,7 +193,8 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
                         dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                         lifecycleScope.launch {
                             val ok = withContext(Dispatchers.IO) {
-                                runCatching { ApiClient.creaCarta(userId, nome, codice) }.getOrDefault(false)
+                                runCatching { ApiClient.creaCarta(userId, nome, codice, immagineSelezionataBytes) }
+                                    .getOrDefault(false)
                             }
                             if (ok) { dlg.dismiss(); caricaCarte() }
                             else {
@@ -177,51 +224,43 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
     }
 }
 
-private class CartaMiaAdapter(
+private class CarteGestioneAdapter(
     private val carte: List<CartaFedeltaItem>,
-    private val showCondividi: Boolean,
-    private val onElimina:  (CartaFedeltaItem) -> Unit,
-    private val onCondividi: (CartaFedeltaItem, Boolean) -> Unit
-) : RecyclerView.Adapter<CartaMiaAdapter.VH>() {
+    private val gruppoNome: String,
+    private val onTap: (CartaFedeltaItem) -> Unit
+) : RecyclerView.Adapter<CarteGestioneAdapter.VH>() {
 
     inner class VH(v: View) : RecyclerView.ViewHolder(v) {
-        val tvNome:     TextView    = v.findViewById(R.id.tvNomeCartaMia)
-        val btnCond:    Button      = v.findViewById(R.id.btnCondividi)
-        val btnElimina: ImageButton = v.findViewById(R.id.btnElimina)
+        val tvNome:      TextView  = v.findViewById(R.id.tvNomeCartaGest)
+        val imgCarta:    ImageView = v.findViewById(R.id.imgCarta)
+        val viewOverlay: View      = v.findViewById(R.id.viewNomeOverlay)
+        val tvBadge:     TextView  = v.findViewById(R.id.tvBadgeCondivisa)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
-        VH(LayoutInflater.from(parent.context).inflate(R.layout.item_carta_mia, parent, false))
+        VH(LayoutInflater.from(parent.context).inflate(R.layout.item_carta_gestione, parent, false))
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val carta = carte[position]
         holder.tvNome.text = carta.nome
 
-        if (showCondividi) {
-            holder.btnElimina.visibility = View.GONE
-            holder.btnCond.visibility    = View.VISIBLE
-            if (carta.condivisaConGruppo) {
-                holder.btnCond.text = "✓ Condivisa"
-                holder.btnCond.setOnClickListener { onCondividi(carta, true) }
-            } else {
-                holder.btnCond.text = "Condividi"
-                holder.btnCond.setOnClickListener { onCondividi(carta, false) }
-            }
+        if (!carta.immagineUrl.isNullOrEmpty()) {
+            holder.imgCarta.visibility    = View.VISIBLE
+            holder.viewOverlay.visibility = View.VISIBLE
+            holder.tvNome.setTextColor(android.graphics.Color.WHITE)
+            holder.tvNome.gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+            holder.imgCarta.load(carta.immagineUrl)
         } else {
-            holder.btnElimina.visibility = View.VISIBLE
-            holder.btnCond.visibility    = View.GONE
-            holder.btnElimina.setOnClickListener { onElimina(carta) }
-            // Tap sul nome → visualizza il barcode
-            holder.tvNome.setOnClickListener {
-                holder.tvNome.context.startActivity(
-                    android.content.Intent(holder.tvNome.context, BarcodeActivity::class.java).apply {
-                        putExtra(BarcodeActivity.EXTRA_NOME,   carta.nome)
-                        putExtra(BarcodeActivity.EXTRA_CODICE, carta.codice)
-                        putExtra(BarcodeActivity.EXTRA_FORMATO, carta.formato)
-                    }
-                )
-            }
+            holder.imgCarta.visibility    = View.GONE
+            holder.viewOverlay.visibility = View.GONE
+            holder.tvNome.setTextColor(holder.tvNome.context.getColor(R.color.text_primary))
+            holder.tvNome.gravity = android.view.Gravity.CENTER
         }
+
+        holder.tvBadge.visibility = if (carta.condivisaConGruppo && gruppoNome.isNotEmpty())
+            View.VISIBLE else View.GONE
+
+        holder.itemView.setOnClickListener { onTap(carta) }
     }
 
     override fun getItemCount() = carte.size

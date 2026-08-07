@@ -5,6 +5,7 @@ import coil.ImageLoader
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -223,11 +224,22 @@ object ApiClient {
         return parseCarte(body, withCondivisa = true)
     }
 
-    fun creaCarta(userId: Int, nome: String, codice: String): Boolean {
-        val payload = mapOf("user_id" to userId, "nome" to nome, "codice" to codice)
-        val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
-        return http.newCall(Request.Builder().url("$baseUrl/carte").post(body).auth().build())
-            .execute().use { it.isSuccessful }
+    fun creaCarta(userId: Int, nome: String, codice: String, imageBytes: ByteArray? = null): Boolean {
+        val req = if (imageBytes != null) {
+            val body = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("user_id", userId.toString())
+                .addFormDataPart("nome", nome)
+                .addFormDataPart("codice", codice)
+                .addFormDataPart("immagine", "carta.jpg", imageBytes.toRequestBody("image/jpeg".toMediaType()))
+                .build()
+            Request.Builder().url("$baseUrl/carte").post(body).auth().build()
+        } else {
+            val payload = mapOf("user_id" to userId, "nome" to nome, "codice" to codice)
+            val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+            Request.Builder().url("$baseUrl/carte").post(body).auth().build()
+        }
+        return http.newCall(req).execute().use { it.isSuccessful }
     }
 
     fun eliminaCarta(cartaId: Int, userId: Int): Boolean {
@@ -258,7 +270,8 @@ object ApiClient {
                 nome               = c["nome"] as? String ?: "",
                 codice             = c["codice"] as? String ?: "",
                 formato            = c["formato"] as? String ?: "CODE128",
-                condivisaConGruppo = if (withCondivisa) c["condivisa"] as? Boolean ?: false else false
+                condivisaConGruppo = if (withCondivisa) c["condivisa"] as? Boolean ?: false else false,
+                immagineUrl        = (c["immagine_url"] as? String)?.let { "$baseUrl$it" }
             )
         }
     }
