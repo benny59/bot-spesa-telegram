@@ -137,6 +137,15 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
+    fun superScopetta(userId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/lista/comprati/ovunque?user_id=$userId")
+            .delete()
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
     fun getFotoUrl(itemId: Int): String = "$baseUrl/foto/$itemId"
 
     fun getToken(): String = token

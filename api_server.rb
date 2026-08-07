@@ -199,6 +199,24 @@ delete '/lista/comprati' do
   { ok: true, rimossi: rimossi }.to_json
 end
 
+# Superscopetta: cancella tutti gli articoli PROPRI marcati in ogni gruppo
+delete '/lista/comprati/ovunque' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+
+  da_rimuovere = DataManager.articoli_da_superscopetta(user_id, false)
+  halt 200, { ok: true, rimossi: 0 }.to_json if da_rimuovere.empty?
+
+  # Raggruppa per (gruppo_id, topic_id) e chiama esegui_scopetta per ognuno
+  per_gruppo = da_rimuovere.group_by { |i| [i['gruppo_id'], i['topic_id']] }
+  rimossi = per_gruppo.sum do |(g_id, t_id), items|
+    ids = items.map { |i| i['id'] }
+    DataManager.esegui_scopetta(g_id, t_id, ids)
+  end
+
+  { ok: true, rimossi: rimossi }.to_json
+end
+
 delete '/lista/:id' do
   item_id   = params[:id].to_i
   gruppo_id = params[:gruppo_id]&.to_i

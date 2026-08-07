@@ -184,9 +184,14 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Nessun articolo comprato", Toast.LENGTH_SHORT).show()
             return
         }
+        val titolo = if (vistaAttuale.isNotEmpty()) "🧹 Superscopetta" else getString(R.string.scopetta)
+        val msg = if (vistaAttuale.isNotEmpty())
+            "Rimuovere $comprati tuoi articol${if (comprati == 1) "o comprato" else "i comprati"} da tutti i gruppi?"
+        else
+            "Rimuovere $comprati articol${if (comprati == 1) "o comprato" else "i comprati"}?"
         AlertDialog.Builder(this)
-            .setTitle(getString(R.string.scopetta))
-            .setMessage("Rimuovere $comprati articol${if (comprati == 1) "o comprato" else "i comprati"}?")
+            .setTitle(titolo)
+            .setMessage(msg)
             .setPositiveButton("Rimuovi") { _, _ -> eseguiScopetta() }
             .setNegativeButton("Annulla", null)
             .show()
@@ -195,7 +200,10 @@ class MainActivity : AppCompatActivity() {
     private fun eseguiScopetta() {
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.eseguiScopetta(gruppoId, topicId, userId) }.getOrDefault(false)
+                if (vistaAttuale.isNotEmpty())
+                    runCatching { ApiClient.superScopetta(userId) }.getOrDefault(false)
+                else
+                    runCatching { ApiClient.eseguiScopetta(gruppoId, topicId, userId) }.getOrDefault(false)
             }
             if (ok) aggiornaLista()
             else Toast.makeText(this@MainActivity, "Errore scopetta", Toast.LENGTH_SHORT).show()
