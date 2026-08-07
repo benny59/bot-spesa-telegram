@@ -228,6 +228,19 @@ when "/setup_pin"
       t_id = context.config["topic_id"].to_i
       kb = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
       bot.api.send_message(chat_id: context.chat_id, message_thread_id: (t_id > 0 ? t_id : nil), text: "📋 *Checklist Intelligente*", reply_markup: kb, parse_mode: "Markdown") if kb
+    when "/collegaapp"
+      require 'securerandom'
+      pin = "%06d" % SecureRandom.random_number(1_000_000)
+      DB.execute("DELETE FROM link_pins WHERE user_id = ?", [u_id])
+      DB.execute(
+        "INSERT INTO link_pins (pin, user_id, first_name) VALUES (?, ?, ?)",
+        [pin, u_id, msg.from.first_name.to_s]
+      )
+      bot.api.send_message(
+        chat_id: u_id,
+        text: "🔗 *Codice collegamento app*\n\n`#{pin}`\n\nInseriscilo nell'app entro 10 minuti.\n_Ogni volta che usi /collegaapp il codice precedente viene invalidato._",
+        parse_mode: "Markdown"
+      )
     when "/addcartagruppo"
       if g_chat_id < 0
         gruppo = DataManager.prendi_gruppo_da_chat_id(g_chat_id)

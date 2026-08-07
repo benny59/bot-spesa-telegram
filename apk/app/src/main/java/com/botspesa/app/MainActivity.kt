@@ -94,9 +94,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<NavigationView>(R.id.navView).setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
             when (item.itemId) {
-                R.id.nav_cambia_gruppo  -> mostraDialogCambioGruppo()
-                R.id.nav_config_rete    -> mostraDialogConfigRete()
-                R.id.nav_colori_gruppi  -> mostraDialogColoriTopic()
+                R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
+                R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
+                R.id.nav_config_rete       -> mostraDialogConfigRete()
+                R.id.nav_colori_gruppi     -> mostraDialogColoriTopic()
             }
             true
         }
@@ -112,6 +113,11 @@ class MainActivity : AppCompatActivity() {
 
         aggiornaLista()
         caricaInfoGruppo()
+
+        // Primo avvio: nessun account collegato
+        if (prefs().getInt("user_id", 0) == 0) {
+            mostraDialogCollegaTelegram(primoAvvio = true)
+        }
 
         // Polling: aggiorna la lista ogni 5s quando l'app è in foreground
         lifecycleScope.launch {
@@ -209,6 +215,54 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostraDialogImpostazioni() = mostraDialogConfigRete()
+
+    private fun mostraDialogCollegaTelegram(primoAvvio: Boolean = false) {
+        val dp = resources.displayMetrics.density
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding((24 * dp).toInt(), (16 * dp).toInt(), (24 * dp).toInt(), 8)
+        }
+        android.widget.TextView(this).apply {
+            text = "1. Apri Telegram e scrivi al bot:\n    /collegaapp\n\n2. Il bot risponderà con un PIN a 6 cifre.\n\n3. Inseriscilo qui sotto:"
+            setPadding(0, 0, 0, (12 * dp).toInt())
+        }.also { layout.addView(it) }
+        val etPin = EditText(this).apply {
+            hint = "PIN a 6 cifre"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            maxLines = 1
+        }
+        layout.addView(etPin)
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Collega account Telegram")
+            .setView(layout)
+            .setPositiveButton("Collega", null)
+            .also { if (!primoAvvio) it.setNegativeButton("Annulla", null) }
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val pin = etPin.text.toString().trim()
+                if (pin.length != 6) {
+                    etPin.error = "Inserisci 6 cifre"
+                    return@setOnClickListener
+                }
+                dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                lifecycleScope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching { ApiClient.collegaPin(pin) }.getOrNull()
+                    }
+                    dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    if (result != null) {
+                        prefs().edit().putInt("user_id", result.userId).apply()
+                        Toast.makeText(this@MainActivity, "✓ Benvenuto, ${result.firstName}!", Toast.LENGTH_LONG).show()
+                        dlg.dismiss()
+                    } else {
+                        etPin.error = "PIN non valido o scaduto"
+                    }
+                }
+            }
+        }
+        dlg.show()
+    }
 
     private fun mostraDialogConfigRete() {
         val p = prefs()

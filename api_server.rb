@@ -11,6 +11,35 @@ require_relative 'db'
 require_relative 'models/lista'
 require_relative 'models/whitelist'
 
+# Invia notifica Telegram al gruppo dopo la scopetta
+def notifica_scopetta(gruppo_id, topic_id, user_id, articoli_rimasti)
+  env   = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") || 'production'
+  key   = env == 'production' ? 'token' : 'token_dev'
+  token = DB.get_first_value("SELECT value FROM config WHERE key = ?", [key])
+  return unless token
+
+  chat_id = DataManager.get_real_chat_id(gruppo_id)
+  return unless chat_id
+
+  nome = DB.get_first_value(
+    "SELECT first_name FROM user_names WHERE user_id = ?", [user_id]
+  ) || 'Utente'
+
+  testo = articoli_rimasti == 0 \
+    ? "\u{1F6D2} <b>#{nome}</b> ha terminato la spesa."\
+    : "\u{1F6D2} <b>#{nome}</b> ha terminato la spesa, controlla gli articoli rimasti."
+
+  payload = { chat_id: chat_id, text: testo, parse_mode: 'HTML' }
+  payload[:message_thread_id] = topic_id if topic_id.to_i != 0
+
+  Faraday.post("https://api.telegram.org/bot#{token}/sendMessage") do |req|
+    req.headers['Content-Type'] = 'application/json'
+    req.body = payload.to_json
+  end
+rescue => e
+  puts "\u26A0\uFE0F  Notifica scopetta fallita: #{e.message}"
+end
+
 configure do
   set :bind, '0.0.0.0'
   set :port, (ENV['SPESA_PORT'] || 4568).to_i   # 4567 è riservata a daze su Termux
@@ -130,11 +159,18 @@ end
 # Rotta specifica PRIMA di quella parametrica per evitare conflitti
 delete '/lista/comprati' do
   gruppo_id = params[:gruppo_id]&.to_i
-  user_id   = params[:user_id]&.to_i || 0
+  topic_id  = params[:topic_id]&.to_i || 0
+  user_id   = params[:user_id]&.to_i  || 0
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  Lista.cancella_tutti(gruppo_id, user_id)
-  { ok: true }.to_json
+  rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id)
+
+  if rimossi > 0
+    rimasti = DataManager.prendi_articoli_ordinati(gruppo_id, topic_id).size
+    notifica_scopetta(gruppo_id, topic_id, user_id, rimasti)
+  end
+
+  { ok: true, rimossi: rimossi }.to_json
 end
 
 delete '/lista/:id' do
@@ -213,6 +249,23 @@ post '/lista/:item_id/foto' do
   )
   status 201
   { ok: true }.to_json
+end
+
+# Collega account Telegram tramite PIN generato dal bot
+post '/collega' do
+  body = json_body
+  pin  = body['pin'].to_s.strip
+  halt 400, { error: 'pin mancante' }.to_json if pin.empty?
+
+  # Scade dopo 10 minuti
+  row = DB.get_first_row(
+    "SELECT user_id, first_name FROM link_pins WHERE pin = ? AND datetime(created_at, '+10 minutes') > datetime('now')",
+    [pin]
+  )
+  halt 404, { error: 'PIN non valido o scaduto' }.to_json unless row
+
+  DB.execute("DELETE FROM link_pins WHERE pin = ?", [pin])
+  { user_id: row['user_id'], first_name: row['first_name'] }.to_json
 end
 
 get '/carte' do

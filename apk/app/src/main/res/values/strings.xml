@@ -17,6 +17,7 @@
     <string name="elimina_articolo">Elimina articolo</string>
     <string name="scopetta">Scopetta</string>
     <string name="conferma_scopetta">Rimuovere tutti gli articoli comprati?</string>
+    <string name="nav_collega_telegram">Collega account Telegram</string>
     <string name="nav_config_rete">Configurazione rete</string>
     <string name="nav_colori_gruppi">Colori topic</string>
 </resources>

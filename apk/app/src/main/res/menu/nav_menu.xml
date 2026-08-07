@@ -17,12 +17,16 @@
     </group>
     <group android:checkableBehavior="none">
         <item
-            android:id="@+id/nav_config_rete"
+            android:id="@+id/nav_collega_telegram"
             android:icon="@drawable/ic_nav_settings"
+            android:title="@string/nav_collega_telegram" />
+        <item
+            android:id="@+id/nav_config_rete"
+            android:icon="@drawable/ic_wifi"
             android:title="@string/nav_config_rete" />
         <item
             android:id="@+id/nav_colori_gruppi"
-            android:icon="@drawable/ic_nav_carte"
+            android:icon="@drawable/ic_palette"
             android:title="@string/nav_colori_gruppi" />
     </group>
 </menu>

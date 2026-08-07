@@ -131,6 +131,15 @@ SQL
   SQL
 
   # Indici per performance
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS link_pins (
+      pin TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      first_name TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
+
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_gruppo_topic ON items (gruppo_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_topic ON pending_actions (chat_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_gruppo_topic ON storico_articoli (gruppo_id, topic_id, conteggio DESC, ultima_aggiunta DESC);"

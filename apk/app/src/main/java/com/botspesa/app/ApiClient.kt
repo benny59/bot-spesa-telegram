@@ -171,4 +171,21 @@ object ApiClient {
             )
         }
     }
+
+    /** Valida il PIN e restituisce user_id + first_name, o null se non valido. */
+    data class CollegaResult(val userId: Int, val firstName: String)
+    fun collegaPin(pin: String): CollegaResult? {
+        val payload = gson.toJson(mapOf("pin" to pin))
+        val req = Request.Builder()
+            .url("$baseUrl/collega")
+            .post(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        val resp = http.newCall(req).execute()
+        if (!resp.isSuccessful) return null
+        val map: Map<String, Any> = gson.fromJson(resp.body!!.string(), object : TypeToken<Map<String, Any>>() {}.type)
+        val uid = (map["user_id"] as? Double)?.toInt() ?: return null
+        val name = map["first_name"] as? String ?: ""
+        return CollegaResult(uid, name)
+    }
 }
