@@ -132,6 +132,10 @@ class MainActivity : AppCompatActivity() {
         drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
 
+        val navHeader = findViewById<NavigationView>(R.id.navView).getHeaderView(0)
+        navHeader.findViewById<TextView>(R.id.tvAppName).text =
+            getString(R.string.app_name_version, BuildConfig.VERSION_NAME)
+
         findViewById<NavigationView>(R.id.navView).setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
             when (item.itemId) {

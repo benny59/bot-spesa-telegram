@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Lista Spesa</string>
+    <string name="app_name_version">Lista Spesa v%1$s</string>
     <string name="aggiungi_articolo">Aggiungi articolo</string>
     <string name="nav_lista">Lista della spesa</string>
     <string name="nav_carte">Carte fedeltà</string>

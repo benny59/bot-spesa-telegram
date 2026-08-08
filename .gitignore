@@ -26,6 +26,7 @@ test/
 
 # Android build artifacts e file locali
 apk/local.properties
+apk/signing.properties
 apk/.gradle/
 apk/build/
 apk/app/build/

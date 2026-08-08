@@ -18,10 +18,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".FotoActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".BarcodeActivity"
             android:exported="false"
             android:screenOrientation="fullSensor" />

@@ -3,16 +3,44 @@ plugins {
     id 'kotlin-android'
 }
 
+def versionProperties = new Properties()
+def versionPropertiesFile = rootProject.file('version.properties')
+if (!versionPropertiesFile.exists()) {
+    throw new GradleException("File versione mancante: ${versionPropertiesFile}")
+}
+versionPropertiesFile.withInputStream { versionProperties.load(it) }
+
+def signingProperties = new Properties()
+def signingPropertiesFile = rootProject.file('signing.properties')
+if (signingPropertiesFile.exists()) {
+    signingPropertiesFile.withInputStream { signingProperties.load(it) }
+}
+
 android {
     namespace 'com.botspesa.app'
     compileSdk 34
+
+    buildFeatures {
+        buildConfig true
+    }
 
     defaultConfig {
         applicationId "com.botspesa.app"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode versionProperties['VERSION_CODE'].toInteger()
+        versionName versionProperties['VERSION_NAME']
+    }
+
+    signingConfigs {
+        release {
+            if (signingPropertiesFile.exists()) {
+                storeFile file(signingProperties['storeFile'])
+                storePassword signingProperties['storePassword']
+                keyAlias signingProperties['keyAlias']
+                keyPassword signingProperties['keyPassword']
+            }
+        }
     }
 
     buildTypes {
@@ -21,6 +49,7 @@ android {
         }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.release
         }
     }
 
