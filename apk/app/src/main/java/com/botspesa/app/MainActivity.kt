@@ -522,7 +522,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching {
                     val bytes = contentResolver.openInputStream(uri)?.readBytes()
                         ?: throw Exception("Impossibile leggere l'immagine")
-                    ApiClient.uploadFoto(itemId, bytes)
+                    ApiClient.uploadFoto(itemId, userId, bytes)
                 }
             }
             result.onSuccess { aggiornaLista() }

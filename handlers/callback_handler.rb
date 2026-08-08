@@ -380,9 +380,19 @@ when /^trigger_list:(-?\d*):(\d*)$/
           foto_ids = DataManager.prendi_foto_articolo(art["id"])
           foto_ids.each do |f|
             begin
-              bot.api.send_photo(
+              photo = f["file_id"]
+              if photo.to_s.start_with?("local:")
+                cache_path = File.join(__dir__, "..", "data", "foto_cache", "#{f["file_unique_id"]}.jpg")
+                unless File.exist?(cache_path)
+                  puts "❌ Foto locale non trovata: #{cache_path}"
+                  next
+                end
+                photo = Faraday::UploadIO.new(cache_path, "image/jpeg")
+              end
+
+              sent = bot.api.send_photo(
                 chat_id: c_id,
-                photo: f["file_id"],
+                photo: photo,
                 caption: "📸 Articolo: <b>#{art["nome"]}</b>",
                 parse_mode: "HTML",
                 message_thread_id: actual_thread_id, # Ora la variabile esiste!
@@ -393,6 +403,14 @@ when /^trigger_list:(-?\d*):(\d*)$/
                   ]],
                 ),
               )
+
+              if f["file_id"].to_s.start_with?("local:") && sent.photo&.last
+                tg_foto = sent.photo.last
+                DB.execute(
+                  "UPDATE item_images SET file_id = ?, file_unique_id = ? WHERE item_id = ? AND file_id = ?",
+                  [tg_foto.file_id, tg_foto.file_unique_id, art["id"], f["file_id"]]
+                )
+              end
             rescue => e
               puts "❌ Errore API durante invio foto: #{e.message}"
             end

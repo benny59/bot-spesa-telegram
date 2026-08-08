@@ -7,6 +7,7 @@ require 'set'
 require 'fileutils'
 require 'securerandom'
 require 'faraday'
+require 'telegram/bot'
 require_relative 'db'
 require_relative 'models/lista'
 require_relative 'models/whitelist'
@@ -15,12 +16,16 @@ require_relative 'models/carte_fedelta'
 require_relative 'handlers/storico_manager'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
+def telegram_token_attivo
+  env = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") || 'production'
+  key = env == 'production' ? 'token' : 'token_dev'
+  DB.get_first_value("SELECT value FROM config WHERE key = ?", [key]) || ENV['TELEGRAM_BOT_TOKEN']
+end
+
 def notifica_gruppo(gruppo_id, topic_id, testo)
   return if gruppo_id.to_i == 0
 
-  env   = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") || 'production'
-  key   = env == 'production' ? 'token' : 'token_dev'
-  token = DB.get_first_value("SELECT value FROM config WHERE key = ?", [key])
+  token = telegram_token_attivo
   return unless token
 
   chat_id = DataManager.get_real_chat_id(gruppo_id)
@@ -369,21 +374,44 @@ end
 
 post '/lista/:item_id/foto' do
   item_id = params[:item_id].to_i
+  user_id = params[:user_id].to_i
 
   halt 404, { error: 'item non trovato' }.to_json unless
     DB.get_first_value("SELECT id FROM items WHERE id = ?", [item_id])
+  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
 
   image_data = params[:file] ? params[:file][:tempfile].read : request.body.read
   halt 400, { error: 'nessun file ricevuto' }.to_json if image_data.nil? || image_data.empty?
 
-  uuid      = SecureRandom.uuid
+  token = telegram_token_attivo
+  halt 503, { error: 'Token bot non configurato' }.to_json unless token
+
+  messaggio = nil
+  begin
+    upload = Faraday::UploadIO.new(StringIO.new(image_data), 'image/jpeg', 'foto.jpg')
+    bot = Telegram::Bot::Client.new(token)
+    messaggio = bot.api.send_photo(
+      chat_id: user_id,
+      photo: upload,
+      disable_notification: true
+    )
+    foto = messaggio.photo&.last
+    halt 502, { error: 'Telegram non ha restituito i dati della foto' }.to_json unless foto
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    halt 502, { error: "Upload Telegram fallito: #{e.message}" }.to_json
+  ensure
+    if messaggio
+      bot.api.delete_message(chat_id: user_id, message_id: messaggio.message_id) rescue nil
+    end
+  end
+
   cache_dir = File.join(File.dirname(__FILE__), 'data', 'foto_cache')
   FileUtils.mkdir_p(cache_dir)
-  File.binwrite(File.join(cache_dir, "#{uuid}.jpg"), image_data)
+  File.binwrite(File.join(cache_dir, "#{foto.file_unique_id}.jpg"), image_data)
 
   DB.execute(
     "INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
-    [item_id, "local:#{uuid}", uuid]
+    [item_id, foto.file_id, foto.file_unique_id]
   )
   status 201
   { ok: true }.to_json

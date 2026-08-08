@@ -907,8 +907,7 @@ end
   end
 
   def self.prendi_foto_articolo(item_id)
-    # Restituisce un array di hash, es: [{"file_id" => "..."}]
-    DB.execute("SELECT file_id FROM item_images WHERE item_id = ?", [item_id.to_i])
+    DB.execute("SELECT file_id, file_unique_id FROM item_images WHERE item_id = ?", [item_id.to_i])
   end
 
   # ----------------------------------------------------------------------------

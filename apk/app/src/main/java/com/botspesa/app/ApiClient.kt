@@ -115,9 +115,10 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
-    fun uploadFoto(itemId: Int, imageBytes: ByteArray): Boolean {
+    fun uploadFoto(itemId: Int, userId: Int, imageBytes: ByteArray): Boolean {
         val body = okhttp3.MultipartBody.Builder()
             .setType(okhttp3.MultipartBody.FORM)
+            .addFormDataPart("user_id", userId.toString())
             .addFormDataPart("file", "foto.jpg",
                 imageBytes.toRequestBody("image/jpeg".toMediaType()))
             .build()
