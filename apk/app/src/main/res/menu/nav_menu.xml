@@ -53,4 +53,10 @@
         </menu>
     </item>
 
+    <item
+        android:id="@+id/nav_amministrazione"
+        android:icon="@drawable/ic_nav_settings"
+        android:title="@string/nav_amministrazione"
+        android:visible="false" />
+
 </menu>

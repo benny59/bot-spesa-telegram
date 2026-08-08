@@ -371,7 +371,67 @@ get '/me' do
     "SELECT first_name, last_name FROM user_names WHERE user_id = ?", [user_id]
   )
   halt 404, { error: 'utente non trovato' }.to_json unless row
-  { first_name: row['first_name'].to_s, last_name: row['last_name'].to_s }.to_json
+  {
+    first_name: row['first_name'].to_s,
+    last_name:  row['last_name'].to_s,
+    is_creator: Whitelist.is_creator?(user_id)
+  }.to_json
+end
+
+# --- Helper admin: verifica che il chiamante sia il Creatore ---
+def richiedi_creator!(user_id)
+  halt 403, { error: 'Solo il Creatore può eseguire questa operazione' }.to_json unless Whitelist.is_creator?(user_id)
+end
+
+# Lista richieste di accesso in sospeso
+get '/admin/pending' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  richiedi_creator!(user_id)
+  rows = Whitelist.get_pending_requests
+  rows.map { |r| { user_id: r['user_id'], username: r['username'].to_s, full_name: r['full_name'].to_s, requested_at: r['requested_at'].to_s } }.to_json
+end
+
+# Approva una richiesta di accesso
+post '/admin/pending/:target_id/approva' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  richiedi_creator!(user_id)
+  target_id = params[:target_id].to_i
+  pending = Whitelist.get_pending_requests.find { |r| r['user_id'] == target_id }
+  halt 404, { error: 'Richiesta non trovata' }.to_json unless pending
+  Whitelist.approve_user(target_id, pending['username'].to_s, pending['full_name'].to_s)
+  { ok: true, user_id: target_id }.to_json
+end
+
+# Rifiuta (elimina) una richiesta di accesso
+delete '/admin/pending/:target_id' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  richiedi_creator!(user_id)
+  Whitelist.remove_pending_request(params[:target_id].to_i)
+  { ok: true }.to_json
+end
+
+# Lista utenti autorizzati
+get '/admin/utenti' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  richiedi_creator!(user_id)
+  rows = Whitelist.all_users
+  creator_id = Whitelist.get_creator_id
+  rows.map { |r| { user_id: r['user_id'], username: r['username'].to_s, full_name: r['full_name'].to_s, added_at: r['added_at'].to_s, is_creator: r['user_id'] == creator_id } }.to_json
+end
+
+# Revoca accesso a un utente (il Creatore non può revocare se stesso)
+delete '/admin/utenti/:target_id' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  richiedi_creator!(user_id)
+  target_id = params[:target_id].to_i
+  halt 400, { error: 'Il Creatore non può revocare se stesso' }.to_json if target_id == user_id
+  DB.execute("DELETE FROM whitelist WHERE user_id = ?", [target_id])
+  { ok: true, user_id: target_id }.to_json
 end
 
 # Helper condiviso per serializzare un item verso l'app Android

@@ -280,13 +280,71 @@ object ApiClient {
         }
     }
 
-    /** Recupera first_name e last_name dal server per lo user_id dato. */
-    fun fetchMe(userId: Int): Pair<String, String>? {
+    data class MeResult(val firstName: String, val lastName: String, val isCreator: Boolean)
+    data class PendingUtente(val userId: Int, val username: String, val fullName: String, val requestedAt: String)
+    data class AdminUtente(val userId: Int, val username: String, val fullName: String, val addedAt: String, val isCreator: Boolean)
+
+    /** Recupera i dati utente dal server, incluso il flag creatore. */
+    fun fetchMe(userId: Int): MeResult? {
         val req = Request.Builder().url("$baseUrl/me?user_id=$userId").auth().build()
         val resp = http.newCall(req).execute()
         if (!resp.isSuccessful) return null
         val map: Map<String, Any> = gson.fromJson(resp.body!!.string(), object : TypeToken<Map<String, Any>>() {}.type)
-        return Pair(map["first_name"] as? String ?: "", map["last_name"] as? String ?: "")
+        return MeResult(
+            firstName  = map["first_name"] as? String ?: "",
+            lastName   = map["last_name"]  as? String ?: "",
+            isCreator  = map["is_creator"] as? Boolean ?: false
+        )
+    }
+
+    fun getAdminPending(userId: Int): List<PendingUtente> {
+        val req = Request.Builder().url("$baseUrl/admin/pending?user_id=$userId").auth().build()
+        val resp = http.newCall(req).execute()
+        if (!resp.isSuccessful) return emptyList()
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(resp.body!!.string(), type)
+        return raw.map { PendingUtente(
+            userId      = (it["user_id"] as Double).toInt(),
+            username    = it["username"]     as? String ?: "",
+            fullName    = it["full_name"]    as? String ?: "",
+            requestedAt = it["requested_at"] as? String ?: ""
+        )}
+    }
+
+    fun approvaUtente(creatorId: Int, targetId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/admin/pending/$targetId/approva?user_id=$creatorId")
+            .post("".toRequestBody(JSON_TYPE)).auth().build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun rifiutaUtente(creatorId: Int, targetId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/admin/pending/$targetId?user_id=$creatorId")
+            .delete().auth().build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun getAdminUtenti(userId: Int): List<AdminUtente> {
+        val req = Request.Builder().url("$baseUrl/admin/utenti?user_id=$userId").auth().build()
+        val resp = http.newCall(req).execute()
+        if (!resp.isSuccessful) return emptyList()
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(resp.body!!.string(), type)
+        return raw.map { AdminUtente(
+            userId    = (it["user_id"] as Double).toInt(),
+            username  = it["username"]  as? String ?: "",
+            fullName  = it["full_name"] as? String ?: "",
+            addedAt   = it["added_at"]  as? String ?: "",
+            isCreator = it["is_creator"] as? Boolean ?: false
+        )}
+    }
+
+    fun revocaUtente(creatorId: Int, targetId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/admin/utenti/$targetId?user_id=$creatorId")
+            .delete().auth().build()
+        return http.newCall(req).execute().use { it.isSuccessful }
     }
 
     /** Valida il PIN e restituisce user_id + first_name, o null se non valido. */

@@ -55,11 +55,12 @@ class MainActivity : AppCompatActivity() {
         if (ok) launchCamera() else Toast.makeText(this, "Permesso fotocamera negato", Toast.LENGTH_SHORT).show()
     }
 
-    private val gruppoId get() = prefs().getInt("gruppo_id", 1)
-    private val topicId  get() = prefs().getInt("topic_id", 0)
-    private val userId   get() = prefs().getInt("user_id", 0)
+    private val gruppoId  get() = prefs().getInt("gruppo_id", 1)
+    private val topicId   get() = prefs().getInt("topic_id", 0)
+    private val userId    get() = prefs().getInt("user_id", 0)
     private val firstName get() = prefs().getString("user_first_name", "") ?: ""
     private val lastName  get() = prefs().getString("user_last_name", "") ?: ""
+    private val isCreator get() = prefs().getBoolean("is_creator", false)
 
     private fun aggiornaNomeUtente() {
         val navView = findViewById<com.google.android.material.navigation.NavigationView>(R.id.navView)
@@ -68,19 +69,22 @@ class MainActivity : AppCompatActivity() {
         val nome = listOf(firstName, lastName).filter { it.isNotEmpty() }.joinToString(" ")
         if (nome.isNotEmpty()) {
             tvUser.text = "👤 $nome"
+            aggiornaVisibilitaAdmin()
         } else if (userId != 0) {
-            // nome non ancora in cache: recupera dal server
+            // nome non ancora in cache: recupera dal server (include flag is_creator)
             lifecycleScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching { ApiClient.fetchMe(userId) }.getOrNull()
                 }
                 if (result != null) {
                     prefs().edit()
-                        .putString("user_first_name", result.first)
-                        .putString("user_last_name", result.second)
+                        .putString("user_first_name", result.firstName)
+                        .putString("user_last_name",  result.lastName)
+                        .putBoolean("is_creator",     result.isCreator)
                         .apply()
-                    val n = listOf(result.first, result.second).filter { it.isNotEmpty() }.joinToString(" ")
+                    val n = listOf(result.firstName, result.lastName).filter { it.isNotEmpty() }.joinToString(" ")
                     tvUser.text = "👤 $n"
+                    aggiornaVisibilitaAdmin()
                 } else {
                     tvUser.text = "👤 utente collegato"
                 }
@@ -88,6 +92,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             tvUser.text = "(non collegato)"
         }
+    }
+
+    private fun aggiornaVisibilitaAdmin() {
+        val navView = findViewById<com.google.android.material.navigation.NavigationView>(R.id.navView)
+        navView.menu.findItem(R.id.nav_amministrazione)?.isVisible = isCreator
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -137,11 +146,12 @@ class MainActivity : AppCompatActivity() {
                         .also { it.setOnItemChangedListener { aggiornaLista() } }
                         .show(supportFragmentManager, "checklist")
                 }
-                R.id.nav_gestione_carte   -> apriGestioneCarte()
-                R.id.nav_cambia_gruppo    -> mostraDialogCambioGruppo()
-                R.id.nav_collega_telegram -> mostraDialogCollegaTelegram()
-                R.id.nav_config_rete      -> mostraDialogConfigRete()
-                R.id.nav_colori_gruppi    -> mostraDialogColoriTopic()
+                R.id.nav_gestione_carte    -> apriGestioneCarte()
+                R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
+                R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
+                R.id.nav_config_rete       -> mostraDialogConfigRete()
+                R.id.nav_colori_gruppi     -> mostraDialogColoriTopic()
+                R.id.nav_amministrazione   -> AdminSheet.newInstance(userId).show(supportFragmentManager, "admin")
             }
             true
         }
