@@ -778,7 +778,8 @@ end
     query = <<-SQL
     SELECT i.*, g.nome as nome_gruppo,
            COALESCE(t.nome, '') as nome_topic,
-           u.initials AS user_initials
+           u.initials AS user_initials,
+           (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) AS ha_foto
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
     LEFT JOIN topics t ON t.chat_id = g.chat_id AND t.topic_id = i.topic_id
@@ -794,7 +795,8 @@ end
     query = <<-SQL
     SELECT i.*, g.nome as nome_gruppo,
            COALESCE(t.nome, '') as nome_topic,
-           u.initials AS user_initials
+           u.initials AS user_initials,
+           (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) AS ha_foto
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
     LEFT JOIN topics t ON t.chat_id = g.chat_id AND t.topic_id = i.topic_id

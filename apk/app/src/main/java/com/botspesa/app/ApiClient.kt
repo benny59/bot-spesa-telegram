@@ -79,7 +79,7 @@ object ApiClient {
         }
     }
 
-    fun addItem(gruppoId: Int, topicId: Int, nome: String, userId: Int): Boolean {
+    fun addItem(gruppoId: Int, topicId: Int, nome: String, userId: Int): List<Int> {
         val payload = gson.toJson(mapOf(
             "gruppo_id" to gruppoId,
             "topic_id"  to topicId,
@@ -91,7 +91,14 @@ object ApiClient {
             .post(payload.toRequestBody(JSON_TYPE))
             .auth()
             .build()
-        return http.newCall(req).execute().use { it.isSuccessful }
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("Server ${response.code}: $body")
+            val result: Map<String, Any> = gson.fromJson(body, object : TypeToken<Map<String, Any>>() {}.type)
+            (result["item_ids"] as? List<*>)
+                ?.mapNotNull { (it as? Double)?.toInt() }
+                .orEmpty()
+        }
     }
 
     fun toggleItem(gruppoId: Int, itemId: Int, userId: Int): String {

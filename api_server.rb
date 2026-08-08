@@ -177,7 +177,7 @@ post '/lista' do
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
 
-  DataManager.aggiungi_articoli(gruppo_id: gruppo_id, user_id: user_id, items_text: testo, topic_id: topic_id)
+  item_ids = DataManager.aggiungi_articoli(gruppo_id: gruppo_id, user_id: user_id, items_text: testo, topic_id: topic_id)
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
@@ -185,7 +185,7 @@ post '/lista' do
   end
 
   status 201
-  { ok: true }.to_json
+  { ok: true, item_ids: item_ids }.to_json
 end
 
 patch '/lista/:id/toggle' do
@@ -501,7 +501,7 @@ def serializza_item(i, nome_gruppo: '')
     creato_da:     i['creato_da'],
     user_initials: i['user_initials'].to_s,
     creato_il:     i['creato_il'],
-    has_foto:      false,
+    has_foto:      i['ha_foto'].to_i > 0,
     nome_gruppo:   gruppo_label
   }
 end

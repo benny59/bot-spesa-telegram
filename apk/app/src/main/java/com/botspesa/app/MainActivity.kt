@@ -44,15 +44,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTopic: TextView
     private val items = mutableListOf<SpesaItem>()
     private var pendingFotoItemId = 0
+    private var pendingNuovoArticolo: String? = null
     private var cameraImageUri: Uri? = null
     // "": vista normale, "tutti": tutti gli articoli, "miei": i miei articoli
     private var vistaAttuale: String = ""
 
     private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { uploadFotoFromUri(it, pendingFotoItemId) }
+        uri?.let(::gestisciFotoSelezionata)
     }
     private val takePhotoLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) cameraImageUri?.let { uploadFotoFromUri(it, pendingFotoItemId) }
+        if (ok) cameraImageUri?.let(::gestisciFotoSelezionata)
     }
     private val requestCameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) launchCamera() else Toast.makeText(this, "Permesso fotocamera negato", Toast.LENGTH_SHORT).show()
@@ -530,6 +531,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostraDialogSorgenteFoto(itemId: Int) {
         pendingFotoItemId = itemId
+        pendingNuovoArticolo = null
+        mostraDialogSorgenteFoto()
+    }
+
+    private fun mostraDialogSorgenteFotoNuovo(testo: String) {
+        pendingFotoItemId = 0
+        pendingNuovoArticolo = testo
+        mostraDialogSorgenteFoto()
+    }
+
+    private fun mostraDialogSorgenteFoto() {
         AlertDialog.Builder(this)
             .setTitle(R.string.aggiungi_foto)
             .setItems(arrayOf(
@@ -542,6 +554,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .show()
+    }
+
+    private fun gestisciFotoSelezionata(uri: Uri) {
+        val nuovoArticolo = pendingNuovoArticolo
+        val itemId = pendingFotoItemId
+        pendingNuovoArticolo = null
+        pendingFotoItemId = 0
+        if (nuovoArticolo != null) aggiungiItemConFoto(nuovoArticolo, uri)
+        else if (itemId != 0) uploadFotoFromUri(uri, itemId)
     }
 
     private fun launchCamera() {
@@ -631,15 +652,36 @@ class MainActivity : AppCompatActivity() {
             hint = "es. Latte, Pane, Uova"
             setPadding(48, 16, 48, 16)
         }
-        AlertDialog.Builder(this)
+        val dlg = AlertDialog.Builder(this)
             .setTitle("Aggiungi articoli")
             .setView(input)
-            .setPositiveButton("Aggiungi") { _, _ ->
-                val testo = input.text.toString().trim()
-                if (testo.isNotEmpty()) aggiungiItem(testo)
-            }
+            .setPositiveButton("Aggiungi", null)
+            .setNeutralButton("Con foto", null)
             .setNegativeButton("Annulla", null)
-            .show()
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val testo = input.text.toString().trim()
+                if (testo.isEmpty()) {
+                    input.error = "Inserisci almeno un articolo"
+                } else {
+                    dlg.dismiss()
+                    aggiungiItem(testo)
+                }
+            }
+            dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val testo = input.text.toString().trim()
+                when {
+                    testo.isEmpty() -> input.error = "Inserisci un articolo"
+                    testo.contains(',') -> input.error = "Con una foto puoi aggiungere un articolo alla volta"
+                    else -> {
+                        dlg.dismiss()
+                        mostraDialogSorgenteFotoNuovo(testo)
+                    }
+                }
+            }
+        }
+        dlg.show()
     }
 
     private fun aggiungiItem(testo: String) {
@@ -649,6 +691,27 @@ class MainActivity : AppCompatActivity() {
             }
             result.onSuccess { aggiornaLista() }
                   .onFailure { Toast.makeText(this@MainActivity, "Errore aggiunta", Toast.LENGTH_SHORT).show() }
+        }
+    }
+
+    private fun aggiungiItemConFoto(testo: String, uri: Uri) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw Exception("Impossibile leggere l'immagine")
+                    val itemId = ApiClient.addItem(gruppoId, topicId, testo, userId).firstOrNull()
+                        ?: throw Exception("Articolo non creato")
+                    if (!ApiClient.uploadFoto(itemId, userId, bytes)) {
+                        throw Exception("Foto non caricata")
+                    }
+                }
+            }
+            result.onSuccess { aggiornaLista() }
+                .onFailure {
+                    aggiornaLista()
+                    Toast.makeText(this@MainActivity, it.message ?: "Errore aggiunta foto", Toast.LENGTH_LONG).show()
+                }
         }
     }
 
