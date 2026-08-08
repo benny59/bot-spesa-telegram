@@ -174,11 +174,15 @@ class MainActivity : AppCompatActivity() {
             mostraDialogAggiungi()
         }
 
-        aggiornaLista()
-        caricaInfoGruppo()
         aggiornaNomeUtente()
-        if (prefs().getInt("user_id", 0) == 0) {
-            mostraDialogCollegaTelegram(primoAvvio = true)
+        if (prefs.contains("api_url")) {
+            aggiornaLista()
+            caricaInfoGruppo()
+            if (prefs.getInt("user_id", 0) == 0) {
+                mostraDialogCollegaTelegram(primoAvvio = true)
+            }
+        } else {
+            mostraDialogConfigRete(primoAvvio = true)
         }
 
         // Polling: aggiorna la lista ogni 5s quando l'app è in foreground
@@ -368,7 +372,11 @@ class MainActivity : AppCompatActivity() {
                     dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                     result.onSuccess { r ->
                         if (r != null) {
-                            prefs().edit().putInt("user_id", r.userId).apply()
+                            prefs().edit()
+                                .putInt("user_id", r.userId)
+                                .putString("user_first_name", r.firstName)
+                                .apply()
+                            aggiornaNomeUtente()
                             Toast.makeText(this@MainActivity, "\u2713 Benvenuto, ${r.firstName}!", Toast.LENGTH_LONG).show()
                             dlg.dismiss()
                         } else {
@@ -383,7 +391,7 @@ class MainActivity : AppCompatActivity() {
         dlg.show()
     }
 
-    private fun mostraDialogConfigRete() {
+    private fun mostraDialogConfigRete(primoAvvio: Boolean = false) {
         val p = prefs()
         val layout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
@@ -405,18 +413,40 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 16, 0, 0)
         }.also { layout.addView(it) }
         layout.addView(etToken)
-        AlertDialog.Builder(this)
+        val dlg = AlertDialog.Builder(this)
             .setTitle(getString(R.string.nav_config_rete))
             .setView(layout)
-            .setPositiveButton("Salva") { _, _ ->
+            .setPositiveButton("Salva", null)
+            .also { if (!primoAvvio) it.setNegativeButton("Annulla", null) }
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val url   = etUrl.text.toString().trimEnd('/')
                 val token = etToken.text.toString().trim()
-                p.edit().putString("api_url", url).putString("api_token", token).apply()
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    etUrl.error = "Inserisci un URL completo, per esempio http://192.168.1.10:4568"
+                    return@setOnClickListener
+                }
                 ApiClient.configure(url = url, tok = token)
-                aggiornaLista()
+                dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                lifecycleScope.launch {
+                    val raggiungibile = withContext(Dispatchers.IO) { ApiClient.ping() }
+                    dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    if (!raggiungibile) {
+                        etUrl.error = "Server non raggiungibile"
+                        return@launch
+                    }
+                    p.edit().putString("api_url", url).putString("api_token", token).apply()
+                    dlg.dismiss()
+                    aggiornaLista()
+                    caricaInfoGruppo()
+                    if (primoAvvio && userId == 0) {
+                        mostraDialogCollegaTelegram(primoAvvio = true)
+                    }
+                }
             }
-            .setNegativeButton("Annulla", null)
-            .show()
+        }
+        dlg.show()
     }
 
     private fun mostraDialogColoriTopic() {
