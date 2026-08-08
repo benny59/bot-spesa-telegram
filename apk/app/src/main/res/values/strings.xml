@@ -21,6 +21,7 @@
     <string name="nav_tutti">Tutti gli articoli</string>
     <string name="nav_miei">I miei articoli</string>
     <string name="checklist">Checklist</string>
+    <string name="nav_storico">Storico acquisti</string>
     <string name="nav_gestione_carte">Gestione mie carte</string>
     <string name="nav_config_rete">Configurazione rete</string>
     <string name="nav_colori_gruppi">Colori topic</string>

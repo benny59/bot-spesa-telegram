@@ -67,11 +67,11 @@ class MainActivity : AppCompatActivity() {
         val header = navView.getHeaderView(0)
         val tvUser = header.findViewById<TextView>(R.id.tvUserName)
         val nome = listOf(firstName, lastName).filter { it.isNotEmpty() }.joinToString(" ")
-        if (nome.isNotEmpty()) {
-            tvUser.text = "👤 $nome"
-            aggiornaVisibilitaAdmin()
-        } else if (userId != 0) {
-            // nome non ancora in cache: recupera dal server (include flag is_creator)
+        if (nome.isNotEmpty()) tvUser.text = "👤 $nome"
+        else tvUser.text = if (userId != 0) "👤 utente collegato" else "(non collegato)"
+
+        // Aggiorna sempre dal server per tenere is_creator sincronizzato
+        if (userId != 0) {
             lifecycleScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching { ApiClient.fetchMe(userId) }.getOrNull()
@@ -85,12 +85,8 @@ class MainActivity : AppCompatActivity() {
                     val n = listOf(result.firstName, result.lastName).filter { it.isNotEmpty() }.joinToString(" ")
                     tvUser.text = "👤 $n"
                     aggiornaVisibilitaAdmin()
-                } else {
-                    tvUser.text = "👤 utente collegato"
                 }
             }
-        } else {
-            tvUser.text = "(non collegato)"
         }
     }
 
@@ -146,6 +142,12 @@ class MainActivity : AppCompatActivity() {
                         .also { it.setOnItemChangedListener { aggiornaLista() } }
                         .show(supportFragmentManager, "checklist")
                 }
+                    R.id.nav_storico          -> {
+                        val gNome = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
+                        val tNome = tvTopic.text.toString().trimEnd('▾', ' ').trim()
+                        StoricoAcquistiSheet.newInstance(gruppoId, topicId, gNome, tNome)
+                        .show(supportFragmentManager, "storico_acquisti")
+                    }
                 R.id.nav_gestione_carte    -> apriGestioneCarte()
                 R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
                 R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()

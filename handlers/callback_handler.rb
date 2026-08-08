@@ -191,7 +191,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
         chat_id: current_chat_id,
         message_thread_id: target_thread,
         text: testo,
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         reply_markup: keyboard,
       )
 
@@ -285,21 +285,12 @@ when /^trigger_list:(-?\d*):(\d*)$/
 
         mappa.each do |(g_id, t_id), items|
           ids = items.map { |i| i["id"] }
-          rimossi = DataManager.esegui_scopetta(g_id, t_id, ids)
+          rimossi = DataManager.esegui_scopetta(g_id, t_id, ids, user_id)
           totale += rimossi
 
           if rimossi > 0 && g_id != 0
             chat_id_dest = DataManager.get_real_chat_id(g_id)
-            articoli_attuali = DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, is_all)
-
-            # Conta articoli con colonna 'comprato' vuota (ancora da prendere)
-            articoli_rimasti = articoli_attuali.count { |a| a["comprato"].to_s.strip.empty? }
-
-            msg = if articoli_rimasti == 0
-                "🛒 <b>#{u_name}</b> ha terminato la spesa."
-              else
-                "🛒 <b>#{u_name}</b> ha terminato la spesa, controlla gli articoli rimasti."
-              end
+            msg = StoricoManager.notifica_acquisto_html(u_name, items.map { |item| item["nome"] })
 
             bot.api.send_message(
               chat_id: chat_id_dest,
@@ -320,27 +311,21 @@ when /^trigger_list:(-?\d*):(\d*)$/
       g_id, t_id = $1.to_i, $2.to_i
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🧹 Lista pulita!")
 
-      # 1. Eseguiamo la pulizia
-      DataManager.esegui_scopetta(g_id, t_id)
+      acquistati = DB.execute(
+        "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != '' ORDER BY id",
+        [g_id, t_id]
+      )
+      rimossi = DataManager.esegui_scopetta(g_id, t_id, nil, user_id)
 
-      # 2. Controllo articoli rimasti per il messaggio condizionale
-      articoli_rimasti = DataManager.prendi_articoli_ordinati(g_id, t_id).size
-
-      # 3. Notifica al gruppo (solo se l'utente opera dalla sua chat privata)
-      if g_id != 0 && callback.message.chat.type == "private"
+      if rimossi > 0 && g_id != 0 && callback.message.chat.type == "private"
         target_chat = DataManager.get_real_chat_id(g_id)
         u_name = callback.from.first_name
-
-        testo_notifica = if articoli_rimasti == 0
-            "🛒 **#{u_name}** ha terminato la spesa."
-          else
-            "🛒 **#{u_name}** ha terminato la spesa, controlla gli articoli rimasti."
-          end
+        testo_notifica = StoricoManager.notifica_acquisto_html(u_name, acquistati.map { |item| item["nome"] })
 
         bot.api.send_message(
           chat_id: target_chat,
           text: testo_notifica,
-          parse_mode: "Markdown",
+          parse_mode: "HTML",
           message_thread_id: (t_id != 0 ? t_id : nil),
         )
       end

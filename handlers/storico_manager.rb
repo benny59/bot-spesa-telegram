@@ -1,7 +1,15 @@
 # handlers/storico_manager.rb
 require_relative "../db"
+require "time"
+require "cgi"
 
 class StoricoManager
+
+  def self.notifica_acquisto_html(nome, articoli)
+    nome_sicuro = CGI.escapeHTML(nome.to_s)
+    elenco = articoli.map { |articolo| CGI.escapeHTML(articolo.to_s) }.join(', ')
+    "🛒 <b>#{nome_sicuro}</b> ha comprato #{elenco}."
+  end
 
   # ==============================================================================
   # 1. IL MOTORE DELLA SCOPETTA (Business Logic del +1)
@@ -85,24 +93,15 @@ class StoricoManager
   end
 
   def self.formatta_storico(acquisti)
-    return "🕒 *Ultimi acquisti*\n\nNessun dato." if acquisti.empty?
+    return "🕒 <b>Ultimi acquisti</b>\n\nNessun dato." if acquisti.empty?
 
-    righe = acquisti.map do |row|
-      # Accorciamo il nome a 10 caratteri per stare nei margini mobile
-      nome = row["nome"][0, 10].ljust(10)
-
-      # Se il buyer è ancora ??, mostriamo solo l'autore per pulizia
-      if row["buyer_init"] == "??"
-        flusso = "#{row["autore_init"]}".center(7)
-      else
-        flusso = "#{row["autore_init"]}->#{row["buyer_init"]}".ljust(7)
-      end
-
-      data = Time.parse(row["updated_at"]).strftime("%d/%m")
-
-      "`#{nome} #{flusso} #{data}`"
+    righe = acquisti.map do |sessione|
+      data = Time.parse(sessione["acquistato_il"]).strftime("%d/%m/%Y %H:%M")
+      acquirente = CGI.escapeHTML(sessione["acquirente"].to_s)
+      articoli = sessione["articoli"].map { |nome| CGI.escapeHTML(nome.to_s) }.join(', ')
+      "<b>#{acquirente}</b> — #{data}\n#{articoli}"
     end
 
-    "🕒 *Ultimi acquisti*\n\n" + righe.join("\n")
+    "🕒 <b>Ultimi acquisti</b>\n\n" + righe.join("\n\n")
   end
 end

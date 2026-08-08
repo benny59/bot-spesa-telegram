@@ -111,7 +111,7 @@ class CarteFedelta
         end
 
         img_path = row["immagine_path"]
-        if img_path.nil? || !File.exist?(img_path) || File.size(img_path) < 100
+        if img_path.nil? || File.directory?(img_path) || !File.exist?(img_path) || File.size(img_path) < 100
           # Nota: usiamo 'tipo' dalla riga DB
           result = genera_barcode_con_nome(row["codice"], row["nome"], owner_id, row["formato"])
           if result && result[:img_path]
@@ -303,7 +303,7 @@ class CarteFedelta
     img_path = (path_db && File.exist?(path_db) && !File.directory?(path_db) && File.size?(path_db).to_i >= 100) ? path_db : nil
 
     # 2. RIGENERAZIONE SE IL FILE MANCA OVUNQUE
-    if !File.exist?(img_path) || File.size?(img_path).to_i < 100
+    if img_path.nil? || !File.exist?(img_path) || File.size?(img_path).to_i < 100
       puts "⚠️ [DEBUG] Immagine non trovata, rigenerazione..."
       result = genera_barcode_con_nome(carta["codice"], carta["nome"], owner_id, carta["formato"])
 

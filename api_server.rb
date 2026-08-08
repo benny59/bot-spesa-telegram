@@ -38,13 +38,11 @@ rescue => e
 end
 
 # Invia notifica Telegram al gruppo dopo la scopetta
-def notifica_scopetta(gruppo_id, topic_id, user_id, articoli_rimasti)
+def notifica_scopetta(gruppo_id, topic_id, user_id, articoli)
   nome = DB.get_first_value(
     "SELECT first_name FROM user_names WHERE user_id = ?", [user_id]
   ) || 'Utente'
-  testo = articoli_rimasti == 0 \
-    ? "\u{1F6D2} <b>#{nome}</b> ha terminato la spesa."\
-    : "\u{1F6D2} <b>#{nome}</b> ha terminato la spesa, controlla gli articoli rimasti."
+  testo = StoricoManager.notifica_acquisto_html(nome, articoli)
   notifica_gruppo(gruppo_id, topic_id, testo)
 end
 
@@ -205,20 +203,28 @@ delete '/lista/comprati' do
   user_id   = params[:user_id]&.to_i  || 0
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
+  acquistati = if gruppo_id == 0 && user_id != 0
+    DB.execute(
+      "SELECT id, nome FROM items WHERE gruppo_id=0 AND topic_id=? AND comprato!='' AND creato_da=?",
+      [topic_id, user_id]
+    )
+  else
+    DB.execute(
+      "SELECT id, nome FROM items WHERE gruppo_id=? AND topic_id=? AND comprato!=''",
+      [gruppo_id, topic_id]
+    )
+  end
+
   # Lista Personale: scopetta solo i propri articoli comprati
   rimossi = if gruppo_id == 0 && user_id != 0
-    target = DB.execute(
-      "SELECT id FROM items WHERE gruppo_id=0 AND topic_id=? AND comprato!='' AND creato_da=?",
-      [topic_id, user_id]
-    ).map { |r| r['id'] }
-    target.any? ? DataManager.esegui_scopetta(0, topic_id, target) : 0
+    target = acquistati.map { |r| r['id'] }
+    target.any? ? DataManager.esegui_scopetta(0, topic_id, target, user_id) : 0
   else
-    DataManager.esegui_scopetta(gruppo_id, topic_id)
+    DataManager.esegui_scopetta(gruppo_id, topic_id, nil, user_id)
   end
 
   if rimossi > 0
-    rimasti = DataManager.prendi_articoli_ordinati(gruppo_id, topic_id).size
-    notifica_scopetta(gruppo_id, topic_id, user_id, rimasti)
+    notifica_scopetta(gruppo_id, topic_id, user_id, acquistati.map { |item| item['nome'] })
   end
 
   { ok: true, rimossi: rimossi }.to_json
@@ -236,10 +242,29 @@ delete '/lista/comprati/ovunque' do
   per_gruppo = da_rimuovere.group_by { |i| [i['gruppo_id'], i['topic_id']] }
   rimossi = per_gruppo.sum do |(g_id, t_id), items|
     ids = items.map { |i| i['id'] }
-    DataManager.esegui_scopetta(g_id, t_id, ids)
+    eliminati = DataManager.esegui_scopetta(g_id, t_id, ids, user_id)
+    notifica_scopetta(g_id, t_id, user_id, items.map { |item| item['nome'] }) if eliminati > 0
+    eliminati
   end
 
   { ok: true, rimossi: rimossi }.to_json
+end
+
+get '/storico/acquisti' do
+  gruppo_id = params[:gruppo_id]&.to_i
+  topic_id  = params[:topic_id]&.to_i || 0
+  limite    = [[params[:limite].to_i, 1].max, 50].min
+  limite    = 20 if params[:limite].nil?
+  halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
+
+  StoricoManager.ultimi_acquisti(gruppo_id, topic_id, limite).map { |sessione|
+    {
+      id:            sessione['id'],
+      acquirente:    sessione['acquirente'],
+      acquistato_il: sessione['acquistato_il'],
+      articoli:      sessione['articoli']
+    }
+  }.to_json
 end
 
 delete '/lista/:id' do

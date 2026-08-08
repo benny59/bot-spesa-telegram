@@ -166,6 +166,35 @@ object ApiClient {
         }
     }
 
+    data class SessioneAcquisto(
+        val id: Int,
+        val acquirente: String,
+        val acquistatoIl: String,
+        val articoli: List<String>
+    )
+
+    fun getStoricoAcquisti(gruppoId: Int, topicId: Int): List<SessioneAcquisto> {
+        val req = Request.Builder()
+            .url("$baseUrl/storico/acquisti?gruppo_id=$gruppoId&topic_id=$topicId")
+            .auth()
+            .build()
+        val resp = http.newCall(req).execute()
+        val body = resp.use { it.body!!.string() }
+        if (!resp.isSuccessful) throw Exception("Server ${resp.code}: $body")
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(body, type)
+        return raw.map { sessione ->
+            @Suppress("UNCHECKED_CAST")
+            val articoli = sessione["articoli"] as? List<String> ?: emptyList()
+            SessioneAcquisto(
+                id           = (sessione["id"] as? Double)?.toInt() ?: 0,
+                acquirente   = sessione["acquirente"] as? String ?: "Utente",
+                acquistatoIl = sessione["acquistato_il"] as? String ?: "",
+                articoli     = articoli
+            )
+        }
+    }
+
     fun toggleChecklistItem(gruppoId: Int, topicId: Int, nome: String, inLista: Boolean, userId: Int): Boolean {
         val payload = mapOf("gruppo_id" to gruppoId, "topic_id" to topicId,
                             "nome" to nome, "in_lista" to inLista, "user_id" to userId)

@@ -118,6 +118,26 @@ SQL
 SQL
 
   db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS sessioni_acquisto (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gruppo_id INTEGER NOT NULL,
+      topic_id INTEGER DEFAULT 0,
+      eseguito_da INTEGER,
+      acquistato_il DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
+
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS sessioni_acquisto_articoli (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessione_id INTEGER NOT NULL,
+      nome TEXT NOT NULL,
+      creato_da INTEGER,
+      FOREIGN KEY (sessione_id) REFERENCES sessioni_acquisto(id) ON DELETE CASCADE
+    );
+  SQL
+
+  db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS gruppo_carte_collegamenti (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       gruppo_id INTEGER NOT NULL,
@@ -144,6 +164,8 @@ SQL
   db.execute "CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_topic ON pending_actions (chat_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_gruppo_topic ON storico_articoli (gruppo_id, topic_id, conteggio DESC, ultima_aggiunta DESC);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_nome_gruppo ON storico_articoli (nome, gruppo_id, topic_id);"
+  db.execute "CREATE INDEX IF NOT EXISTS idx_sessioni_acquisto_contesto ON sessioni_acquisto (gruppo_id, topic_id, acquistato_il DESC);"
+  db.execute "CREATE INDEX IF NOT EXISTS idx_sessioni_acquisto_articoli_sessione ON sessioni_acquisto_articoli (sessione_id);"
 
   puts "✅ [DB] Database inizializzato correttamente."
   db
@@ -332,7 +354,7 @@ class DataManager
   # LA SCOPETTA (Cleanup & Storico)
   # ----------------------------------------------------------------------------
   # Cancella gli articoli comprati e aggiorna il conteggio nello storico
-  def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
+  def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil, eseguito_da = nil)
     puts "\n🧹 [SCOPETTA] Inizio esegui_scopetta - G:#{gruppo_id}, T:#{topic_id}"
     
     if target_ids && !target_ids.empty?
@@ -355,6 +377,18 @@ class DataManager
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         # Usa il metodo DRY unificato per UPSERT storico
         self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"])
+      end
+
+      DB.execute(
+        "INSERT INTO sessioni_acquisto (gruppo_id, topic_id, eseguito_da) VALUES (?, ?, ?)",
+        [gruppo_id, topic_id, eseguito_da]
+      )
+      sessione_id = DB.last_insert_row_id
+      comprati.each do |item|
+        DB.execute(
+          "INSERT INTO sessioni_acquisto_articoli (sessione_id, nome, creato_da) VALUES (?, ?, ?)",
+          [sessione_id, item["nome"], item["creato_da"]]
+        )
       end
 
       puts "🧹 [SCOPETTA] Cancellazione items..."
@@ -862,22 +896,26 @@ end
   end
   # In db.rb
   def self.prendi_ultimi_acquisti_con_nomi(gruppo_id, topic_id, limite = 15)
-    sql = <<-SQL
-    SELECT s.nome,
-           s.updated_at,
-           u1.initials AS autore_init,
-           u2.initials AS buyer_init
-    FROM storico_articoli s
-    LEFT JOIN user_names u1 ON s.creato_da = u1.user_id
-    LEFT JOIN user_names u2 ON s.comprato_da = u2.user_id
-    WHERE s.gruppo_id = ? 
-      AND s.topic_id = ? 
-      AND s.conteggio > 0
-    ORDER BY datetime(s.updated_at) DESC
-    LIMIT ?
-  SQL
+    sessioni = DB.execute(
+      <<-SQL,
+        SELECT s.id, s.eseguito_da, s.acquistato_il,
+               COALESCE(NULLIF(TRIM(u.first_name || ' ' || IFNULL(u.last_name, '')), ''), 'Utente') AS acquirente
+        FROM sessioni_acquisto s
+        LEFT JOIN user_names u ON s.eseguito_da = u.user_id
+        WHERE s.gruppo_id = ? AND s.topic_id = ?
+        ORDER BY datetime(s.acquistato_il) DESC, s.id DESC
+        LIMIT ?
+      SQL
+      [gruppo_id, topic_id, limite]
+    )
 
-    DB.execute(sql, [gruppo_id, topic_id, limite])
+    sessioni.each do |sessione|
+      sessione["articoli"] = DB.execute(
+        "SELECT nome FROM sessioni_acquisto_articoli WHERE sessione_id = ? ORDER BY id",
+        [sessione["id"]]
+      ).map { |row| row["nome"] }
+    end
+    sessioni
   end
 
   # Helper DRY: Base query articoli con JOIN a user_names (riutilizzato in più metodi)
