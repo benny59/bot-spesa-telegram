@@ -285,7 +285,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
 
         mappa.each do |(g_id, t_id), items|
           ids = items.map { |i| i["id"] }
-          rimossi = DataManager.esegui_scopetta(g_id, t_id, ids, user_id)
+          rimossi = DataManager.esegui_scopetta(g_id, t_id, ids)
           totale += rimossi
 
           if rimossi > 0 && g_id != 0
@@ -315,7 +315,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
         "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != '' ORDER BY id",
         [g_id, t_id]
       )
-      rimossi = DataManager.esegui_scopetta(g_id, t_id, nil, user_id)
+      rimossi = DataManager.esegui_scopetta(g_id, t_id)
 
       if rimossi > 0 && g_id != 0 && callback.message.chat.type == "private"
         target_chat = DataManager.get_real_chat_id(g_id)

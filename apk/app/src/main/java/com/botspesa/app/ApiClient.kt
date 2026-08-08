@@ -166,14 +166,15 @@ object ApiClient {
         }
     }
 
-    data class SessioneAcquisto(
+    data class StoricoAcquisto(
         val id: Int,
+        val nome: String,
         val acquirente: String,
-        val acquistatoIl: String,
-        val articoli: List<String>
+        val updatedAt: String,
+        val conteggio: Int
     )
 
-    fun getStoricoAcquisti(gruppoId: Int, topicId: Int): List<SessioneAcquisto> {
+    fun getStoricoAcquisti(gruppoId: Int, topicId: Int): List<StoricoAcquisto> {
         val req = Request.Builder()
             .url("$baseUrl/storico/acquisti?gruppo_id=$gruppoId&topic_id=$topicId")
             .auth()
@@ -183,14 +184,13 @@ object ApiClient {
         if (!resp.isSuccessful) throw Exception("Server ${resp.code}: $body")
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
-        return raw.map { sessione ->
-            @Suppress("UNCHECKED_CAST")
-            val articoli = sessione["articoli"] as? List<String> ?: emptyList()
-            SessioneAcquisto(
-                id           = (sessione["id"] as? Double)?.toInt() ?: 0,
-                acquirente   = sessione["acquirente"] as? String ?: "Utente",
-                acquistatoIl = sessione["acquistato_il"] as? String ?: "",
-                articoli     = articoli
+        return raw.map { acquisto ->
+            StoricoAcquisto(
+                id         = (acquisto["id"] as? Double)?.toInt() ?: 0,
+                nome       = acquisto["nome"] as? String ?: "",
+                acquirente = acquisto["acquirente"] as? String ?: "Utente",
+                updatedAt  = acquisto["updated_at"] as? String ?: "",
+                conteggio  = (acquisto["conteggio"] as? Double)?.toInt() ?: 0
             )
         }
     }

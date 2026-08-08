@@ -218,9 +218,9 @@ delete '/lista/comprati' do
   # Lista Personale: scopetta solo i propri articoli comprati
   rimossi = if gruppo_id == 0 && user_id != 0
     target = acquistati.map { |r| r['id'] }
-    target.any? ? DataManager.esegui_scopetta(0, topic_id, target, user_id) : 0
+    target.any? ? DataManager.esegui_scopetta(0, topic_id, target) : 0
   else
-    DataManager.esegui_scopetta(gruppo_id, topic_id, nil, user_id)
+    DataManager.esegui_scopetta(gruppo_id, topic_id)
   end
 
   if rimossi > 0
@@ -242,7 +242,7 @@ delete '/lista/comprati/ovunque' do
   per_gruppo = da_rimuovere.group_by { |i| [i['gruppo_id'], i['topic_id']] }
   rimossi = per_gruppo.sum do |(g_id, t_id), items|
     ids = items.map { |i| i['id'] }
-    eliminati = DataManager.esegui_scopetta(g_id, t_id, ids, user_id)
+    eliminati = DataManager.esegui_scopetta(g_id, t_id, ids)
     notifica_scopetta(g_id, t_id, user_id, items.map { |item| item['nome'] }) if eliminati > 0
     eliminati
   end
@@ -257,12 +257,13 @@ get '/storico/acquisti' do
   limite    = 20 if params[:limite].nil?
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  StoricoManager.ultimi_acquisti(gruppo_id, topic_id, limite).map { |sessione|
+  StoricoManager.ultimi_acquisti(gruppo_id, topic_id, limite).map { |acquisto|
     {
-      id:            sessione['id'],
-      acquirente:    sessione['acquirente'],
-      acquistato_il: sessione['acquistato_il'],
-      articoli:      sessione['articoli']
+      id:           acquisto['id'],
+      nome:         acquisto['nome'],
+      acquirente:   acquisto['acquirente'],
+      updated_at:   acquisto['updated_at'],
+      conteggio:    acquisto['conteggio']
     }
   }.to_json
 end

@@ -95,11 +95,11 @@ class StoricoManager
   def self.formatta_storico(acquisti)
     return "🕒 <b>Ultimi acquisti</b>\n\nNessun dato." if acquisti.empty?
 
-    righe = acquisti.map do |sessione|
-      data = Time.parse(sessione["acquistato_il"]).strftime("%d/%m/%Y %H:%M")
-      acquirente = CGI.escapeHTML(sessione["acquirente"].to_s)
-      articoli = sessione["articoli"].map { |nome| CGI.escapeHTML(nome.to_s) }.join(', ')
-      "<b>#{acquirente}</b> — #{data}\n#{articoli}"
+    righe = acquisti.map do |acquisto|
+      data = Time.parse(acquisto["updated_at"]).strftime("%d/%m/%Y %H:%M")
+      acquirente = CGI.escapeHTML(acquisto["acquirente"].to_s)
+      nome = CGI.escapeHTML(acquisto["nome"].to_s)
+      "<b>#{nome}</b> — #{acquirente} — #{data}"
     end
 
     "🕒 <b>Ultimi acquisti</b>\n\n" + righe.join("\n\n")
