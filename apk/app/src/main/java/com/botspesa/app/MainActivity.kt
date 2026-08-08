@@ -2,6 +2,7 @@ package com.botspesa.app
 
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -31,6 +32,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 class MainActivity : AppCompatActivity() {
 
@@ -191,15 +194,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.action_condividi)?.isVisible = vistaAttuale.isEmpty()
         return super.onPrepareOptionsMenu(menu)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_scopetta -> { mostraScopettaConferma(); true }
+            R.id.action_condividi -> { condividiListaCorrente(); true }
             R.id.action_carte    -> { CarteSheet.newInstance(gruppoId).show(supportFragmentManager, "carte"); true }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun condividiListaCorrente() {
+        val daComprare = items.filterNot { it.isBought }
+        if (daComprare.isEmpty()) {
+            Toast.makeText(this, "Nessun articolo da condividere", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val nomeGruppo = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
+        val nomeTopic = tvTopic.text.toString().trimEnd('▾', ' ').trim()
+        val aggiornatoIl = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy 'alle' HH:mm"))
+        val testo = buildString {
+            appendLine("🛒 Lista spesa: $nomeGruppo")
+            if (nomeTopic.isNotEmpty()) appendLine("📍 Reparto: $nomeTopic")
+            appendLine()
+            daComprare.forEach { appendLine("• ${it.nome}") }
+            appendLine()
+            append("Aggiornata il $aggiornatoIl")
+        }
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Lista spesa: $nomeGruppo")
+            putExtra(Intent.EXTRA_TEXT, testo)
+        }
+        startActivity(Intent.createChooser(intent, getString(R.string.scegli_app_condivisione)))
     }
 
     private fun mostraScopettaConferma() {

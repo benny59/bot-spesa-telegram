@@ -7,6 +7,11 @@
         android:title="@string/scopetta"
         app:showAsAction="always" />
     <item
+        android:id="@+id/action_condividi"
+        android:icon="@drawable/ic_share"
+        android:title="@string/condividi_lista"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/action_carte"
         android:icon="@drawable/ic_nav_carte"
         android:title="@string/nav_carte"
