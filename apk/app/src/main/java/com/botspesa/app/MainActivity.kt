@@ -314,7 +314,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun coloreSeparatoreContesto(item: SpesaItem): Int {
         if (item.gruppoId == 0) return Color.parseColor("#455A64")
-        return coloreTopic(item.gruppoId, item.topicId, item.nomeTopic)
+        val topicNome = item.nomeTopic.ifEmpty {
+            item.nomeContesto.substringAfter(" • ", "")
+        }
+        return coloreTopic(item.gruppoId, item.topicId, topicNome)
     }
 
     private fun coloreTopic(gruppoId: Int, topicId: Int, topicNome: String): Int {
