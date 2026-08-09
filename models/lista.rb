@@ -106,6 +106,19 @@ class Lista
     DB.get_first_row("SELECT * FROM items WHERE id = ?", [item_id])
   end
 
+  def self.modifica_nome(item_id, nome)
+    DB.execute("UPDATE items SET nome = ? WHERE id = ?", [nome, item_id])
+    DB.changes > 0
+  end
+
+  def self.sposta_topic(item_id, gruppo_id, topic_id)
+    DB.execute(
+      "UPDATE items SET topic_id = ? WHERE id = ? AND gruppo_id = ?",
+      [topic_id, item_id, gruppo_id]
+    )
+    DB.changes > 0
+  end
+
   def self.ha_immagine?(item_id)
     count = DB.get_first_value("SELECT COUNT(*) FROM item_images WHERE item_id = ?", [item_id])
     count > 0
@@ -118,6 +131,11 @@ class Lista
   end
 
   def self.rimuovi_immagine(item_id)
+    immagini = DB.execute(
+      "SELECT file_id, file_unique_id FROM item_images WHERE item_id = ?",
+      [item_id]
+    )
     DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])
+    immagini
   end
 end

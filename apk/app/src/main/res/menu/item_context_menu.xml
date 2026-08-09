@@ -1,9 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
+        android:id="@+id/action_modifica"
+        android:title="@string/modifica_articolo" />
+    <item
         android:id="@+id/action_add_foto"
         android:icon="@drawable/ic_foto"
         android:title="@string/aggiungi_foto" />
+    <item
+        android:id="@+id/action_elimina_foto"
+        android:title="@string/elimina_foto" />
+    <item
+        android:id="@+id/action_sposta_topic"
+        android:title="@string/sposta_topic" />
     <item
         android:id="@+id/action_elimina"
         android:title="@string/elimina_articolo" />

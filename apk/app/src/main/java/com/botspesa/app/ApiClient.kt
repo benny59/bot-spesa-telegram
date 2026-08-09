@@ -87,6 +87,7 @@ object ApiClient {
                 hasFoto      = item["has_foto"] as? Boolean ?: false,
                 gruppoId     = (item["gruppo_id"] as? Double)?.toInt() ?: 0,
                 topicId      = (item["topic_id"] as? Double)?.toInt() ?: 0,
+                nomeTopic    = item["nome_topic"] as? String ?: "",
                 nomeGruppo   = item["nome_gruppo"] as? String ?: "",
                 nomeContesto = item["nome_contesto"] as? String ?: ""
             )
@@ -130,6 +131,35 @@ object ApiClient {
     fun deleteItem(gruppoId: Int, itemId: Int, userId: Int): Boolean {
         val req = Request.Builder()
             .url("$baseUrl/lista/$itemId?gruppo_id=$gruppoId&user_id=$userId")
+            .delete()
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun updateItem(itemId: Int, nome: String, userId: Int): Boolean {
+        val payload = gson.toJson(mapOf("nome" to nome, "user_id" to userId))
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId")
+            .patch(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun moveItem(itemId: Int, topicId: Int, userId: Int): Boolean {
+        val payload = gson.toJson(mapOf("topic_id" to topicId, "user_id" to userId))
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/topic")
+            .patch(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun deleteFoto(itemId: Int, userId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/foto?user_id=$userId")
             .delete()
             .auth()
             .build()

@@ -6,6 +6,7 @@ require 'json'
 require 'set'
 require 'fileutils'
 require 'securerandom'
+require 'cgi'
 require 'faraday'
 require 'telegram/bot'
 require_relative 'db'
@@ -87,6 +88,24 @@ rescue JSON::ParserError
   halt 400, { error: 'JSON non valido' }.to_json
 end
 
+def item_accessibile!(item_id, user_id)
+  halt 400, { error: 'user_id mancante' }.to_json if user_id.to_i == 0
+
+  item = Lista.trova(item_id)
+  halt 404, { error: 'item non trovato' }.to_json unless item
+
+  consentito = if item['gruppo_id'].to_i == 0
+    item['creato_da'].to_i == user_id.to_i
+  else
+    DB.get_first_value(
+      "SELECT 1 FROM memberships WHERE user_id = ? AND gruppo_id = ?",
+      [user_id, item['gruppo_id']]
+    )
+  end
+  halt 403, { error: 'accesso negato' }.to_json unless consentito
+  item
+end
+
 # Rileva il formato barcode dal codice (stesso logic del bot, senza dipendenze barby)
 def identifica_formato_codice(codice)
   c = codice.to_s.gsub(/\s/, '')
@@ -158,6 +177,7 @@ get '/lista' do
     {
       id:            i['id'],
       gruppo_id:     i['gruppo_id'],
+      topic_id:      i['topic_id'],
       nome:          i['nome'],
       comprato:      i['comprato'].to_s,
       creato_da:     i['creato_da'],
@@ -199,6 +219,58 @@ patch '/lista/:id/toggle' do
   result = Lista.toggle_comprato(gruppo_id, item_id, user_id)
   halt 404, { error: 'item non trovato' }.to_json if result.nil?
   { comprato: result.to_s }.to_json
+end
+
+patch '/lista/:id' do
+  item_id = params[:id].to_i
+  body = json_body
+  user_id = body['user_id']&.to_i || 0
+  nome = body['nome'].to_s.strip
+  halt 400, { error: 'nome mancante' }.to_json if nome.empty?
+
+  item = item_accessibile!(item_id, user_id)
+  halt 404, { error: 'item non trovato' }.to_json unless Lista.modifica_nome(item_id, nome)
+
+  if item['gruppo_id'].to_i != 0
+    utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+    notifica_gruppo(
+      item['gruppo_id'], item['topic_id'],
+      "\u270F\uFE0F <b>#{CGI.escapeHTML(utente)}</b> ha modificato: " \
+      "<s>#{CGI.escapeHTML(item['nome'].to_s)}</s> \u2192 <b>#{CGI.escapeHTML(nome)}</b>"
+    )
+  end
+
+  { ok: true, nome: nome }.to_json
+end
+
+patch '/lista/:id/topic' do
+  item_id = params[:id].to_i
+  body = json_body
+  user_id = body['user_id']&.to_i || 0
+  topic_id = body['topic_id']&.to_i
+  halt 400, { error: 'topic_id mancante' }.to_json if topic_id.nil?
+
+  item = item_accessibile!(item_id, user_id)
+  gruppo_id = item['gruppo_id'].to_i
+  halt 400, { error: 'La lista personale non ha topic' }.to_json if gruppo_id == 0
+
+  if topic_id != 0
+    chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [gruppo_id])
+    topic_valido = DB.get_first_value(
+      "SELECT 1 FROM topics WHERE chat_id = ? AND topic_id = ?",
+      [chat_id, topic_id]
+    )
+    halt 404, { error: 'topic non trovato' }.to_json unless topic_valido
+  end
+
+  halt 404, { error: 'item non trovato' }.to_json unless Lista.sposta_topic(item_id, gruppo_id, topic_id)
+
+  utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+  nome = CGI.escapeHTML(item['nome'].to_s)
+  autore = CGI.escapeHTML(utente)
+  notifica_gruppo(gruppo_id, item['topic_id'], "\u27A1\uFE0F <b>#{autore}</b> ha spostato: <b>#{nome}</b>")
+  notifica_gruppo(gruppo_id, topic_id, "\u2B05\uFE0F <b>#{autore}</b> ha spostato qui: <b>#{nome}</b>")
+  { ok: true, gruppo_id: gruppo_id, topic_id: topic_id }.to_json
 end
 
 # Rotta specifica PRIMA di quella parametrica per evitare conflitti
@@ -376,9 +448,7 @@ post '/lista/:item_id/foto' do
   item_id = params[:item_id].to_i
   user_id = params[:user_id].to_i
 
-  halt 404, { error: 'item non trovato' }.to_json unless
-    DB.get_first_value("SELECT id FROM items WHERE id = ?", [item_id])
-  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
+  item_accessibile!(item_id, user_id)
 
   image_data = params[:file] ? params[:file][:tempfile].read : request.body.read
   halt 400, { error: 'nessun file ricevuto' }.to_json if image_data.nil? || image_data.empty?
@@ -415,6 +485,21 @@ post '/lista/:item_id/foto' do
   )
   status 201
   { ok: true }.to_json
+end
+
+delete '/lista/:item_id/foto' do
+  item_id = params[:item_id].to_i
+  user_id = params[:user_id]&.to_i || 0
+  item_accessibile!(item_id, user_id)
+
+  immagini = Lista.rimuovi_immagine(item_id)
+  cache_dir = File.join(File.dirname(__FILE__), 'data', 'foto_cache')
+  immagini.each do |immagine|
+    unique_id = immagine['file_unique_id'].to_s
+    FileUtils.rm_f(File.join(cache_dir, "#{unique_id}.jpg")) unless unique_id.empty?
+  end
+
+  { ok: true, rimosse: immagini.size }.to_json
 end
 
 # Dati utente per il collegamento app (esentato da auth: usato anche per recupero nome)
@@ -497,6 +582,7 @@ def serializza_item(i, nome_gruppo: '')
     id:            i['id'],
     gruppo_id:     i['gruppo_id'],
     topic_id:      i['topic_id'],
+    nome_topic:    i['nome_topic'].to_s,
     nome:          i['nome'],
     comprato:      i['comprato'].to_s,
     creato_da:     i['creato_da'],

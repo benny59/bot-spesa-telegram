@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.cardview.widget.CardView
+import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.RecyclerView
 
 class SpesaAdapter(
@@ -14,6 +15,7 @@ class SpesaAdapter(
     private val onToggle: (SpesaItem) -> Unit,
     private val onFoto: (SpesaItem) -> Unit,
     private val onContext: (SpesaItem) -> Unit,
+    private val contextColor: (SpesaItem) -> Int,
     private val onLongPress: (SpesaItem, android.view.View) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<SpesaAdapter.ViewHolder>() {
 
@@ -41,6 +43,14 @@ class SpesaAdapter(
                 items[position - 1].topicId != item.topicId)
         holder.tvContextSeparator.visibility = if (mostraContesto) View.VISIBLE else View.GONE
         holder.tvContextSeparator.text = "▸ ${item.nomeContesto}"
+        if (mostraContesto) {
+            val color = contextColor(item)
+            holder.tvContextSeparator.setBackgroundColor(color)
+            holder.tvContextSeparator.setTextColor(
+                if (ColorUtils.calculateLuminance(color) < 0.45) android.graphics.Color.WHITE
+                else android.graphics.Color.BLACK
+            )
+        }
         holder.tvContextSeparator.setOnClickListener { onContext(item) }
         holder.tvNome.text = item.nome
         if (item.nomeGruppo.isNotEmpty()) {

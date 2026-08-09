@@ -16,6 +16,9 @@
     <string name="fotocamera">Fotocamera</string>
     <string name="galleria">Galleria</string>
     <string name="elimina_articolo">Elimina articolo</string>
+    <string name="modifica_articolo">Modifica</string>
+    <string name="elimina_foto">Elimina foto</string>
+    <string name="sposta_topic">Sposta in un altro topic</string>
     <string name="scopetta">Scopetta</string>
     <string name="condividi_lista">Condividi lista</string>
     <string name="scegli_app_condivisione">Condividi lista con</string>

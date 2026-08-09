@@ -114,6 +114,7 @@ class MainActivity : AppCompatActivity() {
             onToggle   = ::toggleItem,
             onFoto     = ::apriFoto,
             onContext  = ::selezionaContestoDaListaGlobale,
+            contextColor = ::coloreSeparatoreContesto,
             onLongPress = { item, anchor -> mostraMenuContestuale(item, anchor) }
         )
 
@@ -305,13 +306,26 @@ class MainActivity : AppCompatActivity() {
         val color = if (gruppoId == 0) {
             android.graphics.Color.parseColor("#455A64") // Lista Personale: grigio-blu
         } else {
-            val p = prefs()
-            val colorKey = "topic_color_$topicId"
-            if (p.contains(colorKey)) p.getInt(colorKey, 0)
-            else topicColorDefault(topicNome)
+            coloreTopic(gruppoId, topicId, topicNome)
         }
         findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar).setBackgroundColor(color)
         window.statusBarColor = color
+    }
+
+    private fun coloreSeparatoreContesto(item: SpesaItem): Int {
+        if (item.gruppoId == 0) return Color.parseColor("#455A64")
+        return coloreTopic(item.gruppoId, item.topicId, item.nomeTopic)
+    }
+
+    private fun coloreTopic(gruppoId: Int, topicId: Int, topicNome: String): Int {
+        val p = prefs()
+        val colorKey = "topic_color_${gruppoId}_$topicId"
+        val legacyKey = "topic_color_$topicId"
+        return when {
+            p.contains(colorKey) -> p.getInt(colorKey, 0)
+            p.contains(legacyKey) -> p.getInt(legacyKey, 0)
+            else -> topicColorDefault(topicNome)
+        }
     }
 
     // Swipe destra = toggle comprato
@@ -466,7 +480,7 @@ class MainActivity : AppCompatActivity() {
             }
             scroll.addView(layout)
             topics.forEach { topic ->
-                val colorKey = "topic_color_${topic.topicId}"
+                val colorKey = "topic_color_${gruppoId}_${topic.topicId}"
                 val row = android.widget.LinearLayout(this@MainActivity).apply {
                     orientation = android.widget.LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
@@ -479,7 +493,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     background = android.graphics.drawable.GradientDrawable().apply {
                         shape = android.graphics.drawable.GradientDrawable.OVAL
-                        setColor(p.getInt(colorKey, topicColorDefault(topic.nome)))
+                        setColor(coloreTopic(gruppoId, topic.topicId, topic.nome))
                     }
                 }
                 val tvNome = android.widget.TextView(this@MainActivity).apply {
@@ -519,14 +533,91 @@ class MainActivity : AppCompatActivity() {
     private fun mostraMenuContestuale(item: SpesaItem, anchor: android.view.View) {
         PopupMenu(this, anchor).apply {
             menuInflater.inflate(R.menu.item_context_menu, menu)
+            menu.findItem(R.id.action_elimina_foto).isVisible = item.hasFoto
+            menu.findItem(R.id.action_sposta_topic).isVisible = item.gruppoId != 0
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
+                    R.id.action_modifica -> mostraDialogModificaItem(item)
                     R.id.action_add_foto -> mostraDialogSorgenteFoto(item.id)
+                    R.id.action_elimina_foto -> eliminaFotoConferma(item)
+                    R.id.action_sposta_topic -> mostraDialogSpostaItem(item)
                     R.id.action_elimina  -> eliminaConferma(item)
                 }
                 true
             }
             show()
+        }
+    }
+
+    private fun mostraDialogModificaItem(item: SpesaItem) {
+        val input = EditText(this).apply {
+            setText(item.nome)
+            setSelection(text.length)
+            setPadding(48, 16, 48, 16)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.modifica_articolo)
+            .setView(input)
+            .setPositiveButton("Salva", null)
+            .setNegativeButton("Annulla", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val nome = input.text.toString().trim()
+                if (nome.isEmpty()) input.error = "Il testo non può essere vuoto"
+                else {
+                    dialog.dismiss()
+                    lifecycleScope.launch {
+                        val ok = withContext(Dispatchers.IO) {
+                            runCatching { ApiClient.updateItem(item.id, nome, userId) }.getOrDefault(false)
+                        }
+                        if (ok) aggiornaLista()
+                        else Toast.makeText(this@MainActivity, "Modifica non riuscita", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun eliminaFotoConferma(item: SpesaItem) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.elimina_foto)
+            .setMessage("Eliminare la foto associata a \"${item.nome}\"?")
+            .setPositiveButton("Elimina") { _, _ ->
+                lifecycleScope.launch {
+                    val ok = withContext(Dispatchers.IO) {
+                        runCatching { ApiClient.deleteFoto(item.id, userId) }.getOrDefault(false)
+                    }
+                    if (ok) aggiornaLista()
+                    else Toast.makeText(this@MainActivity, "Eliminazione foto non riuscita", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Annulla", null)
+            .show()
+    }
+
+    private fun mostraDialogSpostaItem(item: SpesaItem) {
+        lifecycleScope.launch {
+            val topics = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getTopics(item.gruppoId) }.getOrDefault(emptyList())
+            }.filter { it.topicId != item.topicId }
+            if (topics.isEmpty()) {
+                Toast.makeText(this@MainActivity, "Nessun altro topic disponibile", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle(R.string.sposta_topic)
+                .setItems(topics.map { it.nome }.toTypedArray()) { _, index ->
+                    lifecycleScope.launch {
+                        val ok = withContext(Dispatchers.IO) {
+                            runCatching { ApiClient.moveItem(item.id, topics[index].topicId, userId) }.getOrDefault(false)
+                        }
+                        if (ok) aggiornaLista()
+                        else Toast.makeText(this@MainActivity, "Spostamento non riuscito", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .show()
         }
     }
 

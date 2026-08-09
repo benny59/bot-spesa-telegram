@@ -8,6 +8,7 @@ data class SpesaItem(
     val hasFoto: Boolean = false,
     val gruppoId: Int = 0,
     val topicId: Int = 0,
+    val nomeTopic: String = "",
     val nomeGruppo: String = "",
     val nomeContesto: String = ""
 ) {
