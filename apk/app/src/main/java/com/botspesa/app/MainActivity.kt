@@ -113,6 +113,7 @@ class MainActivity : AppCompatActivity() {
             items      = items,
             onToggle   = ::toggleItem,
             onFoto     = ::apriFoto,
+            onContext  = ::selezionaContestoDaListaGlobale,
             onLongPress = { item, anchor -> mostraMenuContestuale(item, anchor) }
         )
 
@@ -606,6 +607,7 @@ class MainActivity : AppCompatActivity() {
                 items.clear()
                 items.addAll(nuovi)
                 adapter.notifyDataSetChanged()
+                aggiornaConteggiDrawer()
             }.onFailure {
                 Toast.makeText(this@MainActivity, "Connessione fallita: ${it.message}", Toast.LENGTH_SHORT).show()
             }
@@ -615,11 +617,35 @@ class MainActivity : AppCompatActivity() {
     // Usato da ChecklistSheet per aggiornare la lista principale dopo un toggle
     fun refreshLista() = aggiornaLista()
 
+    private fun aggiornaConteggiDrawer() {
+        if (userId == 0) return
+        lifecycleScope.launch {
+            val conteggi = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getConteggiListe(userId) }.getOrNull()
+            } ?: return@launch
+            val menu = findViewById<NavigationView>(R.id.navView).menu
+            menu.findItem(R.id.nav_tutti).title = "Tutti gli articoli (${conteggi.tutti})"
+            menu.findItem(R.id.nav_miei).title = "I miei articoli (${conteggi.miei})"
+        }
+    }
+
+    private fun selezionaContestoDaListaGlobale(item: SpesaItem) {
+        prefs().edit()
+            .putInt("gruppo_id", item.gruppoId)
+            .putInt("topic_id", item.topicId)
+            .apply()
+        vistaAttuale = ""
+        findViewById<NavigationView>(R.id.navView).setCheckedItem(R.id.nav_lista)
+        aggiornaLista()
+        caricaInfoGruppo()
+        invalidateOptionsMenu()
+        Toast.makeText(this, "Contesto: ${item.nomeContesto}", Toast.LENGTH_SHORT).show()
+    }
+
     private fun toggleItem(item: SpesaItem) {
-        val gId = if (item.gruppoId != 0) item.gruppoId else gruppoId
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.toggleItem(gId, item.id, userId) }
+                runCatching { ApiClient.toggleItem(item.gruppoId, item.id, userId) }
             }
             result.onSuccess { aggiornaLista() }
                   .onFailure { Toast.makeText(this@MainActivity, "Errore toggle", Toast.LENGTH_SHORT).show() }
@@ -636,13 +662,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun eliminaItem(item: SpesaItem) {
-        val gId = if (item.gruppoId != 0) item.gruppoId else gruppoId
         val pos = items.indexOfFirst { it.id == item.id }.takeIf { it >= 0 } ?: return
         items.removeAt(pos)
         adapter.notifyItemRemoved(pos)
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                runCatching { ApiClient.deleteItem(gId, item.id, userId) }
+                runCatching { ApiClient.deleteItem(item.gruppoId, item.id, userId) }
             }
         }
     }

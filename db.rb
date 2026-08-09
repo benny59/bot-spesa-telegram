@@ -786,7 +786,7 @@ end
     LEFT JOIN user_names u ON i.creato_da = u.user_id
     WHERE i.creato_da = ? 
     AND (i.gruppo_id = 0 OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?))
-    ORDER BY i.gruppo_id, i.creato_il DESC
+    ORDER BY i.gruppo_id, i.topic_id, i.creato_il DESC
   SQL
     DB.execute(query, [u_id, u_id])
   end
@@ -803,7 +803,7 @@ end
     LEFT JOIN user_names u ON i.creato_da = u.user_id
     WHERE i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
        OR (i.gruppo_id = 0 AND i.creato_da = ?)
-    ORDER BY i.gruppo_id, i.creato_il DESC
+    ORDER BY i.gruppo_id, i.topic_id, i.creato_il DESC
   SQL
     DB.execute(query, [u_id, u_id])
   end

@@ -63,6 +63,18 @@ object ApiClient {
         return parseItems(http.newCall(req).execute().use { it.body!!.string() })
     }
 
+    data class ConteggiListe(val tutti: Int, val miei: Int)
+
+    fun getConteggiListe(userId: Int): ConteggiListe {
+        val req = Request.Builder().url("$baseUrl/lista/conteggi?user_id=$userId").auth().build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val raw: Map<String, Any> = gson.fromJson(body, object : TypeToken<Map<String, Any>>() {}.type)
+        return ConteggiListe(
+            tutti = (raw["tutti"] as? Double)?.toInt() ?: 0,
+            miei = (raw["miei"] as? Double)?.toInt() ?: 0
+        )
+    }
+
     private fun parseItems(body: String): List<SpesaItem> {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
@@ -74,7 +86,9 @@ object ApiClient {
                 userInitials = item["user_initials"] as? String ?: "",
                 hasFoto      = item["has_foto"] as? Boolean ?: false,
                 gruppoId     = (item["gruppo_id"] as? Double)?.toInt() ?: 0,
-                nomeGruppo   = item["nome_gruppo"] as? String ?: ""
+                topicId      = (item["topic_id"] as? Double)?.toInt() ?: 0,
+                nomeGruppo   = item["nome_gruppo"] as? String ?: "",
+                nomeContesto = item["nome_contesto"] as? String ?: ""
             )
         }
     }

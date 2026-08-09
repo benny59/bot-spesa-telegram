@@ -7,7 +7,9 @@ data class SpesaItem(
     val userInitials: String,
     val hasFoto: Boolean = false,
     val gruppoId: Int = 0,
-    val nomeGruppo: String = ""
+    val topicId: Int = 0,
+    val nomeGruppo: String = "",
+    val nomeContesto: String = ""
 ) {
     val isBought: Boolean get() = comprato.isNotEmpty()
 }

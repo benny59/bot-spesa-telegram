@@ -496,14 +496,37 @@ def serializza_item(i, nome_gruppo: '')
   {
     id:            i['id'],
     gruppo_id:     i['gruppo_id'],
+    topic_id:      i['topic_id'],
     nome:          i['nome'],
     comprato:      i['comprato'].to_s,
     creato_da:     i['creato_da'],
     user_initials: i['user_initials'].to_s,
     creato_il:     i['creato_il'],
     has_foto:      i['ha_foto'].to_i > 0,
-    nome_gruppo:   gruppo_label
+    nome_gruppo:   gruppo_label,
+    nome_contesto: gruppo_label.empty? ? 'Lista Personale' : gruppo_label
   }
+end
+
+# Conteggi leggeri per le voci trasversali del menu Android.
+get '/lista/conteggi' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+
+  miei = DB.get_first_value(<<~SQL, [user_id, user_id]).to_i
+    SELECT COUNT(*) FROM items i
+    WHERE i.creato_da = ?
+      AND (i.gruppo_id = 0 OR i.gruppo_id IN (
+        SELECT gruppo_id FROM memberships WHERE user_id = ?
+      ))
+  SQL
+  tutti = DB.get_first_value(<<~SQL, [user_id, user_id]).to_i
+    SELECT COUNT(*) FROM items i
+    WHERE i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
+       OR (i.gruppo_id = 0 AND i.creato_da = ?)
+  SQL
+
+  { tutti: tutti, miei: miei }.to_json
 end
 
 # Vista trasversale: tutti gli articoli dei gruppi dell'utente (riusa DataManager)

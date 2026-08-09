@@ -6,12 +6,14 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.cardview.widget.CardView
 import androidx.recyclerview.widget.RecyclerView
 
 class SpesaAdapter(
     private val items: MutableList<SpesaItem>,
     private val onToggle: (SpesaItem) -> Unit,
     private val onFoto: (SpesaItem) -> Unit,
+    private val onContext: (SpesaItem) -> Unit,
     private val onLongPress: (SpesaItem, android.view.View) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<SpesaAdapter.ViewHolder>() {
 
@@ -22,6 +24,8 @@ class SpesaAdapter(
         val tvGruppoNome: TextView    = view.findViewById(R.id.tvGruppoNome)
         val tvComprato: TextView      = view.findViewById(R.id.tvComprato)
         val ivFoto: ImageView         = view.findViewById(R.id.ivFoto)
+        val tvContextSeparator: TextView = view.findViewById(R.id.tvContextSeparator)
+        val itemCard: CardView = view.findViewById(R.id.itemCard)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -32,6 +36,12 @@ class SpesaAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
+        val mostraContesto = item.nomeContesto.isNotEmpty() &&
+            (position == 0 || items[position - 1].gruppoId != item.gruppoId ||
+                items[position - 1].topicId != item.topicId)
+        holder.tvContextSeparator.visibility = if (mostraContesto) View.VISIBLE else View.GONE
+        holder.tvContextSeparator.text = "▸ ${item.nomeContesto}"
+        holder.tvContextSeparator.setOnClickListener { onContext(item) }
         holder.tvNome.text = item.nome
         if (item.nomeGruppo.isNotEmpty()) {
             holder.tvGruppoNome.visibility = View.VISIBLE
@@ -71,8 +81,8 @@ class SpesaAdapter(
         holder.ivFoto.visibility = if (item.hasFoto) View.VISIBLE else View.GONE
         holder.ivFoto.setOnClickListener { onFoto(item) }
 
-        holder.itemView.setOnClickListener { onToggle(item) }
-        holder.itemView.setOnLongClickListener { v -> onLongPress(item, v); true }
+        holder.itemCard.setOnClickListener { onToggle(item) }
+        holder.itemCard.setOnLongClickListener { v -> onLongPress(item, v); true }
     }
 
     override fun getItemCount(): Int = items.size
