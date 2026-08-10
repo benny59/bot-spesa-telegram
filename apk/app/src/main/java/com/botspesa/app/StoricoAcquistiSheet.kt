@@ -75,7 +75,9 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
             val acquisto = acquisti[position]
             holder.nome.text = acquisto.nome
             holder.data.text = formattaData(acquisto.updatedAt)
+            holder.inseritoDa.visibility = if (acquisto.creatore.isEmpty()) View.GONE else View.VISIBLE
             holder.inseritoDa.text = "↳ ${acquisto.creatore}"
+            holder.acquistatoDa.visibility = if (acquisto.acquirente.isEmpty()) View.GONE else View.VISIBLE
             holder.acquistatoDa.text = "↗ ${acquisto.acquirente}"
             holder.conteggio.text = "${acquisto.conteggio} volte"
         }

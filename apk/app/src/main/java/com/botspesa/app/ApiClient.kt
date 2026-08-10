@@ -242,8 +242,8 @@ object ApiClient {
             StoricoAcquisto(
                 id         = (acquisto["id"] as? Double)?.toInt() ?: 0,
                 nome       = acquisto["nome"] as? String ?: "",
-                creatore   = acquisto["creatore"] as? String ?: "Utente",
-                acquirente = acquisto["acquirente"] as? String ?: "Utente",
+                creatore   = acquisto["creatore"] as? String ?: "",
+                acquirente = acquisto["acquirente"] as? String ?: "",
                 updatedAt  = acquisto["updated_at"] as? String ?: "",
                 conteggio  = (acquisto["conteggio"] as? Double)?.toInt() ?: 0
             )
