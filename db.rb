@@ -70,6 +70,24 @@ SQL
     );
   SQL
 
+  # Recupera l'identità solo quando il valore storico individua un utente senza ambiguità.
+  db.execute <<-SQL
+    UPDATE items
+    SET comprato = CAST((
+      SELECT MIN(u.user_id)
+      FROM user_names u
+      WHERE UPPER(TRIM(u.initials)) = UPPER(TRIM(items.comprato))
+      HAVING COUNT(*) = 1
+    ) AS TEXT)
+    WHERE COALESCE(TRIM(comprato), '') != ''
+      AND TRIM(comprato) GLOB '*[^0-9]*'
+      AND (
+        SELECT COUNT(*)
+        FROM user_names u
+        WHERE UPPER(TRIM(u.initials)) = UPPER(TRIM(items.comprato))
+      ) = 1;
+  SQL
+
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS pending_actions (
       chat_id INTEGER,
@@ -116,6 +134,23 @@ SQL
     FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE
   );
 SQL
+
+  db.execute <<-SQL
+    UPDATE storico_articoli
+    SET comprato_da = (
+      SELECT MIN(u.user_id)
+      FROM user_names u
+      WHERE UPPER(TRIM(u.initials)) = UPPER(TRIM(storico_articoli.comprato_da))
+      HAVING COUNT(*) = 1
+    )
+    WHERE COALESCE(TRIM(comprato_da), '') != ''
+      AND CAST(comprato_da AS TEXT) GLOB '*[^0-9]*'
+      AND (
+        SELECT COUNT(*)
+        FROM user_names u
+        WHERE UPPER(TRIM(u.initials)) = UPPER(TRIM(storico_articoli.comprato_da))
+      ) = 1;
+  SQL
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS gruppo_carte_collegamenti (
@@ -185,9 +220,12 @@ class DataManager
   # ----------------------------------------------------------------------------
 
   # Spunta un articolo (mette nel carrello)
-  def self.spunta_articolo(item_id, user_name)
-    puts "[DATA_MONITOR] 🛒 Articolo #{item_id} messo nel carrello da #{user_name}"
-    DB.execute("UPDATE items SET comprato = ? WHERE id = ?", [user_name, item_id])
+  def self.spunta_articolo(item_id, user_id)
+    initials = DB.get_first_value("SELECT initials FROM user_names WHERE user_id = ?", [user_id]).to_s.strip
+    initials = "U" if initials.empty?
+    puts "[DATA_MONITOR] 🛒 Articolo #{item_id} messo nel carrello da #{user_id} (#{initials})"
+    DB.execute("UPDATE items SET comprato = ? WHERE id = ?", [user_id, item_id])
+    initials
   end
 
   # Ripristina un articolo (toglie dal carrello)
@@ -779,14 +817,19 @@ end
     SELECT i.*, g.nome as nome_gruppo,
            COALESCE(t.nome, '') as nome_topic,
            u.initials AS user_initials,
+          buyer.initials AS buyer_initials,
            (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) AS ha_foto
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
     LEFT JOIN topics t ON t.chat_id = g.chat_id AND t.topic_id = i.topic_id
     LEFT JOIN user_names u ON i.creato_da = u.user_id
+    LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
     WHERE i.creato_da = ? 
     AND (i.gruppo_id = 0 OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?))
-    ORDER BY i.gruppo_id, i.topic_id, i.creato_il DESC
+    ORDER BY i.gruppo_id, i.topic_id,
+             CASE WHEN COALESCE(TRIM(i.comprato), '') = '' THEN 0 ELSE 1 END,
+             LOWER(COALESCE(u.first_name, '')), LOWER(COALESCE(u.last_name, '')),
+             datetime(i.creato_il) DESC, i.id DESC
   SQL
     DB.execute(query, [u_id, u_id])
   end
@@ -796,14 +839,19 @@ end
     SELECT i.*, g.nome as nome_gruppo,
            COALESCE(t.nome, '') as nome_topic,
            u.initials AS user_initials,
+          buyer.initials AS buyer_initials,
            (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) AS ha_foto
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
     LEFT JOIN topics t ON t.chat_id = g.chat_id AND t.topic_id = i.topic_id
     LEFT JOIN user_names u ON i.creato_da = u.user_id
+    LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
     WHERE i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
        OR (i.gruppo_id = 0 AND i.creato_da = ?)
-    ORDER BY i.gruppo_id, i.topic_id, i.creato_il DESC
+      ORDER BY i.gruppo_id, i.topic_id,
+           CASE WHEN COALESCE(TRIM(i.comprato), '') = '' THEN 0 ELSE 1 END,
+           LOWER(COALESCE(u.first_name, '')), LOWER(COALESCE(u.last_name, '')),
+           datetime(i.creato_il) DESC, i.id DESC
   SQL
     DB.execute(query, [u_id, u_id])
   end
@@ -866,10 +914,12 @@ end
   def self.prendi_ultimi_acquisti_con_nomi(gruppo_id, topic_id, limite = 15)
     DB.execute(
       <<-SQL,
-        SELECT s.id, s.nome, s.updated_at, s.conteggio,
-               COALESCE(NULLIF(TRIM(u.first_name || ' ' || IFNULL(u.last_name, '')), ''), 'Utente') AS acquirente
+        SELECT s.id, s.nome, s.updated_at, s.conteggio, s.creato_da, s.comprato_da,
+               COALESCE(NULLIF(TRIM(creatore.first_name || ' ' || IFNULL(creatore.last_name, '')), ''), 'Utente') AS creatore,
+               COALESCE(NULLIF(TRIM(acquirente.first_name || ' ' || IFNULL(acquirente.last_name, '')), ''), 'Utente') AS acquirente
         FROM storico_articoli s
-        LEFT JOIN user_names u ON s.comprato_da = u.user_id
+        LEFT JOIN user_names creatore ON s.creato_da = creatore.user_id
+        LEFT JOIN user_names acquirente ON s.comprato_da = acquirente.user_id
         WHERE s.gruppo_id = ? AND s.topic_id = ? AND s.conteggio > 0
         ORDER BY datetime(s.updated_at) DESC, s.id DESC
         LIMIT ?
@@ -890,7 +940,7 @@ end
     LEFT JOIN storico_articoli s ON LOWER(i.nome) = LOWER(s.nome) 
       AND i.gruppo_id = s.gruppo_id AND i.topic_id = s.topic_id
     LEFT JOIN user_names u1 ON i.creato_da = u1.user_id 
-    LEFT JOIN user_names u2 ON i.comprato = u2.user_id
+    LEFT JOIN user_names u2 ON CAST(i.comprato AS INTEGER) = u2.user_id
     SQL
   end
 
@@ -1095,17 +1145,27 @@ end
   def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
     # Aggiungiamo la subquery identica a quella della lista standard
     base_query = <<-SQL
-    SELECT i.*, u.initials AS autore_init,
+    SELECT i.*, u.initials AS autore_init, buyer.initials AS buyer_init,
            (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) as ha_foto_reale
     FROM items i
     LEFT JOIN user_names u ON i.creato_da = u.user_id
+    LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
     WHERE i.gruppo_id = ? AND i.topic_id = ?
   SQL
 
+    order = <<-SQL
+      ORDER BY
+        CASE WHEN COALESCE(TRIM(i.comprato), '') = '' THEN 0 ELSE 1 END,
+        LOWER(COALESCE(u.first_name, '')),
+        LOWER(COALESCE(u.last_name, '')),
+        datetime(i.creato_il) DESC,
+        i.id DESC
+    SQL
+
     if show_all && g_id != 0
-      DB.execute("#{base_query} ORDER BY (i.comprato != '' AND i.comprato IS NOT NULL), i.nome", [g_id, t_id])
+      DB.execute("#{base_query} #{order}", [g_id, t_id])
     else
-      DB.execute("#{base_query} AND i.creato_da = ? ORDER BY (i.comprato != '' AND i.comprato IS NOT NULL), i.nome", [g_id, t_id, user_id])
+      DB.execute("#{base_query} AND i.creato_da = ? #{order}", [g_id, t_id, user_id])
     end
   end
 

@@ -5,6 +5,7 @@ data class SpesaItem(
     val nome: String,
     val comprato: String,
     val userInitials: String,
+    val buyerInitials: String,
     val hasFoto: Boolean = false,
     val gruppoId: Int = 0,
     val topicId: Int = 0,

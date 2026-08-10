@@ -98,8 +98,15 @@ class StoricoManager
     righe = acquisti.map do |acquisto|
       data = Time.parse(acquisto["updated_at"]).strftime("%d/%m/%Y %H:%M")
       acquirente = CGI.escapeHTML(acquisto["acquirente"].to_s)
+      creatore = CGI.escapeHTML(acquisto["creatore"].to_s)
       nome = CGI.escapeHTML(acquisto["nome"].to_s)
-      "<b>#{nome}</b> — #{acquirente} — #{data}"
+      identita = if acquisto["creato_da"] && acquisto["comprato_da"] &&
+                    acquisto["creato_da"].to_i != acquisto["comprato_da"].to_i
+          "Inserito da #{creatore} • acquistato da #{acquirente}"
+        else
+          "Acquistato da #{acquirente}"
+        end
+      "<b>#{nome}</b> — #{identita} — #{data}"
     end
 
     "🕒 <b>Ultimi acquisti</b>\n\n" + righe.join("\n\n")

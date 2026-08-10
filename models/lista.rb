@@ -4,9 +4,10 @@ require_relative "../db"
 class Lista
   def self.tutti(gruppo_id, topic_id)
     DB.execute(
-      "SELECT i.*, u.initials AS user_initials
+      "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials
      FROM items i
      LEFT JOIN user_names u ON i.creato_da = u.user_id
+    LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
      WHERE i.gruppo_id = ?
        AND i.topic_id = ?
      ORDER BY i.comprato, i.id",
@@ -16,9 +17,10 @@ class Lista
 
   def self.personale(user_id)
     DB.execute(
-      "SELECT i.*, u.initials AS user_initials
+      "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials
      FROM items i
      LEFT JOIN user_names u ON i.creato_da = u.user_id
+    LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
      WHERE i.gruppo_id = 0 AND i.creato_da = ?
      ORDER BY i.comprato, i.id",
       [user_id]
@@ -31,36 +33,10 @@ class Lista
 
     current = item["comprato"]
 
-    # Se il campo è vuoto / nil / '0' => segna come comprato con le iniziali dell'utente
     if current.nil? || current.to_s.strip == "" || current.to_s == "0"
-      # prova a recuperare le iniziali dall'utente
-      initials = DB.get_first_value("SELECT initials FROM user_names WHERE user_id = ?", [user_id])
-      if initials.nil? || initials.to_s.strip == ""
-        # se non esistono, costruiscile da first_name / last_name
-        fn = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || ""
-        ln = DB.get_first_value("SELECT last_name FROM user_names WHERE user_id = ?", [user_id]) || ""
-        initials = if fn.to_s.strip != "" && ln.to_s.strip != ""
-            "#{fn[0]}#{ln[0]}".upcase
-          elsif fn.to_s.strip != ""
-            fn[0].upcase
-          else
-            "U"
-          end
-        # salva le iniziali per il futuro (non rompe se la tabella user_names non esiste)
-        begin
-          DB.execute("INSERT OR REPLACE INTO user_names (user_id, first_name, last_name, initials) VALUES (?, ?, ?, ?)",
-                     [user_id, fn, ln, initials])
-        rescue => e
-          puts "⚠️ Impossibile scrivere user_names: #{e.message}"
-        end
-      end
-
-      DB.execute("UPDATE items SET comprato = ? WHERE id = ? AND gruppo_id = ?", [initials, item_id, gruppo_id])
-      puts "🔁 Item #{item_id} marcato come comprato da #{initials}"
-      initials
+      DataManager.spunta_articolo(item_id, user_id)
     else
-      # Se contiene già qualcosa (la sigla) => togli il comprato (riporta a non comprato)
-      DB.execute("UPDATE items SET comprato = '' WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+      DataManager.despunta_articolo(item_id)
       puts "🔁 Item #{item_id} rimesso da comprare (prima: #{current})"
       ""
     end

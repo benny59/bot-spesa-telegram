@@ -84,6 +84,7 @@ object ApiClient {
                 nome         = item["nome"] as? String ?: "",
                 comprato     = item["comprato"] as? String ?: "",
                 userInitials = item["user_initials"] as? String ?: "",
+                buyerInitials = item["buyer_initials"] as? String ?: "",
                 hasFoto      = item["has_foto"] as? Boolean ?: false,
                 gruppoId     = (item["gruppo_id"] as? Double)?.toInt() ?: 0,
                 topicId      = (item["topic_id"] as? Double)?.toInt() ?: 0,

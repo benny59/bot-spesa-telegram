@@ -184,10 +184,11 @@ class KeyboardGenerator
       DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all).each do |art|
         status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
         tag = (show_all && g_id != 0) ? "[#{art["autore_init"] || "?"}] " : ""
+        buyer_tag = status == "✅" ? " [#{art["buyer_init"] || "?"}]" : ""
         icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 📸" : ""
 
         item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "#{status} #{tag}#{art["nome"]}#{icona_foto}",
+          text: "#{status} #{tag}#{art["nome"]}#{buyer_tag}#{icona_foto}",
           callback_data: "myallcomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
         )]
       end

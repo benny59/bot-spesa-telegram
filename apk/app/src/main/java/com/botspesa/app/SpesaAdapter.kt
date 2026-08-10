@@ -64,7 +64,7 @@ class SpesaAdapter(
             holder.tvNome.paintFlags = holder.tvNome.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
             holder.tvNome.alpha = 0.45f
             holder.tvComprato.text = "\u2713"
-            val sameUser = item.userInitials == item.comprato
+            val sameUser = item.userInitials == item.buyerInitials
             if (sameUser) {
                 // stessa persona: solo cerchio verde
                 holder.tvInitials.visibility = View.GONE
@@ -75,7 +75,7 @@ class SpesaAdapter(
                 holder.tvInitials.setBackgroundResource(R.drawable.circle_initials)
             }
             holder.tvInitialsBuyer.visibility = View.VISIBLE
-            holder.tvInitialsBuyer.text  = item.comprato
+            holder.tvInitialsBuyer.text  = item.buyerInitials.ifEmpty { item.comprato }
             holder.tvInitialsBuyer.alpha = 1.0f
         } else {
             holder.tvNome.paintFlags = holder.tvNome.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
