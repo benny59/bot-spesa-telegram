@@ -339,6 +339,7 @@ get '/storico/acquisti' do
     {
       id:           acquisto['id'],
       nome:         acquisto['nome'],
+      creatore:     acquisto['creatore'],
       acquirente:   acquisto['acquirente'],
       updated_at:   acquisto['updated_at'],
       conteggio:    acquisto['conteggio']

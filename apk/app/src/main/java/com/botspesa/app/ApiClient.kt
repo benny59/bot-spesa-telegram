@@ -222,6 +222,7 @@ object ApiClient {
     data class StoricoAcquisto(
         val id: Int,
         val nome: String,
+        val creatore: String,
         val acquirente: String,
         val updatedAt: String,
         val conteggio: Int
@@ -241,6 +242,7 @@ object ApiClient {
             StoricoAcquisto(
                 id         = (acquisto["id"] as? Double)?.toInt() ?: 0,
                 nome       = acquisto["nome"] as? String ?: "",
+                creatore   = acquisto["creatore"] as? String ?: "Utente",
                 acquirente = acquisto["acquirente"] as? String ?: "Utente",
                 updatedAt  = acquisto["updated_at"] as? String ?: "",
                 conteggio  = (acquisto["conteggio"] as? Double)?.toInt() ?: 0

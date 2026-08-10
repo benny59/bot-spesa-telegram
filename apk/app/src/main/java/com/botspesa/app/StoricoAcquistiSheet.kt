@@ -58,7 +58,9 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
         class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             val nome: TextView = view.findViewById(R.id.tvStoricoNome)
             val data: TextView = view.findViewById(R.id.tvStoricoData)
-            val dettagli: TextView = view.findViewById(R.id.tvStoricoDettagli)
+            val inseritoDa: TextView = view.findViewById(R.id.tvStoricoInseritoDa)
+            val acquistatoDa: TextView = view.findViewById(R.id.tvStoricoAcquistatoDa)
+            val conteggio: TextView = view.findViewById(R.id.tvStoricoConteggio)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -73,7 +75,9 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
             val acquisto = acquisti[position]
             holder.nome.text = acquisto.nome
             holder.data.text = formattaData(acquisto.updatedAt)
-            holder.dettagli.text = "Acquistato da ${acquisto.acquirente} • ${acquisto.conteggio} volte"
+            holder.inseritoDa.text = "↳ ${acquisto.creatore}"
+            holder.acquistatoDa.text = "↗ ${acquisto.acquirente}"
+            holder.conteggio.text = "${acquisto.conteggio} volte"
         }
 
         private fun formattaData(value: String): String = runCatching {
