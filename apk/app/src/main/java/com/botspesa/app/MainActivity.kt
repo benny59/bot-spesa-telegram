@@ -253,7 +253,7 @@ class MainActivity : AppCompatActivity() {
         }
         val titolo = if (vistaAttuale.isNotEmpty()) "🧹 Superscopetta" else getString(R.string.scopetta)
         val msg = if (vistaAttuale.isNotEmpty())
-            "Rimuovere $comprati tuoi articol${if (comprati == 1) "o comprato" else "i comprati"} da tutti i gruppi?"
+            "Rimuovere da tutti i gruppi gli articoli segnati come comprati da te?"
         else
             "Rimuovere $comprati articol${if (comprati == 1) "o comprato" else "i comprati"}?"
         AlertDialog.Builder(this)
@@ -304,7 +304,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun applicaColoreToolbar(gruppoId: Int, topicNome: String) {
         val color = if (gruppoId == 0) {
-            android.graphics.Color.parseColor("#455A64") // Lista Personale: grigio-blu
+            coloreListaPersonale()
         } else {
             coloreTopic(gruppoId, topicId, topicNome)
         }
@@ -313,12 +313,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun coloreSeparatoreContesto(item: SpesaItem): Int {
-        if (item.gruppoId == 0) return Color.parseColor("#455A64")
+        if (item.gruppoId == 0) return coloreListaPersonale()
         val topicNome = item.nomeTopic.ifEmpty {
             item.nomeContesto.substringAfter(" • ", "")
         }
         return coloreTopic(item.gruppoId, item.topicId, topicNome)
     }
+
+    private fun coloreListaPersonale(): Int = prefs().getInt(
+        "personal_list_color",
+        Color.parseColor("#455A64")
+    )
 
     private fun coloreTopic(gruppoId: Int, topicId: Int, topicNome: String): Int {
         val p = prefs()
@@ -470,8 +475,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostraDialogColoriTopic() {
         lifecycleScope.launch {
-            val topics = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getTopics(gruppoId) }.getOrDefault(emptyList())
+            val personalList = gruppoId == 0
+            val topics = if (personalList) {
+                listOf(TopicItem(0, "Lista Personale"))
+            } else {
+                withContext(Dispatchers.IO) {
+                    runCatching { ApiClient.getTopics(gruppoId) }.getOrDefault(emptyList())
+                }
             }
             if (topics.isEmpty()) return@launch
             val p = prefs()
@@ -483,7 +493,8 @@ class MainActivity : AppCompatActivity() {
             }
             scroll.addView(layout)
             topics.forEach { topic ->
-                val colorKey = "topic_color_${gruppoId}_${topic.topicId}"
+                val colorKey = if (personalList) "personal_list_color"
+                               else "topic_color_${gruppoId}_${topic.topicId}"
                 val row = android.widget.LinearLayout(this@MainActivity).apply {
                     orientation = android.widget.LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
@@ -496,7 +507,8 @@ class MainActivity : AppCompatActivity() {
                     }
                     background = android.graphics.drawable.GradientDrawable().apply {
                         shape = android.graphics.drawable.GradientDrawable.OVAL
-                        setColor(coloreTopic(gruppoId, topic.topicId, topic.nome))
+                        setColor(if (personalList) coloreListaPersonale()
+                                 else coloreTopic(gruppoId, topic.topicId, topic.nome))
                     }
                 }
                 val tvNome = android.widget.TextView(this@MainActivity).apply {
@@ -515,7 +527,9 @@ class MainActivity : AppCompatActivity() {
                                 val newColor = colorPalette[idx].first
                                 p.edit().putInt(colorKey, newColor).apply()
                                 (dot.background as android.graphics.drawable.GradientDrawable).setColor(newColor)
-                                if (topicId == topic.topicId) applicaColoreToolbar(gruppoId, topic.nome)
+                                if (personalList || topicId == topic.topicId) {
+                                    applicaColoreToolbar(gruppoId, topic.nome)
+                                }
                             }
                             .show()
                     }

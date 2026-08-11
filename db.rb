@@ -1009,28 +1009,21 @@ end
     )
   end
   # ==============================================================================
-  # SUPERSCOPETTA: Pulizia trasversale (Miei o Tutti)
+  # SUPERSCOPETTA: pulizia trasversale degli acquisti dell'utente
   # ==============================================================================
-  # In db.rb (DataManager)
-  def self.articoli_da_superscopetta(user_id, show_all)
-    if show_all
-      # Query corretta basata sul tuo db.rb
-      sql = <<-SQL
+  def self.articoli_da_superscopetta(user_id, _show_all)
+    DB.execute(
+      <<-SQL,
         SELECT i.id, i.nome, i.gruppo_id, i.topic_id
         FROM items i
-        WHERE i.comprato != '' AND i.comprato IS NOT NULL
-        AND (
-          (i.gruppo_id = 0 AND i.creato_da = ?) 
-          OR 
-          i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
-        )
+        WHERE CAST(i.comprato AS INTEGER) = ?
+          AND (
+            (i.gruppo_id = 0 AND i.creato_da = ?)
+            OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
+          )
       SQL
-      params = [user_id, user_id]
-    else
-      sql = "SELECT id, nome, gruppo_id, topic_id FROM items WHERE (comprato != '' AND comprato IS NOT NULL) AND creato_da = ?"
-      params = [user_id]
-    end
-    DB.execute(sql, params)
+      [user_id, user_id, user_id]
+    )
   end
 
   # ----------------------------------------------------------------------------

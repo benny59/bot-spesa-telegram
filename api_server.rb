@@ -308,7 +308,7 @@ delete '/lista/comprati' do
   { ok: true, rimossi: rimossi }.to_json
 end
 
-# Superscopetta: cancella tutti gli articoli PROPRI marcati in ogni gruppo
+# Superscopetta: cancella in ogni gruppo gli articoli marcati dall'utente
 delete '/lista/comprati/ovunque' do
   user_id = params[:user_id]&.to_i
   halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0

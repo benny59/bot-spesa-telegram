@@ -194,9 +194,10 @@ class KeyboardGenerator
       end
     end
 
-    # --- IL NUOVO TASTO DELICATISSIMO ---
-    testo_scopetta = show_all ? "🧹 SUPERSCOPETTA (TUTTI)" : "🧹 SUPERSCOPETTA (MIEI)"
-    item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: testo_scopetta, callback_data: "superscopetta:#{show_all ? 1 : 0}")]
+    item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
+      text: "🧹 SUPERSCOPETTA (COMPRATI DA ME)",
+      callback_data: "superscopetta:#{show_all ? 1 : 0}",
+    )]
 
     # Navigazione
     nav = []
