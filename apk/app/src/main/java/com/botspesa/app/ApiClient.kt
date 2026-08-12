@@ -278,8 +278,8 @@ object ApiClient {
             }
             .build()
 
-    fun getGruppiTyped(): List<GruppoItem> {
-        val req = Request.Builder().url("$baseUrl/gruppi").auth().build()
+    fun getGruppiTyped(userId: Int): List<GruppoItem> {
+        val req = Request.Builder().url("$baseUrl/gruppi?user_id=$userId").auth().build()
         val body = http.newCall(req).execute().use { it.body!!.string() }
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)

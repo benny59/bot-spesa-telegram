@@ -37,6 +37,12 @@ import java.time.format.DateTimeFormatter
 
 class MainActivity : AppCompatActivity() {
 
+    private data class AddDestination(
+        val gruppoId: Int,
+        val topicId: Int,
+        val label: String
+    )
+
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: SpesaAdapter
     private lateinit var drawerLayout: DrawerLayout
@@ -45,6 +51,8 @@ class MainActivity : AppCompatActivity() {
     private val items = mutableListOf<SpesaItem>()
     private var pendingFotoItemId = 0
     private var pendingNuovoArticolo: String? = null
+    private var pendingNuovoGruppoId = 0
+    private var pendingNuovoTopicId = 0
     private var cameraImageUri: Uri? = null
     // "": vista normale, "tutti": tutti gli articoli, "miei": i miei articoli
     private var vistaAttuale: String = ""
@@ -644,9 +652,11 @@ class MainActivity : AppCompatActivity() {
         mostraDialogSorgenteFoto()
     }
 
-    private fun mostraDialogSorgenteFotoNuovo(testo: String) {
+    private fun mostraDialogSorgenteFotoNuovo(testo: String, destinazione: AddDestination) {
         pendingFotoItemId = 0
         pendingNuovoArticolo = testo
+        pendingNuovoGruppoId = destinazione.gruppoId
+        pendingNuovoTopicId = destinazione.topicId
         mostraDialogSorgenteFoto()
     }
 
@@ -668,9 +678,13 @@ class MainActivity : AppCompatActivity() {
     private fun gestisciFotoSelezionata(uri: Uri) {
         val nuovoArticolo = pendingNuovoArticolo
         val itemId = pendingFotoItemId
+        val nuovoGruppoId = pendingNuovoGruppoId
+        val nuovoTopicId = pendingNuovoTopicId
         pendingNuovoArticolo = null
         pendingFotoItemId = 0
-        if (nuovoArticolo != null) aggiungiItemConFoto(nuovoArticolo, uri)
+        pendingNuovoGruppoId = 0
+        pendingNuovoTopicId = 0
+        if (nuovoArticolo != null) aggiungiItemConFoto(nuovoArticolo, uri, nuovoGruppoId, nuovoTopicId)
         else if (itemId != 0) uploadFotoFromUri(uri, itemId)
     }
 
@@ -781,59 +795,119 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostraDialogAggiungi() {
-        val input = EditText(this).apply {
-            hint = "es. Latte, Pane, Uova"
-            setPadding(48, 16, 48, 16)
-        }
-        val dlg = AlertDialog.Builder(this)
-            .setTitle("Aggiungi articoli")
-            .setView(input)
-            .setPositiveButton("Aggiungi", null)
-            .setNeutralButton("Con foto", null)
-            .setNegativeButton("Annulla", null)
-            .create()
-        dlg.setOnShowListener {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val testo = input.text.toString().trim()
-                if (testo.isEmpty()) {
-                    input.error = "Inserisci almeno un articolo"
-                } else {
-                    dlg.dismiss()
-                    aggiungiItem(testo)
+        lifecycleScope.launch {
+            val destinazioni = withContext(Dispatchers.IO) {
+                runCatching {
+                    val gruppi = ApiClient.getGruppiTyped(userId).filter { it.id != 0 }
+                    buildList {
+                        add(AddDestination(0, 0, "Personale"))
+                        gruppi.forEach { gruppo ->
+                            ApiClient.getTopics(gruppo.id).forEach { topic ->
+                                add(AddDestination(
+                                    gruppo.id,
+                                    topic.topicId,
+                                    "${gruppo.nome}: ${topic.nome}"
+                                ))
+                            }
+                        }
+                    }
                 }
+            }.getOrElse {
+                Toast.makeText(this@MainActivity, "Impossibile caricare le destinazioni", Toast.LENGTH_SHORT).show()
+                return@launch
             }
-            dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                val testo = input.text.toString().trim()
-                when {
-                    testo.isEmpty() -> input.error = "Inserisci un articolo"
-                    testo.contains(',') -> input.error = "Con una foto puoi aggiungere un articolo alla volta"
-                    else -> {
+
+            val input = EditText(this@MainActivity).apply {
+                hint = "es. Latte, Pane, Uova"
+                setPadding(0, 16, 0, 16)
+            }
+            val radioGroup = android.widget.RadioGroup(this@MainActivity).apply {
+                orientation = android.widget.RadioGroup.VERTICAL
+            }
+            val currentIndex = destinazioni.indexOfFirst {
+                it.gruppoId == gruppoId && it.topicId == topicId
+            }.takeIf { it >= 0 } ?: 0
+            destinazioni.forEachIndexed { index, destinazione ->
+                radioGroup.addView(android.widget.RadioButton(this@MainActivity).apply {
+                    id = android.view.View.generateViewId()
+                    text = destinazione.label
+                    tag = index
+                    isChecked = index == currentIndex
+                })
+            }
+            val dp = resources.displayMetrics.density
+            val content = android.widget.LinearLayout(this@MainActivity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding((24 * dp).toInt(), 0, (24 * dp).toInt(), 0)
+                addView(input)
+                addView(TextView(this@MainActivity).apply {
+                    text = "Destinazione"
+                    textSize = 14f
+                    setPadding(0, (8 * dp).toInt(), 0, (4 * dp).toInt())
+                })
+                addView(android.widget.ScrollView(this@MainActivity).apply {
+                    addView(radioGroup)
+                }, android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    (280 * dp).toInt()
+                ))
+            }
+            val dlg = AlertDialog.Builder(this@MainActivity)
+                .setTitle("Aggiungi articoli")
+                .setView(content)
+                .setPositiveButton("Aggiungi", null)
+                .setNeutralButton("Con foto", null)
+                .setNegativeButton("Annulla", null)
+                .create()
+            fun destinazioneSelezionata(): AddDestination {
+                val radio = radioGroup.findViewById<android.widget.RadioButton>(radioGroup.checkedRadioButtonId)
+                return destinazioni[radio.tag as Int]
+            }
+            dlg.setOnShowListener {
+                dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val testo = input.text.toString().trim()
+                    if (testo.isEmpty()) {
+                        input.error = "Inserisci almeno un articolo"
+                    } else {
                         dlg.dismiss()
-                        mostraDialogSorgenteFotoNuovo(testo)
+                        aggiungiItem(testo, destinazioneSelezionata())
+                    }
+                }
+                dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                    val testo = input.text.toString().trim()
+                    when {
+                        testo.isEmpty() -> input.error = "Inserisci un articolo"
+                        testo.contains(',') -> input.error = "Con una foto puoi aggiungere un articolo alla volta"
+                        else -> {
+                            dlg.dismiss()
+                            mostraDialogSorgenteFotoNuovo(testo, destinazioneSelezionata())
+                        }
                     }
                 }
             }
+            dlg.show()
         }
-        dlg.show()
     }
 
-    private fun aggiungiItem(testo: String) {
+    private fun aggiungiItem(testo: String, destinazione: AddDestination) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.addItem(gruppoId, topicId, testo, userId) }
+                runCatching {
+                    ApiClient.addItem(destinazione.gruppoId, destinazione.topicId, testo, userId)
+                }
             }
             result.onSuccess { aggiornaLista() }
                   .onFailure { Toast.makeText(this@MainActivity, "Errore aggiunta", Toast.LENGTH_SHORT).show() }
         }
     }
 
-    private fun aggiungiItemConFoto(testo: String, uri: Uri) {
+    private fun aggiungiItemConFoto(testo: String, uri: Uri, targetGruppoId: Int, targetTopicId: Int) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: throw Exception("Impossibile leggere l'immagine")
-                    val itemId = ApiClient.addItem(gruppoId, topicId, testo, userId).firstOrNull()
+                    val itemId = ApiClient.addItem(targetGruppoId, targetTopicId, testo, userId).firstOrNull()
                         ?: throw Exception("Articolo non creato")
                     if (!ApiClient.uploadFoto(itemId, userId, bytes)) {
                         throw Exception("Foto non caricata")
@@ -854,7 +928,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching {
                     val gId    = gruppoId
                     val tId    = topicId
-                    val gruppi = ApiClient.getGruppiTyped()
+                    val gruppi = ApiClient.getGruppiTyped(userId)
                     val topics = ApiClient.getTopics(gId)
                     val gNome  = if (gId == 0) "Lista Personale"
                                  else gruppi.find { it.id == gId }?.nome ?: "Lista"
@@ -912,7 +986,7 @@ class MainActivity : AppCompatActivity() {
     private fun mostraDialogCambioGruppo() {
         lifecycleScope.launch {
             val gruppi = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getGruppiTyped() }.getOrDefault(emptyList())
+                runCatching { ApiClient.getGruppiTyped(userId) }.getOrDefault(emptyList())
             }
             if (gruppi.isEmpty()) return@launch
             android.app.AlertDialog.Builder(this@MainActivity)

@@ -124,7 +124,21 @@ get '/ping' do
 end
 
 get '/gruppi' do
-  rows = DB.execute("SELECT id, nome, chat_id FROM gruppi ORDER BY nome")
+  user_id = params[:user_id]&.to_i
+  rows = if user_id && user_id != 0
+    DB.execute(
+      <<~SQL,
+        SELECT g.id, g.nome, g.chat_id
+        FROM gruppi g
+        JOIN memberships m ON m.gruppo_id = g.id
+        WHERE m.user_id = ?
+        ORDER BY g.nome
+      SQL
+      [user_id]
+    )
+  else
+    DB.execute("SELECT id, nome, chat_id FROM gruppi ORDER BY nome")
+  end
   result = rows.map { |r| { id: r['id'], nome: r['nome'], chat_id: r['chat_id'] } }
   # Lista Personale: virtuale, per ogni utente filtra i propri articoli
   ([{ id: 0, nome: 'Lista Personale', chat_id: nil }] + result).to_json
@@ -197,6 +211,13 @@ post '/lista' do
   user_id   = body['user_id']&.to_i || 0
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
+  if gruppo_id != 0
+    consentito = DB.get_first_value(
+      "SELECT 1 FROM memberships WHERE user_id = ? AND gruppo_id = ?",
+      [user_id, gruppo_id]
+    )
+    halt 403, { error: 'accesso negato' }.to_json unless consentito
+  end
 
   item_ids = DataManager.aggiungi_articoli(gruppo_id: gruppo_id, user_id: user_id, items_text: testo, topic_id: topic_id)
 
