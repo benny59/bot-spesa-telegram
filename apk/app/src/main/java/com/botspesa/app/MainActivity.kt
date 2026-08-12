@@ -17,6 +17,7 @@ import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -105,6 +106,15 @@ class MainActivity : AppCompatActivity() {
     private fun aggiornaVisibilitaAdmin() {
         val navView = findViewById<com.google.android.material.navigation.NavigationView>(R.id.navView)
         navView.menu.findItem(R.id.nav_amministrazione)?.isVisible = isCreator
+    }
+
+    private fun mostraEsitoBreve(testo: String, successo: Boolean) {
+        val snackbar = Snackbar.make(drawerLayout, testo, Snackbar.LENGTH_SHORT)
+        val sfondo = if (successo) Color.parseColor("#2E7D32") else Color.parseColor("#C62828")
+        snackbar.view.setBackgroundColor(sfondo)
+        snackbar.setTextColor(Color.WHITE)
+        snackbar.setActionTextColor(Color.WHITE)
+        snackbar.show()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -894,10 +904,15 @@ class MainActivity : AppCompatActivity() {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     ApiClient.addItem(destinazione.gruppoId, destinazione.topicId, testo, userId)
+                        .also { if (it.isEmpty()) throw IllegalStateException("Articolo non creato") }
                 }
             }
-            result.onSuccess { aggiornaLista() }
-                  .onFailure { Toast.makeText(this@MainActivity, "Errore aggiunta", Toast.LENGTH_SHORT).show() }
+            result.onSuccess {
+                aggiornaLista()
+                mostraEsitoBreve("Aggiunto in ${destinazione.label}", true)
+            }.onFailure {
+                mostraEsitoBreve(it.message ?: "Errore aggiunta", false)
+            }
         }
     }
 
@@ -914,11 +929,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            result.onSuccess { aggiornaLista() }
-                .onFailure {
-                    aggiornaLista()
-                    Toast.makeText(this@MainActivity, it.message ?: "Errore aggiunta foto", Toast.LENGTH_LONG).show()
-                }
+            result.onSuccess {
+                aggiornaLista()
+                mostraEsitoBreve("Aggiunto con foto", true)
+            }.onFailure {
+                mostraEsitoBreve(it.message ?: "Errore aggiunta foto", false)
+            }
         }
     }
 
