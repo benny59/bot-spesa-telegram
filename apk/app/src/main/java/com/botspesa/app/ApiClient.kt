@@ -294,8 +294,8 @@ object ApiClient {
         return raw.map { TopicItem(topicId = (it["topic_id"] as Double).toInt(), nome = it["nome"] as? String ?: "") }
     }
 
-    fun getCarte(gruppoId: Int): List<CartaFedeltaItem> {
-        val req = Request.Builder().url("$baseUrl/carte?gruppo_id=$gruppoId").auth().build()
+    fun getCarte(gruppoId: Int, userId: Int): List<CartaFedeltaItem> {
+        val req = Request.Builder().url("$baseUrl/carte?gruppo_id=$gruppoId&user_id=$userId").auth().build()
         val body = http.newCall(req).execute().use { it.body!!.string() }
         return parseCarte(body)
     }
@@ -305,7 +305,7 @@ object ApiClient {
             .url("$baseUrl/carte/mie?user_id=$userId&gruppo_id=$gruppoId")
             .auth().build()
         val body = http.newCall(req).execute().use { it.body!!.string() }
-        return parseCarte(body, withCondivisa = true)
+        return parseCarte(body)
     }
 
     /** Invia immagine al server per il decode barcode. Restituisce Pair(codice, formato) o null. */
@@ -350,7 +350,7 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
-    private fun parseCarte(body: String, withCondivisa: Boolean = false): List<CartaFedeltaItem> {
+    private fun parseCarte(body: String): List<CartaFedeltaItem> {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { c ->
@@ -359,7 +359,8 @@ object ApiClient {
                 nome               = c["nome"] as? String ?: "",
                 codice             = c["codice"] as? String ?: "",
                 formato            = c["formato"] as? String ?: "CODE128",
-                condivisaConGruppo = if (withCondivisa) c["condivisa"] as? Boolean ?: false else false
+                condivisaConGruppo = c["condivisa"] as? Boolean ?: false,
+                isMia              = c["mia"] as? Boolean ?: true
             )
         }
     }

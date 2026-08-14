@@ -354,8 +354,9 @@ class CarteFedelta
 
     # Costruzione tastiera
     buttons = carte.map do |c|
+      marker = marker_stato_carta(c, user_id)
       Telegram::Bot::Types::InlineKeyboardButton.new(
-        text: (c["nome_display"] || c["nome"]).to_s,
+        text: "#{marker} #{(c["nome_display"] || c["nome"]).to_s}",
         callback_data: "carte:#{c["user_id"]}:#{c["id"]}",
       )
     end
@@ -368,11 +369,19 @@ class CarteFedelta
 
     bot.api.send_message(
       chat_id: chat_id,
-      text: "<b>#{titolo}</b>\nSeleziona una carta:",
+      text: "<b>#{titolo}</b>\n🟢 mia+condivisa  🟡 mia+non condivisa  🔵 altrui condivisa\nSeleziona una carta:",
       reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: grid),
       parse_mode: "HTML",
       message_thread_id: thread_id,
     )
+  end
+
+  def self.marker_stato_carta(carta, user_id)
+    mia = carta["is_mia"].to_i == 1 || carta["user_id"].to_i == user_id.to_i
+    condivisa = carta["is_condivisa"].to_i == 1 || carta["condivisa"] == true
+    return "🟢" if mia && condivisa
+    return "🟡" if mia
+    "🔵"
   end
 
   # Logica per il tastone "LE MIE CARTE"

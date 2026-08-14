@@ -231,7 +231,7 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.action_scopetta -> { mostraScopettaConferma(); true }
             R.id.action_condividi -> { condividiListaCorrente(); true }
-            R.id.action_carte    -> { CarteSheet.newInstance(gruppoId).show(supportFragmentManager, "carte"); true }
+            R.id.action_carte    -> { CarteSheet.newInstance(gruppoId, userId).show(supportFragmentManager, "carte"); true }
             else -> super.onOptionsItemSelected(item)
         }
     }

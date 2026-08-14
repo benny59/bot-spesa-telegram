@@ -674,17 +674,45 @@ end
 
 get '/carte' do
   gruppo_id = params[:gruppo_id]&.to_i
+  user_id = params[:user_id]&.to_i
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  rows = DB.execute(
-    "SELECT c.id, c.nome, c.codice, c.formato
-     FROM carte_fedelta c
-     JOIN gruppo_carte_collegamenti g ON c.id = g.carta_id
-     WHERE g.gruppo_id = ?
-     ORDER BY c.nome",
-    [gruppo_id]
-  )
-  rows.map { |r| { id: r['id'], nome: r['nome'], codice: r['codice'], formato: r['formato'] } }.to_json
+  rows = if user_id && user_id != 0
+    DB.execute(
+      "SELECT c.id, c.nome, c.codice, c.formato, c.user_id,
+              CASE WHEN c.user_id = ? THEN 1 ELSE 0 END AS mia,
+              CASE WHEN g.carta_id IS NULL THEN 0 ELSE 1 END AS condivisa
+       FROM carte_fedelta c
+       LEFT JOIN gruppo_carte_collegamenti g
+         ON g.carta_id = c.id AND g.gruppo_id = ?
+       WHERE c.user_id = ? OR g.carta_id IS NOT NULL
+       ORDER BY LOWER(c.nome)",
+      [user_id, gruppo_id, user_id]
+    )
+  else
+    DB.execute(
+      "SELECT c.id, c.nome, c.codice, c.formato, c.user_id,
+              0 AS mia,
+              1 AS condivisa
+       FROM carte_fedelta c
+       JOIN gruppo_carte_collegamenti g ON c.id = g.carta_id
+       WHERE g.gruppo_id = ?
+       ORDER BY LOWER(c.nome)",
+      [gruppo_id]
+    )
+  end
+
+  rows.map { |r|
+    {
+      id: r['id'],
+      nome: r['nome'],
+      codice: r['codice'],
+      formato: r['formato'].to_s,
+      mia: r['mia'].to_i == 1,
+      condivisa: r['condivisa'].to_i == 1,
+      owner_id: r['user_id']
+    }
+  }.to_json
 end
 
 # Le mie carte con flag condivisa per un gruppo (gruppo_id=0 → solo lista)
@@ -694,14 +722,17 @@ get '/carte/mie' do
   halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
 
   rows = DB.execute(
-    "SELECT c.id, c.nome, c.codice, c.formato,
+    "SELECT c.id, c.nome, c.codice, c.formato, c.user_id,
        (SELECT 1 FROM gruppo_carte_collegamenti g WHERE g.carta_id = c.id AND g.gruppo_id = ?) AS condivisa
      FROM carte_fedelta c WHERE c.user_id = ? ORDER BY LOWER(c.nome) ASC",
     [gruppo_id, user_id]
   )
   rows.map { |r|
     { id: r['id'], nome: r['nome'], codice: r['codice'],
-      formato: r['formato'].to_s, condivisa: !r['condivisa'].nil? }
+      formato: r['formato'].to_s,
+      condivisa: !r['condivisa'].nil?,
+      mia: true,
+      owner_id: r['user_id'] }
   }.to_json
 end
 

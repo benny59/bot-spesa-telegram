@@ -1,6 +1,7 @@
 package com.botspesa.app
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -17,8 +18,11 @@ import kotlinx.coroutines.withContext
 class CarteSheet : BottomSheetDialogFragment() {
 
     companion object {
-        fun newInstance(gruppoId: Int) = CarteSheet().apply {
-            arguments = Bundle().also { it.putInt("gruppo_id", gruppoId) }
+        fun newInstance(gruppoId: Int, userId: Int) = CarteSheet().apply {
+            arguments = Bundle().also {
+                it.putInt("gruppo_id", gruppoId)
+                it.putInt("user_id", userId)
+            }
         }
     }
 
@@ -27,12 +31,13 @@ class CarteSheet : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val gruppoId = arguments?.getInt("gruppo_id") ?: 1
+        val userId = arguments?.getInt("user_id") ?: 0
         val recycler = view.findViewById<RecyclerView>(R.id.recyclerCarte)
         recycler.layoutManager = GridLayoutManager(requireContext(), 3)
 
         viewLifecycleOwner.lifecycleScope.launch {
             val carte = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getCarte(gruppoId) }.getOrDefault(emptyList())
+                runCatching { ApiClient.getCarte(gruppoId, userId) }.getOrDefault(emptyList())
             }
             recycler.adapter = CarteAdapter(carte) { carta ->
                 dismiss()
@@ -59,8 +64,16 @@ class CarteAdapter(
         ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_carta, parent, false))
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.tvNome.text = carte[position].nome
-        holder.itemView.setOnClickListener { onClick(carte[position]) }
+        val carta = carte[position]
+        val (marker, color) = when {
+            carta.isMia && carta.condivisaConGruppo -> Pair("🟢", Color.parseColor("#2E7D32"))
+            carta.isMia -> Pair("🟡", Color.parseColor("#F9A825"))
+            else -> Pair("🔵", Color.parseColor("#1565C0"))
+        }
+
+        holder.tvNome.text = "$marker ${carta.nome}"
+        holder.tvNome.setTextColor(color)
+        holder.itemView.setOnClickListener { onClick(carta) }
     }
 
     override fun getItemCount() = carte.size

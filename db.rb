@@ -623,17 +623,62 @@ end
   end
 
   # 1. VISIONE UTILIZZO (Portafoglio di Gruppo)
-  # Da usare quando sei "dentro" una lista della spesa di un gruppo
-  def self.carte_disponibili_nel_gruppo(g_id)
+  # Da usare quando sei "dentro" una lista della spesa di un gruppo.
+  # Se user_id e' presente, include sempre le carte personali dell'utente.
+  def self.carte_disponibili_nel_gruppo(g_id, user_id = nil)
+    group_id = g_id.to_i
+    owner_id = user_id.to_i
+
+    if owner_id <= 0
+      query = <<-SQL
+      SELECT c.id, c.nome, c.user_id,
+             0 AS is_mia,
+             1 AS is_condivisa,
+             u.initials AS proprietario_init,
+             c.nome AS nome_display
+      FROM carte_fedelta c
+      JOIN gruppo_carte_collegamenti l ON c.id = l.carta_id
+      LEFT JOIN user_names u ON c.user_id = u.user_id
+      WHERE l.gruppo_id = ?
+      ORDER BY LOWER(c.nome) ASC
+    SQL
+      return DB.execute(query, [group_id])
+    end
+
+    if group_id == 0
+      query = <<-SQL
+      SELECT c.id, c.nome, c.user_id,
+             1 AS is_mia,
+             CASE WHEN EXISTS (
+               SELECT 1 FROM gruppo_carte_collegamenti l WHERE l.carta_id = c.id
+             ) THEN 1 ELSE 0 END AS is_condivisa,
+             NULL AS proprietario_init,
+             c.nome AS nome_display
+      FROM carte_fedelta c
+      WHERE c.user_id = ?
+      ORDER BY LOWER(c.nome) ASC
+    SQL
+      return DB.execute(query, [owner_id])
+    end
+
     query = <<-SQL
-    SELECT c.id, c.nome, c.user_id, u.first_name as proprietario
+    SELECT c.id, c.nome, c.user_id,
+           CASE WHEN c.user_id = ? THEN 1 ELSE 0 END AS is_mia,
+           CASE WHEN l.carta_id IS NULL THEN 0 ELSE 1 END AS is_condivisa,
+           u.initials AS proprietario_init,
+           CASE
+             WHEN c.user_id = ? THEN c.nome
+             WHEN u.initials IS NOT NULL AND TRIM(u.initials) != '' THEN c.nome || ' (' || u.initials || ')'
+             ELSE c.nome
+           END AS nome_display
     FROM carte_fedelta c
-    JOIN gruppo_carte_collegamenti l ON c.id = l.carta_id
+    LEFT JOIN gruppo_carte_collegamenti l
+      ON c.id = l.carta_id AND l.gruppo_id = ?
     LEFT JOIN user_names u ON c.user_id = u.user_id
-    WHERE l.gruppo_id = ?
+    WHERE c.user_id = ? OR l.carta_id IS NOT NULL
     ORDER BY LOWER(c.nome) ASC
   SQL
-    DB.execute(query, [g_id])
+    DB.execute(query, [owner_id, owner_id, group_id, owner_id])
   end
 
   # 2. VISIONE GESTIONE (Le mie condivisioni)
@@ -731,7 +776,11 @@ end
     query = <<-SQL
     WITH carte_unite AS (
       -- 1. Le tue carte personali (Proprietario sei TU)
-      SELECT c.id, c.nome, c.user_id, NULL as initials
+      SELECT c.id, c.nome, c.user_id, NULL as initials,
+             1 as is_mia,
+             CASE WHEN EXISTS (
+               SELECT 1 FROM gruppo_carte_collegamenti l2 WHERE l2.carta_id = c.id
+             ) THEN 1 ELSE 0 END as is_condivisa
       FROM carte_fedelta c
       WHERE c.user_id = ?
       
@@ -739,7 +788,9 @@ end
       
       -- 2. Carte condivise da ALTRI nei gruppi dove sei presente
       -- (Usa DISTINCT per evitare duplicati della stessa carta da gruppi diversi)
-      SELECT DISTINCT c.id, c.nome, c.user_id, u.initials
+      SELECT DISTINCT c.id, c.nome, c.user_id, u.initials,
+                      0 as is_mia,
+                      1 as is_condivisa
       FROM carte_fedelta c
       JOIN gruppo_carte_collegamenti l ON c.id = l.carta_id
       JOIN memberships m ON l.gruppo_id = m.gruppo_id
@@ -749,6 +800,8 @@ end
     )
     SELECT id, 
            user_id,
+           MAX(is_mia) as is_mia,
+           MAX(is_condivisa) as is_condivisa,
            CASE 
              WHEN initials IS NOT NULL THEN nome || ' (' || initials || ')'
              ELSE nome 

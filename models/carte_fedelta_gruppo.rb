@@ -14,7 +14,7 @@ class CarteFedeltaGruppo < CarteFedelta
 
   def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     # Recupera i dati specifici del gruppo
-    carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id)
+    carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id, user_id)
 
     # Chiama il metodo della classe madre
     mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte condivise nel gruppo")
@@ -115,10 +115,10 @@ class CarteFedeltaGruppo < CarteFedelta
   # Mostra carte del gruppo
   def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     puts "[FLOW] 👥 Trigger CARTE GRUPPO per G:#{gruppo_id}"
-    carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id)
+    carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id, user_id)
 
     # Chiamiamo il metodo della classe madre
-    mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte condivise nel gruppo")
+    mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte del gruppo + tue personali")
   end
 
   # Elimina carta del gruppo (solo chi l'ha aggiunta)
