@@ -13,11 +13,13 @@ class CarteFedeltaGruppo < CarteFedelta
   end
 
   def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
-    # Recupera i dati specifici del gruppo
-    carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id, user_id)
-
-    # Chiama il metodo della classe madre
-    mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte condivise nel gruppo")
+    if chat_id.to_i < 0
+      carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id)
+      mostra_griglia_pubblica(bot, chat_id, topic_id, carte)
+    else
+      carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id, user_id)
+      mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte del gruppo + tue personali")
+    end
   end
 
   # Aggiungi carta condivisa al gruppo
@@ -115,10 +117,40 @@ class CarteFedeltaGruppo < CarteFedelta
   # Mostra carte del gruppo
   def self.show_group_cards(bot, gruppo_id, chat_id, user_id, topic_id = 0)
     puts "[FLOW] 👥 Trigger CARTE GRUPPO per G:#{gruppo_id}"
-    carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id, user_id)
+    if chat_id.to_i < 0
+      carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id)
+      mostra_griglia_pubblica(bot, chat_id, topic_id, carte)
+    else
+      carte = DataManager.carte_disponibili_nel_gruppo(gruppo_id, user_id)
+      mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte del gruppo + tue personali")
+    end
+  end
 
-    # Chiamiamo il metodo della classe madre
-    mostra_griglia(bot, chat_id, user_id, topic_id, carte, "👥 Carte del gruppo + tue personali")
+  def self.mostra_griglia_pubblica(bot, chat_id, topic_id, carte)
+    thread_id = safe_message_thread_id(chat_id, topic_id)
+
+    if carte.empty?
+      bot.api.send_message(chat_id: chat_id, text: "📭 Nessuna carta condivisa nel gruppo.", message_thread_id: thread_id)
+      return
+    end
+
+    buttons = carte.map do |c|
+      Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: (c["nome"] || "Carta").to_s,
+        callback_data: "carte:#{c["user_id"]}:#{c["id"]}",
+      )
+    end
+
+    grid = buttons.each_slice(3).to_a
+    grid << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi Lista", callback_data: "close_barcode")]
+
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: "<b>👥 Carte condivise nel gruppo</b>\nSeleziona una carta:",
+      reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: grid),
+      parse_mode: "HTML",
+      message_thread_id: thread_id,
+    )
   end
 
   # Elimina carta del gruppo (solo chi l'ha aggiunta)
