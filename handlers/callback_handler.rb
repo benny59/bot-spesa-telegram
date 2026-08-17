@@ -527,7 +527,7 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "↩️ Ripristinato")
       else
         DataManager.soft_delete_item(item_id)
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Nascosto")
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Cancellato")
       end
 
       # Refresh dell'interfaccia
@@ -635,31 +635,25 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
     items = DataManager.prendi_articoli_ordinati(g_id, t_id)
     header = DataManager.genera_header_contesto(g_id, t_id)
 
-    # Determiniamo se siamo in chat privata o gruppo per le opzioni
     is_private = callback.message.chat.type == "private"
     options = { nome_target: header, is_group: !is_private, page: page.to_i }
 
-    # Qui sta il trucco: genera_lista restituisce un HASH
     result = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
+    ui_text = result[:text]
+    ui_markup = result[:markup]
 
-    # Estraiamo il markup dall'hash
-    ui = result[:markup]
-
-    # LOG DI CONTROLLO
-    puts "📟 [UI_REFRESH] Articoli: #{items.size} | Righe tastiera: #{ui.inline_keyboard.size}"
+    puts "📟 [UI_REFRESH] Articoli: #{items.size} | Righe tastiera: #{ui_markup.inline_keyboard.size}"
 
     c_id = callback.message.chat.id
     m_id = callback.message.message_id
 
-    self.edit_veloce(bot, c_id, m_id, ui)
+    self.edit_veloce(bot, c_id, m_id, ui_text, ui_markup)
   end
 
-  def self.edit_veloce(bot, chat_id, message_id, markup)
-    # Se chat_id è un oggetto Context o Chat, estraiamo l'id numerico
+  def self.edit_veloce(bot, chat_id, message_id, text = nil, markup = nil)
     final_c_id = chat_id.respond_to?(:chat_id) ? chat_id.chat_id : chat_id
     final_c_id = final_c_id.id if final_c_id.respond_to?(:id)
 
-    # Se message_id è un oggetto CallbackQuery o Message, estraiamo l'id numerico
     final_m_id = if message_id.respond_to?(:message)
         message_id.message.message_id
       elsif message_id.respond_to?(:message_id)
@@ -668,16 +662,33 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
         message_id
       end
 
-    # Se markup è ancora l'intero Hash del generatore, estraiamo solo il markup
     final_markup = markup.is_a?(Hash) ? markup[:markup] : markup
+    final_text = text.is_a?(Hash) ? text[:text] : text
 
     puts "📡 [API_EDIT] Chat:#{final_c_id} | Msg:#{final_m_id}"
 
-    bot.api.edit_message_reply_markup(
-      chat_id: final_c_id.to_i,
-      message_id: final_m_id.to_i,
-      reply_markup: final_markup,
-    )
+    if final_text && final_markup
+      bot.api.edit_message_text(
+        chat_id: final_c_id.to_i,
+        message_id: final_m_id.to_i,
+        text: final_text,
+        reply_markup: final_markup,
+        parse_mode: "HTML",
+      )
+    elsif final_markup
+      bot.api.edit_message_reply_markup(
+        chat_id: final_c_id.to_i,
+        message_id: final_m_id.to_i,
+        reply_markup: final_markup,
+      )
+    elsif final_text
+      bot.api.edit_message_text(
+        chat_id: final_c_id.to_i,
+        message_id: final_m_id.to_i,
+        text: final_text,
+        parse_mode: "HTML",
+      )
+    end
   rescue Telegram::Bot::Exceptions::ResponseError => e
     if e.message.include?("message is not modified")
       puts "ℹ️ [API_INFO] Refresh ignorato: contenuto identico."

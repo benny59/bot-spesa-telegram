@@ -354,17 +354,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Swipe destra = toggle comprato
+    // Swipe destra = toggle comprato, swipe sinistra = soft delete / undo
     private val swipeCallback = object : ItemTouchHelper.SimpleCallback(
-        0, ItemTouchHelper.RIGHT
+        0, ItemTouchHelper.RIGHT or ItemTouchHelper.LEFT
     ) {
         override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, t: RecyclerView.ViewHolder) = false
 
         override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-            val pos  = viewHolder.adapterPosition
+            val pos = viewHolder.adapterPosition
+            if (pos == RecyclerView.NO_POSITION) return
             val item = items[pos]
             adapter.notifyItemChanged(pos)
-            toggleItem(item)
+            when (direction) {
+                ItemTouchHelper.RIGHT -> toggleItem(item)
+                ItemTouchHelper.LEFT -> toggleDeleteItem(item)
+            }
         }
     }
 
@@ -785,23 +789,53 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun eliminaConferma(item: SpesaItem) {
+        val titolo = if (item.deleted) "Ripristina articolo" else "Cancella articolo"
+        val messaggio = if (item.deleted) {
+            "Ripristinare \"${item.nome}\" nella lista?"
+        } else {
+            "Cancellare \"${item.nome}\"?\nL’item resterà visibile in fondo alla lista e potrà essere ripristinato."
+        }
         AlertDialog.Builder(this)
-            .setTitle("Elimina articolo")
-            .setMessage("Eliminare \"${item.nome}\"?")
-            .setPositiveButton("Elimina") { _, _ -> eliminaItem(item) }
+            .setTitle(titolo)
+            .setMessage(messaggio)
+            .setPositiveButton(if (item.deleted) "Ripristina" else "Cancella") { _, _ ->
+                if (item.deleted) restoreItem(item) else eliminaItem(item)
+            }
             .setNegativeButton("Annulla", null)
             .show()
     }
 
     private fun eliminaItem(item: SpesaItem) {
-        val pos = items.indexOfFirst { it.id == item.id }.takeIf { it >= 0 } ?: return
-        items.removeAt(pos)
-        adapter.notifyItemRemoved(pos)
         lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                runCatching { ApiClient.deleteItem(item.gruppoId, item.id, userId) }
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.deleteItem(item.gruppoId, item.id, userId) }.getOrDefault(false)
+            }
+            if (ok) {
+                aggiornaLista()
+                mostraEsitoBreve("Articolo cancellato", true)
+            } else {
+                Toast.makeText(this@MainActivity, "Cancellazione non riuscita", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun restoreItem(item: SpesaItem) {
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.restoreItem(item.gruppoId, item.id, userId) }.getOrDefault(false)
+            }
+            if (ok) {
+                aggiornaLista()
+                mostraEsitoBreve("Articolo ripristinato", true)
+            } else {
+                Toast.makeText(this@MainActivity, "Ripristino non riuscito", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun toggleDeleteItem(item: SpesaItem) {
+        if (item.deleted) restoreItem(item)
+        else eliminaItem(item)
     }
 
     private fun mostraDialogAggiungi() {

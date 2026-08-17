@@ -79,6 +79,13 @@ object ApiClient {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { item ->
+            val deletedValue = item["deleted"]
+            val deleted = when (deletedValue) {
+                is Boolean -> deletedValue
+                is Double -> deletedValue.toInt() == 1
+                is String -> deletedValue == "1" || deletedValue.equals("true", ignoreCase = true)
+                else -> false
+            }
             SpesaItem(
                 id           = (item["id"] as Double).toInt(),
                 nome         = item["nome"] as? String ?: "",
@@ -90,7 +97,8 @@ object ApiClient {
                 topicId      = (item["topic_id"] as? Double)?.toInt() ?: 0,
                 nomeTopic    = item["nome_topic"] as? String ?: "",
                 nomeGruppo   = item["nome_gruppo"] as? String ?: "",
-                nomeContesto = item["nome_contesto"] as? String ?: ""
+                nomeContesto = item["nome_contesto"] as? String ?: "",
+                deleted      = deleted
             )
         }
     }
@@ -133,6 +141,15 @@ object ApiClient {
         val req = Request.Builder()
             .url("$baseUrl/lista/$itemId?gruppo_id=$gruppoId&user_id=$userId")
             .delete()
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun restoreItem(gruppoId: Int, itemId: Int, userId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/restore?gruppo_id=$gruppoId&user_id=$userId")
+            .post("".toRequestBody(JSON_TYPE))
             .auth()
             .build()
         return http.newCall(req).execute().use { it.isSuccessful }

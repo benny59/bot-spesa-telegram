@@ -60,32 +60,44 @@ class SpesaAdapter(
             holder.tvGruppoNome.visibility = View.GONE
         }
 
-        if (item.isBought) {
-            holder.tvNome.paintFlags = holder.tvNome.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
-            holder.tvNome.alpha = 0.45f
-            holder.tvComprato.text = "\u2713"
-            val sameUser = item.userInitials == item.buyerInitials
-            if (sameUser) {
-                // stessa persona: solo cerchio verde
-                holder.tvInitials.visibility = View.GONE
-            } else {
+        when {
+            item.deleted -> {
+                holder.tvNome.paintFlags = holder.tvNome.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+                holder.tvNome.alpha = 0.6f
+                holder.tvComprato.text = "↺"
+                holder.tvInitials.visibility = View.VISIBLE
+                holder.tvInitials.text = item.userInitials.ifEmpty { "?" }
+                holder.tvInitials.alpha = 0.6f
+                holder.tvInitials.setBackgroundResource(R.drawable.circle_initials)
+                holder.tvInitialsBuyer.visibility = View.GONE
+            }
+            item.isBought -> {
+                holder.tvNome.paintFlags = holder.tvNome.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+                holder.tvNome.alpha = 0.45f
+                holder.tvComprato.text = "\u2713"
+                val sameUser = item.userInitials == item.buyerInitials
+                if (sameUser) {
+                    holder.tvInitials.visibility = View.GONE
+                } else {
+                    holder.tvInitials.visibility = View.VISIBLE
+                    holder.tvInitials.text  = item.userInitials.ifEmpty { "?" }
+                    holder.tvInitials.alpha = 0.45f
+                    holder.tvInitials.setBackgroundResource(R.drawable.circle_initials)
+                }
+                holder.tvInitialsBuyer.visibility = View.VISIBLE
+                holder.tvInitialsBuyer.text  = item.buyerInitials.ifEmpty { item.comprato }
+                holder.tvInitialsBuyer.alpha = 1.0f
+            }
+            else -> {
+                holder.tvNome.paintFlags = holder.tvNome.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                holder.tvNome.alpha = 1.0f
+                holder.tvComprato.text = ""
                 holder.tvInitials.visibility = View.VISIBLE
                 holder.tvInitials.text  = item.userInitials.ifEmpty { "?" }
-                holder.tvInitials.alpha = 0.45f
+                holder.tvInitials.alpha = 1.0f
                 holder.tvInitials.setBackgroundResource(R.drawable.circle_initials)
+                holder.tvInitialsBuyer.visibility = View.GONE
             }
-            holder.tvInitialsBuyer.visibility = View.VISIBLE
-            holder.tvInitialsBuyer.text  = item.buyerInitials.ifEmpty { item.comprato }
-            holder.tvInitialsBuyer.alpha = 1.0f
-        } else {
-            holder.tvNome.paintFlags = holder.tvNome.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
-            holder.tvNome.alpha = 1.0f
-            holder.tvComprato.text = ""
-            holder.tvInitials.visibility = View.VISIBLE
-            holder.tvInitials.text  = item.userInitials.ifEmpty { "?" }
-            holder.tvInitials.alpha = 1.0f
-            holder.tvInitials.setBackgroundResource(R.drawable.circle_initials)
-            holder.tvInitialsBuyer.visibility = View.GONE
         }
 
         holder.ivFoto.visibility = if (item.hasFoto) View.VISIBLE else View.GONE

@@ -11,7 +11,9 @@ data class SpesaItem(
     val topicId: Int = 0,
     val nomeTopic: String = "",
     val nomeGruppo: String = "",
-    val nomeContesto: String = ""
+    val nomeContesto: String = "",
+    val deleted: Boolean = false
 ) {
     val isBought: Boolean get() = comprato.isNotEmpty()
+    val isDeleted: Boolean get() = deleted
 }

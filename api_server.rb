@@ -198,6 +198,7 @@ get '/lista' do
       creato_da:     i['creato_da'],
       user_initials: i['user_initials'].to_s,
       creato_il:     i['creato_il'],
+      deleted:       i['deleted'].to_i == 1,
       has_foto:      foto_ids.include?(i['id'])
     }
   end.to_json
@@ -382,7 +383,7 @@ delete '/lista/:id' do
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
-    notifica_gruppo(gruppo_id, item['topic_id'], "\u2716\uFE0F <b>#{nome_utente}</b> ha nascosto: #{item['nome']}")
+    notifica_gruppo(gruppo_id, item['topic_id'], "\u2716\uFE0F <b>#{nome_utente}</b> ha cancellato: #{item['nome']}")
   end
 
   { ok: true, soft_deleted: true }.to_json
@@ -397,7 +398,14 @@ post '/lista/:id/restore' do
   item = DB.get_first_row("SELECT id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
   halt 404, { error: 'item non trovato' }.to_json unless item
 
+  item = DB.get_first_row("SELECT id, nome, topic_id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
   DataManager.undo_delete_item(item_id)
+
+  if gruppo_id != 0 && item
+    nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [item['creato_da']]) || 'Utente'
+    notifica_gruppo(gruppo_id, item['topic_id'], "↩️ <b>#{nome_utente}</b> ha ripristinato: #{item['nome']}")
+  end
+
   { ok: true, restored: true }.to_json
 end
 
