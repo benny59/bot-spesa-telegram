@@ -65,10 +65,16 @@ SQL
       creato_da INTEGER,
       nome TEXT,
       comprato TEXT DEFAULT '',
+      deleted INTEGER NOT NULL DEFAULT 0,
       creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (gruppo_id) REFERENCES gruppi (id)
     );
   SQL
+
+  columns = db.execute("PRAGMA table_info(items)").map { |row| row["name"] }
+  unless columns.include?("deleted")
+    db.execute("ALTER TABLE items ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+  end
 
   # Recupera l'identità solo quando il valore storico individua un utente senza ambiguità.
   db.execute <<-SQL
@@ -256,14 +262,31 @@ class DataManager
     { nome: g_nome, topic: t_nome || (t_id == 0 ? "Generale" : t_id.to_s) }
   end
 
+  def self.soft_delete_item(item_id)
+    item_id = item_id.to_i
+    return false if item_id <= 0
+
+    DB.execute("UPDATE items SET deleted = 1 WHERE id = ?", [item_id])
+    DB.changes > 0
+  end
+
+  def self.undo_delete_item(item_id)
+    item_id = item_id.to_i
+    return false if item_id <= 0
+
+    DB.execute("UPDATE items SET deleted = 0 WHERE id = ?", [item_id])
+    DB.changes > 0
+  end
+
   def self.rimuovi_item_diretto(item_id)
     puts "[DATA_MONITOR] 🗑️ Rimozione forzata item ID: #{item_id} (inclusa pulizia foto)"
 
-    # 1. Rimuoviamo prima le foto associate all'articolo
-    DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id.to_i])
+    item_id = item_id.to_i
+    return false if item_id <= 0
 
-    # 2. Poi rimuoviamo l'articolo stesso
-    DB.execute("DELETE FROM items WHERE id = ?", [item_id.to_i])
+    DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])
+    DB.execute("DELETE FROM items WHERE id = ?", [item_id])
+    DB.changes > 0
   end
 
   def self.get_topic_name(g_id, t_id)
@@ -999,7 +1022,7 @@ end
 
   def self.prendi_articoli_ordinati(gruppo_id, topic_id)
     sql = self.get_base_query_articoli_con_metadata + <<-SQL
-    WHERE i.gruppo_id = ? AND i.topic_id = ?
+    WHERE i.gruppo_id = ? AND i.topic_id = ? AND i.deleted = 0
     ORDER BY 
       -- 1. I comprati vanno in fondo (0 se non comprato, 1 se comprato)
       (i.comprato IS NOT NULL AND i.comprato != '') ASC, 
@@ -1070,6 +1093,7 @@ end
         SELECT i.id, i.nome, i.gruppo_id, i.topic_id
         FROM items i
         WHERE CAST(i.comprato AS INTEGER) = ?
+          AND i.deleted = 0
           AND (
             (i.gruppo_id = 0 AND i.creato_da = ?)
             OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
@@ -1160,9 +1184,10 @@ end
       FROM gruppi g
       JOIN memberships m ON g.id = m.gruppo_id
       JOIN items i ON g.id = i.gruppo_id
+      WHERE i.deleted = 0
       UNION ALL
       SELECT 0, '👤 Lista Personale', NULL, 0, 1
-      WHERE EXISTS (SELECT 1 FROM items WHERE gruppo_id = 0 AND creato_da = ?)
+      WHERE EXISTS (SELECT 1 FROM items WHERE gruppo_id = 0 AND creato_da = ? AND deleted = 0)
       ORDER BY ordine_lista DESC, gruppo_nome ASC, topic_id ASC
     SQL
       DB.execute(query, [user_id])
@@ -1174,7 +1199,7 @@ end
              g.chat_id, COALESCE(i.topic_id, 0) AS topic_id
       FROM items i
       LEFT JOIN gruppi g ON i.gruppo_id = g.id
-      WHERE i.creato_da = ?
+      WHERE i.creato_da = ? AND i.deleted = 0
       ORDER BY gruppo_id = 0 DESC, g.nome ASC, topic_id ASC
     SQL
       DB.execute(query, [user_id])
@@ -1196,7 +1221,7 @@ end
     FROM items i
     LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
-    WHERE i.gruppo_id = ? AND i.topic_id = ?
+    WHERE i.gruppo_id = ? AND i.topic_id = ? AND i.deleted = 0
   SQL
 
     order = <<-SQL

@@ -378,14 +378,27 @@ delete '/lista/:id' do
   item = DB.get_first_row("SELECT id, nome, topic_id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
   halt 404, { error: 'item non trovato' }.to_json unless item
 
-  DataManager.rimuovi_item_diretto(item_id)
+  DataManager.soft_delete_item(item_id)
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
-    notifica_gruppo(gruppo_id, item['topic_id'], "\u2716\uFE0F <b>#{nome_utente}</b> ha eliminato: #{item['nome']}")
+    notifica_gruppo(gruppo_id, item['topic_id'], "\u2716\uFE0F <b>#{nome_utente}</b> ha nascosto: #{item['nome']}")
   end
 
-  { ok: true }.to_json
+  { ok: true, soft_deleted: true }.to_json
+end
+
+post '/lista/:id/restore' do
+  item_id   = params[:id].to_i
+  gruppo_id = params[:gruppo_id]&.to_i
+
+  halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
+
+  item = DB.get_first_row("SELECT id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+  halt 404, { error: 'item non trovato' }.to_json unless item
+
+  DataManager.undo_delete_item(item_id)
+  { ok: true, restored: true }.to_json
 end
 
 # Checklist: suggerimenti dallo storico (top articoli del gruppo)

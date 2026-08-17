@@ -10,6 +10,7 @@ class Lista
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
      WHERE i.gruppo_id = ?
        AND i.topic_id = ?
+       AND i.deleted = 0
      ORDER BY i.comprato, i.id",
       [gruppo_id, topic_id]
     )
@@ -21,7 +22,7 @@ class Lista
      FROM items i
      LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
-     WHERE i.gruppo_id = 0 AND i.creato_da = ?
+     WHERE i.gruppo_id = 0 AND i.creato_da = ? AND i.deleted = 0
      ORDER BY i.comprato, i.id",
       [user_id]
     )
@@ -43,14 +44,14 @@ class Lista
   end
 
   def self.cancella(gruppo_id, item_id, user_id)
-    # Implementa la logica di controllo permessi qui
-    DB.execute("DELETE FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
-    true
+    # Soft delete: l'item resta nel DB per undo ma viene nascosto dalla lista attiva.
+    DB.execute("UPDATE items SET deleted = 1 WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+    DB.changes > 0
   end
 
   def self.cancella_tutti(gruppo_id, user_id)
-    # Implementa la logica di controllo admin qui
-    DB.execute("DELETE FROM items WHERE gruppo_id = ? AND comprato IS NOT NULL AND TRIM(comprato) <> ''", [gruppo_id])
+    # Dopo il soft-delete, la scopetta definitiva deve ignorare gli item nascosti.
+    DB.execute("DELETE FROM items WHERE gruppo_id = ? AND deleted = 0 AND comprato IS NOT NULL AND TRIM(comprato) <> ''", [gruppo_id])
     true
   end
 
