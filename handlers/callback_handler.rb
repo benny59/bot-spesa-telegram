@@ -522,55 +522,15 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
       item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
 
-      nome_art = DataManager.get_nome_articolo(item_id)
-      if DataManager.soft_delete_item(item_id)
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Nascosto: annulla se necessario")
-
-        undo_markup = Telegram::Bot::Types::InlineKeyboardMarkup.new(
-          inline_keyboard: [[
-            Telegram::Bot::Types::InlineKeyboardButton.new(
-              text: "↩️ Annulla cancellazione",
-              callback_data: "undo_delete_item:#{item_id}:#{g_id}:#{t_id}:#{page}",
-            )
-          ]]
-        )
-
-        bot.api.send_message(
-          chat_id: callback.message.chat.id,
-          text: "🗑️ <b>#{nome_art}</b> è stato nascosto dalla lista.<br>Usa <b>Annulla cancellazione</b> per ripristinarlo.",
-          parse_mode: "HTML",
-          reply_markup: undo_markup,
-        ) rescue nil
-
-        # NOTIFICA: Solo se l'azione parte dalla chat privata
-        is_in_private = callback.message.chat.type == "private"
-
-        if g_id != 0 && is_in_private
-          target_chat = DataManager.get_real_chat_id(g_id)
-          begin
-            bot.api.send_message(
-              chat_id: target_chat,
-              text: "❌ <b>#{callback.from.first_name}</b> ha nascosto: #{nome_art}",
-              parse_mode: "html",
-              message_thread_id: (t_id != 0 ? t_id : nil),
-            )
-          rescue => e
-            puts "⚠️ [NOTIFICA_SKIP] #{e.message}"
-          end
-        end
+      if DataManager.item_deleted?(item_id)
+        DataManager.undo_delete_item(item_id)
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "↩️ Ripristinato")
       else
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Nessun item da cancellare")
+        DataManager.soft_delete_item(item_id)
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Nascosto")
       end
 
       # Refresh dell'interfaccia
-      self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
-    when /^undo_delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
-      item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
-      if DataManager.undo_delete_item(item_id)
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "↩️ Ripristinato")
-      else
-        bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Nessuna cancellazione da annullare")
-      end
       self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
     when /^set_target:(.+):(.+)$/
       g_db_id = $1.to_i # L'ID interno (es: 50)

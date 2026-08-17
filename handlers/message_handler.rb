@@ -350,7 +350,7 @@ def self.handle_share_text(bot, msg, gruppo, topic_id)
   info = DataManager.recupera_nomi_contesto(g_id, t_id)
 
   # Filtro: teniamo solo gli articoli NON comprati
-  da_comprare = items.reject { |i| i["comprato"] && !i["comprato"].empty? }
+  da_comprare = items.reject { |i| i["deleted"].to_i == 1 || (i["comprato"] && !i["comprato"].empty?) }
 
   if da_comprare.empty?
     bot.api.send_message(

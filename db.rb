@@ -245,6 +245,10 @@ class DataManager
     res && res != ""
   end
 
+  def self.item_deleted?(item_id)
+    DB.get_first_value("SELECT deleted FROM items WHERE id = ?", [item_id]).to_i == 1
+  end
+
   # In db.rb (classe DataManager)
   def self.recupera_nomi_contesto(g_id, t_id)
     return { nome: "Privata", topic: "Lista Personale" } if g_id == 0
@@ -1022,13 +1026,15 @@ end
 
   def self.prendi_articoli_ordinati(gruppo_id, topic_id)
     sql = self.get_base_query_articoli_con_metadata + <<-SQL
-    WHERE i.gruppo_id = ? AND i.topic_id = ? AND i.deleted = 0
+    WHERE i.gruppo_id = ? AND i.topic_id = ?
     ORDER BY 
-      -- 1. I comprati vanno in fondo (0 se non comprato, 1 se comprato)
+      -- 1. Gli item cancellati restano visibili ma in fondo
+      (i.deleted IS NOT NULL AND i.deleted != 0) ASC,
+      -- 2. I comprati vanno in fondo (0 se non comprato, 1 se comprato)
       (i.comprato IS NOT NULL AND i.comprato != '') ASC, 
-      -- 2. Gli articoli più frequenti in alto
+      -- 3. Gli articoli più frequenti in alto
       volte DESC, 
-      -- 3. I più recenti per primi tra quelli con stesse 'volte'
+      -- 4. I più recenti per primi tra quelli con stesse 'volte'
       i.id DESC
     SQL
     DB.execute(sql, [gruppo_id.to_i, topic_id.to_i])

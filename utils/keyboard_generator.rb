@@ -55,29 +55,27 @@ class KeyboardGenerator
     keyboard = []
 
     page_items.each do |item|
-      # Determina se è comprato
+      # Determina se è comprato o cancellato
       is_comprato = item["comprato"] && !item["comprato"].to_s.empty?
+      is_deleted = item["deleted"].to_i == 1
 
       # --- FIX ICONA ---
       # Usiamo .to_i perché SQLite a volte restituisce il conteggio come stringa o nullo
       num_foto = item["ha_foto"].to_i
       foto_icon = num_foto > 0 ? " 📸" : ""
-      display_name = "#{item["nome"]}"
+      display_name = is_deleted ? "~~ #{item["nome"]} ~~" : item["nome"]
 
       # Recupera iniziali
       autore = item["autore_init"] || "??"
       buyer = item["buyer_init"]
 
-      # 1. Testo dell'item (Pulito, senza ✅/⚪)
-      # Se vuoi un tocco di classe, se è comprato lo mostriamo sbarrato
-      item_text = is_comprato ? "<s>#{item["nome"]}</s>" : item["nome"]
-      # Nota: InlineButtons non supportano sempre HTML nel testo del tasto,
-      # quindi se il barrato non appare, usa solo item['nome']
+      # 1. Testo dell'item
+      # In Telegram non c'è parsing HTML per i bottoni inline, quindi usiamo un effetto testuale leggibile:
+      item_text = is_deleted ? "~~ #{item["nome"]} ~~" : item["nome"]
 
-      # 2. Etichetta del Cestino
-      # Layout: 🗑️ [Autore] oppure 🗑️ [Autore] ✅ [Buyer]
-      del_label = "🗑️ #{foto_icon} #{autore}"
-      del_label += " ✅ #{buyer}" if is_comprato
+      # 2. Etichetta del bottone: se l'item è cancellato, il bottone fa undo
+      del_label = is_deleted ? "↩️ #{foto_icon} #{autore}" : "🗑️ #{foto_icon} #{autore}"
+      del_label += " ✅ #{buyer}" if is_comprato && !is_deleted
 
       cb_data = "mycomprato:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}:0"
       cb_del = "delete_item:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}"
