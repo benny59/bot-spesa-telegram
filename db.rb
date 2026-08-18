@@ -399,41 +399,53 @@ class DataManager
   # Cancella gli articoli comprati e aggiorna il conteggio nello storico
   def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
     puts "\n🧹 [SCOPETTA] Inizio esegui_scopetta - G:#{gruppo_id}, T:#{topic_id}"
-    
+
     if target_ids && !target_ids.empty?
       placeholders = target_ids.map { "?" }.join(",")
-      query = "SELECT id, nome, creato_da, comprato FROM items WHERE id IN (#{placeholders})"
+      query = <<~SQL
+        SELECT id, nome, creato_da, comprato, deleted
+        FROM items
+        WHERE id IN (#{placeholders})
+          AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
+      SQL
       params = target_ids
       puts "🧹 [SCOPETTA] Modalità: target_ids (#{target_ids.size} items)"
     else
-      query = "SELECT id, nome, creato_da, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != ''"
+      query = <<~SQL
+        SELECT id, nome, creato_da, comprato, deleted
+        FROM items
+        WHERE gruppo_id = ?
+          AND topic_id = ?
+          AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
+      SQL
       params = [gruppo_id, topic_id]
       puts "🧹 [SCOPETTA] Modalità: query da DB"
     end
 
-    comprati = DB.execute(query, params)
-    puts "🧹 [SCOPETTA] Articoli comprati trovati: #{comprati.size}"
-    return 0 if comprati.empty?
+    da_cancellare = DB.execute(query, params)
+    puts "🧹 [SCOPETTA] Articoli candidati alla rimozione: #{da_cancellare.size}"
+    return 0 if da_cancellare.empty?
 
     DB.transaction do
-      comprati.each do |item|
+      da_cancellare.each do |item|
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
-        # Usa il metodo DRY unificato per UPSERT storico
-        self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"])
+        if item["comprato"].to_s.strip != ""
+          self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"])
+        end
       end
 
       puts "🧹 [SCOPETTA] Cancellazione items..."
-      ids_del = comprati.map { |i| i["id"] }
+      ids_del = da_cancellare.map { |i| i["id"] }
       p_del = ids_del.map { "?" }.join(",")
       DB.execute("DELETE FROM item_images WHERE item_id IN (#{p_del})", ids_del)
       puts "🧹 [SCOPETTA] Images cancellate: #{ids_del.size}"
-      
+
       DB.execute("DELETE FROM items WHERE id IN (#{p_del})", ids_del)
       puts "🧹 [SCOPETTA] Items cancellati: #{ids_del.size}"
     end
-    
-    puts "✅ [SCOPETTA] Completata - #{comprati.size} articoli elaborati\n"
-    comprati.size
+
+    puts "✅ [SCOPETTA] Completata - #{da_cancellare.size} articoli elaborati\n"
+    da_cancellare.size
   end
 
   # ----------------------------------------------------------------------------
