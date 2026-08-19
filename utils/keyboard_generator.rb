@@ -3,6 +3,7 @@ require "telegram/bot"
 
 class KeyboardGenerator
   ITEMS_PER_PAGE = 10
+  INLINE_TEXT_MAX_BYTES = 60
 
   # Telegram inline button text has tight limits. Keep labels short and strip
   # transport markers/URLs used for app-backward compatibility.
@@ -10,12 +11,28 @@ class KeyboardGenerator
     label = raw_name.to_s
     label = label.split("[YUKA_LINK]", 2).first
     label = label.gsub(/https?:\/\/\S+/, "")
+    label = label.gsub(/[\u0000-\u001F\u007F]/, " ")
     label = label.gsub(/\s+/, " ").strip
     label = "Prodotto Yuka" if label.empty?
 
-    return label if label.length <= max_len
+    candidate = if label.length <= max_len
+      label
+    else
+      "#{label[0, max_len - 3]}..."
+    end
 
-    "#{label[0, max_len - 3]}..."
+    clamp_inline_text(candidate)
+  end
+
+  def self.clamp_inline_text(text, max_bytes = INLINE_TEXT_MAX_BYTES)
+    clean = text.to_s.scrub(" ").gsub(/[\u0000-\u001F\u007F]/, " ").gsub(/\s+/, " ").strip
+    clean = "-" if clean.empty?
+    return clean if clean.bytesize <= max_bytes
+
+    bytes = clean.byteslice(0, max_bytes - 3)
+    bytes = bytes.force_encoding("UTF-8").scrub("")
+    bytes = bytes.gsub(/\s+$/, "")
+    "#{bytes}..."
   end
 
   # utils/keyboard_generator.rb
@@ -79,6 +96,7 @@ class KeyboardGenerator
       num_foto = item["ha_foto"].to_i
       foto_icon = num_foto > 0 ? " 📸" : ""
       display_name = is_deleted ? "~~ #{nome_pulito} ~~" : nome_pulito
+      display_name = clamp_inline_text(display_name)
 
       # Recupera iniziali
       autore = item["autore_init"] || "??"
@@ -91,6 +109,7 @@ class KeyboardGenerator
       # 2. Etichetta del bottone: se l'item è cancellato, il bottone fa undo
       del_label = is_deleted ? "↩️ #{foto_icon} #{autore}" : "🗑️ #{foto_icon} #{autore}"
       del_label += " ✅ #{buyer}" if is_comprato && !is_deleted
+      del_label = clamp_inline_text(del_label)
 
       cb_data = "mycomprato:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}:0"
       cb_del = "delete_item:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}"
@@ -191,7 +210,8 @@ class KeyboardGenerator
       prefix = is_active ? "🎯 " : "📂 "
 
       # Tasto Contesto
-      item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "#{prefix}#{label.upcase}", callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}")]
+      context_label = clamp_inline_text("#{prefix}#{label.upcase}")
+      item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(text: context_label, callback_data: "mycontext:#{g_id}:#{t_id}:#{show_all ? 1 : 0}")]
 
       # Tasti Articoli
       DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all).each do |art|
@@ -200,8 +220,9 @@ class KeyboardGenerator
         buyer_tag = status == "✅" ? " [#{art["buyer_init"] || "?"}]" : ""
         icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 📸" : ""
 
+        row_text = "#{status} #{tag}#{safe_item_label(art["nome"], 40)}#{buyer_tag}#{icona_foto}"
         item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "#{status} #{tag}#{safe_item_label(art["nome"], 40)}#{buyer_tag}#{icona_foto}",
+          text: clamp_inline_text(row_text),
           callback_data: "myallcomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
         )]
       end
