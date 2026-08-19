@@ -4,6 +4,20 @@ require "telegram/bot"
 class KeyboardGenerator
   ITEMS_PER_PAGE = 10
 
+  # Telegram inline button text has tight limits. Keep labels short and strip
+  # transport markers/URLs used for app-backward compatibility.
+  def self.safe_item_label(raw_name, max_len = 52)
+    label = raw_name.to_s
+    label = label.split("[YUKA_LINK]", 2).first
+    label = label.gsub(/https?:\/\/\S+/, "")
+    label = label.gsub(/\s+/, " ").strip
+    label = "Prodotto Yuka" if label.empty?
+
+    return label if label.length <= max_len
+
+    "#{label[0, max_len - 3]}..."
+  end
+
   # utils/keyboard_generator.rb
 
   def self.tastiera_privata_fissa
@@ -55,6 +69,7 @@ class KeyboardGenerator
     keyboard = []
 
     page_items.each do |item|
+      nome_pulito = safe_item_label(item["nome"])
       # Determina se è comprato o cancellato
       is_comprato = item["comprato"] && !item["comprato"].to_s.empty?
       is_deleted = item["deleted"].to_i == 1
@@ -63,7 +78,7 @@ class KeyboardGenerator
       # Usiamo .to_i perché SQLite a volte restituisce il conteggio come stringa o nullo
       num_foto = item["ha_foto"].to_i
       foto_icon = num_foto > 0 ? " 📸" : ""
-      display_name = is_deleted ? "~~ #{item["nome"]} ~~" : item["nome"]
+      display_name = is_deleted ? "~~ #{nome_pulito} ~~" : nome_pulito
 
       # Recupera iniziali
       autore = item["autore_init"] || "??"
@@ -71,7 +86,7 @@ class KeyboardGenerator
 
       # 1. Testo dell'item
       # In Telegram non c'è parsing HTML per i bottoni inline, quindi usiamo un effetto testuale leggibile:
-      item_text = is_deleted ? "~~ #{item["nome"]} ~~" : item["nome"]
+      item_text = is_deleted ? "~~ #{nome_pulito} ~~" : nome_pulito
 
       # 2. Etichetta del bottone: se l'item è cancellato, il bottone fa undo
       del_label = is_deleted ? "↩️ #{foto_icon} #{autore}" : "🗑️ #{foto_icon} #{autore}"
@@ -186,7 +201,7 @@ class KeyboardGenerator
         icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 📸" : ""
 
         item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
-          text: "#{status} #{tag}#{art["nome"]}#{buyer_tag}#{icona_foto}",
+          text: "#{status} #{tag}#{safe_item_label(art["nome"], 40)}#{buyer_tag}#{icona_foto}",
           callback_data: "myallcomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
         )]
       end

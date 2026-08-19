@@ -24,6 +24,7 @@ object ApiClient {
     private var token = ""
 
     private val ogTitleRegex = Regex("<meta[^>]+property=[\"']og:title[\"'][^>]+content=[\"']([^\"']+)[\"'][^>]*>", RegexOption.IGNORE_CASE)
+    private val ogImageRegex = Regex("<meta[^>]+property=[\"']og:image(?:[^\"']*)?[\"'][^>]+content=[\"']([^\"']+)[\"'][^>]*>", RegexOption.IGNORE_CASE)
     private val titleRegex = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
     fun configure(url: String, tok: String) {
@@ -184,6 +185,37 @@ object ApiClient {
                 val og = ogTitleRegex.find(html)?.groupValues?.getOrNull(1)?.trim()
                 val title = titleRegex.find(html)?.groupValues?.getOrNull(1)?.trim()
                 sanitizeResolvedTitle(og ?: title)
+            }
+        }.getOrNull()
+    }
+
+    data class SharedProductPreview(
+        val title: String,
+        val imageUrl: String?
+    )
+
+    fun resolveSharedProductPreview(url: String): SharedProductPreview? {
+        val cleanUrl = url.trim()
+        if (cleanUrl.isEmpty()) return null
+
+        val req = Request.Builder()
+            .url(cleanUrl)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) BotSpesa/1.0")
+            .get()
+            .build()
+
+        return runCatching {
+            http.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val html = response.body?.string().orEmpty().take(600_000)
+                val ogTitle = ogTitleRegex.find(html)?.groupValues?.getOrNull(1)?.trim()
+                val title = titleRegex.find(html)?.groupValues?.getOrNull(1)?.trim()
+                val resolvedTitle = sanitizeResolvedTitle(ogTitle ?: title) ?: return@use null
+                val image = ogImageRegex.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+                SharedProductPreview(
+                    title = resolvedTitle,
+                    imageUrl = image.takeIf { it.isNotEmpty() }
+                )
             }
         }.getOrNull()
     }

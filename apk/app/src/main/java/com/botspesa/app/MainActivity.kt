@@ -6,9 +6,12 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
+import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
@@ -25,6 +28,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.navigation.NavigationView
 import com.google.android.material.snackbar.Snackbar
@@ -874,10 +878,62 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val safeUrl = if (raw.startsWith("http://", ignoreCase = true) || raw.startsWith("https://", ignoreCase = true)) {
-            raw
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                ApiClient.resolveSharedProductPreview(raw)
+            }
+
+            if (preview != null) {
+                mostraPreviewYuka(preview.title, preview.imageUrl, raw)
+            } else {
+                apriBrowserFallback(raw)
+            }
+        }
+    }
+
+    private fun mostraPreviewYuka(title: String, imageUrl: String?, linkUrl: String) {
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val image = ImageView(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (220 * resources.displayMetrics.density).toInt()
+            )
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            contentDescription = title
+        }
+        if (!imageUrl.isNullOrBlank()) {
+            image.load(imageUrl)
+        }
+
+        val titleView = TextView(this).apply {
+            text = title
+            textSize = 18f
+            setTextColor(Color.BLACK)
+            val topPad = (12 * resources.displayMetrics.density).toInt()
+            setPadding(0, topPad, 0, 0)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        container.addView(image)
+        container.addView(titleView)
+
+        AlertDialog.Builder(this)
+            .setView(container)
+            .setPositiveButton("Apri") { _, _ -> apriBrowserFallback(linkUrl) }
+            .setNegativeButton("Chiudi", null)
+            .show()
+    }
+
+    private fun apriBrowserFallback(url: String) {
+        val safeUrl = if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+            url
         } else {
-            "https://$raw"
+            "https://$url"
         }
 
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl))
