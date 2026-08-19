@@ -243,8 +243,14 @@ when /^trigger_list:(-?\d*):(\d*)$/
       # Passiamo l'hash invece della stringa
       ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
 
-      # 3. Edit (Il tuo blocco begin/rescue)
-      self.edit_veloce(bot, context, callback, ui)
+      # 3. Edit: aggiorna SEMPRE testo e tastiera insieme
+      self.edit_veloce(
+        bot,
+        callback.message.chat.id,
+        callback.message.message_id,
+        ui[:text],
+        ui[:markup]
+      )
 
       # --- RAMO 2: LISTA "TUTTI GLI ARTICOLI" (Refresh Differenziato) ---
     when /^myallcomprato:(\d+):(-?\d+):(\d+):(\d+):(\d)$/
