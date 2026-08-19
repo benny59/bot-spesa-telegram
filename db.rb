@@ -64,6 +64,7 @@ SQL
       topic_id INTEGER DEFAULT 0,
       creato_da INTEGER,
       nome TEXT,
+      link_url TEXT,
       comprato TEXT DEFAULT '',
       deleted INTEGER NOT NULL DEFAULT 0,
       creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -74,6 +75,9 @@ SQL
   columns = db.execute("PRAGMA table_info(items)").map { |row| row["name"] }
   unless columns.include?("deleted")
     db.execute("ALTER TABLE items ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+  end
+  unless columns.include?("link_url")
+    db.execute("ALTER TABLE items ADD COLUMN link_url TEXT")
   end
 
   # Recupera l'identità solo quando il valore storico individua un utente senza ambiguità.
@@ -545,12 +549,18 @@ end
   # ----------------------------------------------------------------------------
   # PILASTRO '+': AGGIUNTA ARTICOLI
   # ----------------------------------------------------------------------------
-  def self.aggiungi_articoli(gruppo_id:, user_id:, items_text:, topic_id: 0)
+  def self.aggiungi_articoli(gruppo_id:, user_id:, items_text:, topic_id: 0, link_url: nil, split_items: true)
     puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{gruppo_id} | T:#{topic_id} | U:#{user_id}"
 
-    nomi = items_text.split(",").map(&:strip).reject(&:empty?)
+    nomi = if split_items
+      items_text.split(",").map(&:strip).reject(&:empty?)
+    else
+      [items_text.to_s.strip].reject(&:empty?)
+    end
     # non forziamo il minuscolo: lasciamo libera la formattazione dell'utente
     return [] if nomi.empty?
+    link_pulito = link_url.to_s.strip
+    link_pulito = nil if link_pulito.empty?
 
     ids_creati = [] # <--- Cambiamo il contatore in un array di ID
 
@@ -560,13 +570,20 @@ end
         esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome.downcase])
 
         if esiste
+          if link_pulito
+            # Se l'item esiste gia', agganciamo il link quando manca.
+            DB.execute(
+              "UPDATE items SET link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?) WHERE id = ?",
+              [link_pulito, esiste]
+            )
+          end
           ids_creati << esiste # Se esiste già, prendiamo l'ID esistente per l'eventuale foto
           next
         end
 
         # Inseriamo esattamente come scritto dall'utente (libertà di formattazione)
-        DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome) VALUES (?, ?, ?, ?)",
-             [gruppo_id, topic_id, user_id, nome])
+           DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url) VALUES (?, ?, ?, ?, ?)",
+             [gruppo_id, topic_id, user_id, nome, link_pulito])
         ids_creati << DB.last_insert_row_id # Recupera l'ID appena fatto
       end
     end

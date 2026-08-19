@@ -3,6 +3,7 @@ package com.botspesa.app
 data class SpesaItem(
     val id: Int,
     val nome: String,
+    val linkUrl: String = "",
     val comprato: String,
     val userInitials: String,
     val buyerInitials: String,

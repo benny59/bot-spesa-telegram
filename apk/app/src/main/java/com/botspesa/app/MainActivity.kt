@@ -33,8 +33,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.URLDecoder
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.regex.Pattern
 
 class MainActivity : AppCompatActivity() {
 
@@ -43,6 +45,10 @@ class MainActivity : AppCompatActivity() {
         val topicId: Int,
         val label: String
     )
+
+    private companion object {
+        const val LINK_MARKER = "[YUKA_LINK]"
+    }
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: SpesaAdapter
@@ -54,6 +60,8 @@ class MainActivity : AppCompatActivity() {
     private var pendingNuovoArticolo: String? = null
     private var pendingNuovoGruppoId = 0
     private var pendingNuovoTopicId = 0
+    private var pendingSharedText: String? = null
+    private var pendingSharedLink: String? = null
     private var cameraImageUri: Uri? = null
     // "": vista normale, "tutti": tutti gli articoli, "miei": i miei articoli
     private var vistaAttuale: String = ""
@@ -121,6 +129,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        queueIncomingShareIntent(intent)
+
         val prefs = prefs()
         ApiClient.configure(
             url = prefs.getString("api_url", "http://10.0.2.2:4567") ?: "http://10.0.2.2:4567",
@@ -131,6 +141,7 @@ class MainActivity : AppCompatActivity() {
             items      = items,
             onToggle   = ::toggleItem,
             onFoto     = ::apriFoto,
+            onLink     = ::apriLinkArticolo,
             onContext  = ::selezionaContestoDaListaGlobale,
             contextColor = ::coloreSeparatoreContesto,
             onLongPress = { item, anchor -> mostraMenuContestuale(item, anchor) }
@@ -201,6 +212,8 @@ class MainActivity : AppCompatActivity() {
             caricaInfoGruppo()
             if (prefs.getInt("user_id", 0) == 0) {
                 mostraDialogCollegaTelegram(primoAvvio = true)
+            } else {
+                tryConsumePendingShare()
             }
         } else {
             mostraDialogConfigRete(primoAvvio = true)
@@ -214,6 +227,128 @@ class MainActivity : AppCompatActivity() {
                     aggiornaLista()
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        queueIncomingShareIntent(intent)
+        tryConsumePendingShare()
+    }
+
+    private fun queueIncomingShareIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        if (intent.type?.startsWith("text/") != true) return
+
+        val sharedSubject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+        val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: sharedSubject
+            ?: return
+
+        val (descrizione, link) = extractSharePayload(sharedText, sharedSubject)
+        pendingSharedText = descrizione
+        pendingSharedLink = link
+    }
+
+    private fun extractSharePayload(raw: String, subject: String?): Pair<String, String?> {
+        val link = extractFirstUrl(raw)
+        val candidates = mutableListOf<String>()
+        raw.lineSequence()
+            .map { normalizeCandidate(it) }
+            .filter { it.isNotEmpty() }
+            .filter { isLikelyHumanTitle(it) }
+            .forEach { candidates.add(it) }
+
+        subject
+            ?.let { normalizeCandidate(it) }
+            ?.takeIf { it.isNotEmpty() && isLikelyHumanTitle(it) }
+            ?.let { candidates.add(0, it) }
+
+        val descrizione = candidates
+            .distinct()
+            .maxByOrNull { titleScore(it) }
+            ?: titleFromUrl(link)
+            ?: "Prodotto Yuka"
+
+        return Pair(descrizione, link)
+    }
+
+    private fun extractFirstUrl(raw: String): String? {
+        val matcher = Pattern.compile("https?://\\S+").matcher(raw)
+        return if (matcher.find()) matcher.group().trim() else null
+    }
+
+    private fun titleFromUrl(url: String?): String? {
+        val value = url?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        return runCatching {
+            val clean = value.substringBefore('?').substringBefore('#').trimEnd('/')
+            val slug = clean.substringAfterLast('/', "").trim()
+            if (slug.isEmpty()) return@runCatching null
+            URLDecoder.decode(slug, "UTF-8")
+                .replace('-', ' ')
+                .replace('_', ' ')
+                .replace(Regex("\\s+"), " ")
+                .trim()
+                .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                .takeIf { isLikelyHumanTitle(it) }
+        }.getOrNull()
+    }
+
+    private fun normalizeCandidate(value: String): String {
+        return value
+            .removePrefix("- ")
+            .removePrefix("• ")
+            .removePrefix("▫️ ")
+            .trim()
+    }
+
+    private fun isLikelyHumanTitle(value: String): Boolean {
+        val v = value.trim()
+        if (v.isEmpty()) return false
+        if (v.startsWith("http", ignoreCase = true)) return false
+        if (v.contains("yuka.io", ignoreCase = true)) return false
+        if (v.equals("yuka", ignoreCase = true)) return false
+        if (v.contains("scopri", ignoreCase = true)) return false
+
+        val compact = v.replace(" ", "")
+        val shortToken = compact.length <= 10 && compact.matches(Regex("^[A-Za-z0-9]+$"))
+        if (shortToken) return false
+
+        val hasLetters = v.any { it.isLetter() }
+        return hasLetters && v.length >= 4
+    }
+
+    private fun titleScore(value: String): Int {
+        val words = value.split(Regex("\\s+")).count { it.isNotBlank() }
+        val letters = value.count { it.isLetter() }
+        val bonusWords = if (words >= 2) 20 else 0
+        return letters + bonusWords
+    }
+
+    private fun tryConsumePendingShare() {
+        val text = pendingSharedText ?: return
+        val link = pendingSharedLink
+        if (!prefs().contains("api_url") || userId == 0) return
+
+        pendingSharedText = null
+        pendingSharedLink = null
+
+        lifecycleScope.launch {
+            val resolved = withContext(Dispatchers.IO) {
+                if (text.equals("Prodotto Yuka", ignoreCase = true) && !link.isNullOrBlank()) {
+                    ApiClient.resolveSharedProductTitle(link)
+                } else {
+                    null
+                }
+            }
+            mostraDialogAggiungi(prefilledText = resolved ?: text, prefilledLink = link)
         }
     }
 
@@ -264,16 +399,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostraScopettaConferma() {
-        val comprati = items.count { it.isBought }
-        if (comprati == 0) {
-            Toast.makeText(this, "Nessun articolo comprato", Toast.LENGTH_SHORT).show()
+        val daPulire = items.count { it.isBought || it.isDeleted }
+        if (daPulire == 0) {
+            Toast.makeText(this, "Nessun articolo da pulire", Toast.LENGTH_SHORT).show()
             return
         }
         val titolo = if (vistaAttuale.isNotEmpty()) "🧹 Superscopetta" else getString(R.string.scopetta)
         val msg = if (vistaAttuale.isNotEmpty())
-            "Rimuovere da tutti i gruppi gli articoli segnati come comprati da te?"
+            "Rimuovere da tutti i gruppi gli articoli segnati come comprati o già cancellati?"
         else
-            "Rimuovere $comprati articol${if (comprati == 1) "o comprato" else "i comprati"}?"
+            "Rimuovere $daPulire articol${if (daPulire == 1) "o" else "i"} da pulire?"
         AlertDialog.Builder(this)
             .setTitle(titolo)
             .setMessage(msg)
@@ -425,6 +560,7 @@ class MainActivity : AppCompatActivity() {
                             aggiornaNomeUtente()
                             Toast.makeText(this@MainActivity, "\u2713 Benvenuto, ${r.firstName}!", Toast.LENGTH_LONG).show()
                             dlg.dismiss()
+                            tryConsumePendingShare()
                         } else {
                             etPin.error = "PIN non valido o scaduto"
                         }
@@ -488,6 +624,8 @@ class MainActivity : AppCompatActivity() {
                     caricaInfoGruppo()
                     if (primoAvvio && userId == 0) {
                         mostraDialogCollegaTelegram(primoAvvio = true)
+                    } else {
+                        tryConsumePendingShare()
                     }
                 }
             }
@@ -728,6 +866,25 @@ class MainActivity : AppCompatActivity() {
             putExtra(FotoActivity.EXTRA_NOME, item.nome)
         })
     }
+
+    private fun apriLinkArticolo(item: SpesaItem) {
+        val raw = item.linkUrl.trim()
+        if (raw.isEmpty()) {
+            Toast.makeText(this, "Link non disponibile", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val safeUrl = if (raw.startsWith("http://", ignoreCase = true) || raw.startsWith("https://", ignoreCase = true)) {
+            raw
+        } else {
+            "https://$raw"
+        }
+
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl))
+        runCatching { startActivity(intent) }
+            .onFailure { Toast.makeText(this, "Impossibile aprire il link", Toast.LENGTH_SHORT).show() }
+    }
+
     private fun aggiornaLista() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -838,7 +995,7 @@ class MainActivity : AppCompatActivity() {
         else eliminaItem(item)
     }
 
-    private fun mostraDialogAggiungi() {
+    private fun mostraDialogAggiungi(prefilledText: String? = null, prefilledLink: String? = null) {
         lifecycleScope.launch {
             val destinazioni = withContext(Dispatchers.IO) {
                 runCatching {
@@ -863,6 +1020,10 @@ class MainActivity : AppCompatActivity() {
 
             val input = EditText(this@MainActivity).apply {
                 hint = "es. Latte, Pane, Uova"
+                if (!prefilledText.isNullOrBlank()) {
+                    setText(prefilledText)
+                    setSelection(text.length)
+                }
                 setPadding(0, 16, 0, 16)
             }
             val radioGroup = android.widget.RadioGroup(this@MainActivity).apply {
@@ -914,7 +1075,7 @@ class MainActivity : AppCompatActivity() {
                         input.error = "Inserisci almeno un articolo"
                     } else {
                         dlg.dismiss()
-                        aggiungiItem(testo, destinazioneSelezionata())
+                        aggiungiItem(testo, destinazioneSelezionata(), prefilledLink)
                     }
                 }
                 dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -933,11 +1094,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun aggiungiItem(testo: String, destinazione: AddDestination) {
+    private fun aggiungiItem(testo: String, destinazione: AddDestination, linkUrl: String? = null) {
+        val usaSplit = linkUrl.isNullOrBlank()
+        val payloadNome = if (linkUrl.isNullOrBlank()) {
+            testo
+        } else {
+            "${testo.trim()} $LINK_MARKER ${linkUrl.trim()}"
+        }
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    ApiClient.addItem(destinazione.gruppoId, destinazione.topicId, testo, userId)
+                    ApiClient.addItem(
+                        destinazione.gruppoId,
+                        destinazione.topicId,
+                        payloadNome,
+                        userId,
+                        linkUrl = linkUrl,
+                        splitItems = usaSplit
+                    )
                         .also { if (it.isEmpty()) throw IllegalStateException("Articolo non creato") }
                 }
             }

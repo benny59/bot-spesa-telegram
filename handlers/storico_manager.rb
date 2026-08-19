@@ -8,7 +8,25 @@ class StoricoManager
   def self.notifica_acquisto_html(nome, articoli)
     nome_sicuro = CGI.escapeHTML(nome.to_s)
     elenco = articoli.map { |articolo| CGI.escapeHTML(articolo.to_s) }.join(', ')
+    return "🧹 <b>#{nome_sicuro}</b> ha pulito la lista." if elenco.empty?
+
     "🛒 <b>#{nome_sicuro}</b> ha comprato #{elenco}."
+  end
+
+  def self.notifica_scopetta_html(nome, comprati: [], cancellati: [])
+    nome_sicuro = CGI.escapeHTML(nome.to_s)
+    comprati = Array(comprati).map { |articolo| CGI.escapeHTML(articolo.to_s) }
+    cancellati = Array(cancellati).map { |articolo| CGI.escapeHTML(articolo.to_s) }
+
+    if comprati.empty? && cancellati.empty?
+      return "🧹 <b>#{nome_sicuro}</b> ha pulito la lista."
+    end
+
+    parti = []
+    parti << "🛒 <b>#{nome_sicuro}</b> ha comprato #{comprati.join(', ')}." unless comprati.empty?
+    parti << "🗑️ <b>#{nome_sicuro}</b> ha eliminato definitivamente #{cancellati.join(', ')} senza averli comprati." unless cancellati.empty?
+
+    parti.join("\n")
   end
 
   # ==============================================================================

@@ -14,6 +14,7 @@ class SpesaAdapter(
     private val items: MutableList<SpesaItem>,
     private val onToggle: (SpesaItem) -> Unit,
     private val onFoto: (SpesaItem) -> Unit,
+    private val onLink: (SpesaItem) -> Unit,
     private val onContext: (SpesaItem) -> Unit,
     private val contextColor: (SpesaItem) -> Int,
     private val onLongPress: (SpesaItem, android.view.View) -> Unit = { _, _ -> }
@@ -25,6 +26,7 @@ class SpesaAdapter(
         val tvNome: TextView          = view.findViewById(R.id.tvNome)
         val tvGruppoNome: TextView    = view.findViewById(R.id.tvGruppoNome)
         val tvComprato: TextView      = view.findViewById(R.id.tvComprato)
+        val ivLink: ImageView         = view.findViewById(R.id.ivLink)
         val ivFoto: ImageView         = view.findViewById(R.id.ivFoto)
         val tvContextSeparator: TextView = view.findViewById(R.id.tvContextSeparator)
         val itemCard: CardView = view.findViewById(R.id.itemCard)
@@ -99,6 +101,9 @@ class SpesaAdapter(
                 holder.tvInitialsBuyer.visibility = View.GONE
             }
         }
+
+        holder.ivLink.visibility = if (item.linkUrl.isNotBlank()) View.VISIBLE else View.GONE
+        holder.ivLink.setOnClickListener { onLink(item) }
 
         holder.ivFoto.visibility = if (item.hasFoto) View.VISIBLE else View.GONE
         holder.ivFoto.setOnClickListener { onFoto(item) }

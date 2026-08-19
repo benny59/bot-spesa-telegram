@@ -87,6 +87,16 @@
 
         </LinearLayout>
 
+        <ImageView
+            android:id="@+id/ivLink"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_share"
+            android:tint="#FF7A00"
+            android:contentDescription="@string/apri_link_prodotto"
+            android:visibility="gone" />
+
         <!-- Icona foto: visibile solo se l'item ha una foto allegata -->
         <ImageView
             android:id="@+id/ivFoto"

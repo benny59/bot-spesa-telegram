@@ -290,7 +290,9 @@ when /^trigger_list:(-?\d*):(\d*)$/
 
           if rimossi > 0 && g_id != 0
             chat_id_dest = DataManager.get_real_chat_id(g_id)
-            msg = StoricoManager.notifica_acquisto_html(u_name, items.map { |item| item["nome"] })
+            comprati = items.select { |i| i["comprato"].to_s.strip != "" }.map { |item| item["nome"] }
+            cancellati = items.reject { |i| i["comprato"].to_s.strip != "" }.map { |item| item["nome"] }
+            msg = StoricoManager.notifica_scopetta_html(u_name, comprati: comprati, cancellati: cancellati)
 
             bot.api.send_message(
               chat_id: chat_id_dest,
@@ -315,12 +317,20 @@ when /^trigger_list:(-?\d*):(\d*)$/
         "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != '' ORDER BY id",
         [g_id, t_id]
       )
+      cancellati = DB.execute(
+        "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 1 ORDER BY id",
+        [g_id, t_id]
+      )
       rimossi = DataManager.esegui_scopetta(g_id, t_id)
 
       if rimossi > 0 && g_id != 0 && callback.message.chat.type == "private"
         target_chat = DataManager.get_real_chat_id(g_id)
         u_name = callback.from.first_name
-        testo_notifica = StoricoManager.notifica_acquisto_html(u_name, acquistati.map { |item| item["nome"] })
+        testo_notifica = StoricoManager.notifica_scopetta_html(
+          u_name,
+          comprati: acquistati.map { |item| item["nome"] },
+          cancellati: cancellati.map { |item| item["nome"] }
+        )
 
         bot.api.send_message(
           chat_id: target_chat,

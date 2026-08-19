@@ -44,11 +44,11 @@ rescue => e
 end
 
 # Invia notifica Telegram al gruppo dopo la scopetta
-def notifica_scopetta(gruppo_id, topic_id, user_id, articoli)
+def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: [])
   nome = DB.get_first_value(
     "SELECT first_name FROM user_names WHERE user_id = ?", [user_id]
   ) || 'Utente'
-  testo = StoricoManager.notifica_acquisto_html(nome, articoli)
+  testo = StoricoManager.notifica_scopetta_html(nome, comprati: comprati, cancellati: cancellati)
   notifica_gruppo(gruppo_id, topic_id, testo)
 end
 
@@ -193,6 +193,7 @@ get '/lista' do
       gruppo_id:     i['gruppo_id'],
       topic_id:      i['topic_id'],
       nome:          i['nome'],
+      link_url:      i['link_url'].to_s,
       comprato:      i['comprato'].to_s.empty? ? '' : i['buyer_initials'].to_s,
       buyer_initials: i['buyer_initials'].to_s,
       creato_da:     i['creato_da'],
@@ -209,6 +210,8 @@ post '/lista' do
   gruppo_id = body['gruppo_id']&.to_i
   topic_id  = body['topic_id']&.to_i || 0
   testo     = body['nome'].to_s.strip
+  link_url  = body['link_url'].to_s.strip
+  split_items = body.key?('split_items') ? !!body['split_items'] : true
   user_id   = body['user_id']&.to_i || 0
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
@@ -220,7 +223,14 @@ post '/lista' do
     halt 403, { error: 'accesso negato' }.to_json unless consentito
   end
 
-  item_ids = DataManager.aggiungi_articoli(gruppo_id: gruppo_id, user_id: user_id, items_text: testo, topic_id: topic_id)
+  item_ids = DataManager.aggiungi_articoli(
+    gruppo_id: gruppo_id,
+    user_id: user_id,
+    items_text: testo,
+    topic_id: topic_id,
+    link_url: link_url,
+    split_items: split_items
+  )
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
@@ -315,16 +325,27 @@ delete '/lista/comprati' do
     )
   end
 
+  cancellati = DB.execute(
+    "SELECT id, nome FROM items WHERE gruppo_id=? AND topic_id=? AND deleted = 1",
+    [gruppo_id, topic_id]
+  )
+
   # Lista Personale: scopetta solo i propri articoli comprati
   rimossi = if gruppo_id == 0 && user_id != 0
-    target = acquistati.map { |r| r['id'] }
+    target = (acquistati + cancellati).map { |r| r['id'] }
     target.any? ? DataManager.esegui_scopetta(0, topic_id, target) : 0
   else
     DataManager.esegui_scopetta(gruppo_id, topic_id)
   end
 
   if rimossi > 0
-    notifica_scopetta(gruppo_id, topic_id, user_id, acquistati.map { |item| item['nome'] })
+    notifica_scopetta(
+      gruppo_id,
+      topic_id,
+      user_id,
+      comprati: acquistati.map { |item| item['nome'] },
+      cancellati: cancellati.map { |item| item['nome'] }
+    )
   end
 
   { ok: true, rimossi: rimossi }.to_json
@@ -343,7 +364,11 @@ delete '/lista/comprati/ovunque' do
   rimossi = per_gruppo.sum do |(g_id, t_id), items|
     ids = items.map { |i| i['id'] }
     eliminati = DataManager.esegui_scopetta(g_id, t_id, ids)
-    notifica_scopetta(g_id, t_id, user_id, items.map { |item| item['nome'] }) if eliminati > 0
+    if eliminati > 0
+      comprati = items.select { |i| i['comprato'].to_s.strip != '' }.map { |item| item['nome'] }
+      cancellati = items.reject { |i| i['comprato'].to_s.strip != '' }.map { |item| item['nome'] }
+      notifica_scopetta(g_id, t_id, user_id, comprati: comprati, cancellati: cancellati)
+    end
     eliminati
   end
 
@@ -628,6 +653,7 @@ def serializza_item(i, nome_gruppo: '')
     topic_id:      i['topic_id'],
     nome_topic:    i['nome_topic'].to_s,
     nome:          i['nome'],
+    link_url:      i['link_url'].to_s,
     comprato:      i['comprato'].to_s.empty? ? '' : i['buyer_initials'].to_s,
     buyer_initials: i['buyer_initials'].to_s,
     creato_da:     i['creato_da'],

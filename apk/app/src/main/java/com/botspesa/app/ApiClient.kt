@@ -23,6 +23,9 @@ object ApiClient {
     private var baseUrl = "http://10.0.2.2:4567"
     private var token = ""
 
+    private val ogTitleRegex = Regex("<meta[^>]+property=[\"']og:title[\"'][^>]+content=[\"']([^\"']+)[\"'][^>]*>", RegexOption.IGNORE_CASE)
+    private val titleRegex = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+
     fun configure(url: String, tok: String) {
         baseUrl = url.trimEnd('/')
         token = tok
@@ -79,6 +82,9 @@ object ApiClient {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { item ->
+            val nomeRaw = item["nome"] as? String ?: ""
+            val linkRaw = item["link_url"] as? String ?: ""
+            val decoded = decodeLinkFromNome(nomeRaw, linkRaw)
             val deletedValue = item["deleted"]
             val deleted = when (deletedValue) {
                 is Boolean -> deletedValue
@@ -88,7 +94,8 @@ object ApiClient {
             }
             SpesaItem(
                 id           = (item["id"] as Double).toInt(),
-                nome         = item["nome"] as? String ?: "",
+                nome         = decoded.first,
+                linkUrl      = decoded.second,
                 comprato     = item["comprato"] as? String ?: "",
                 userInitials = item["user_initials"] as? String ?: "",
                 buyerInitials = item["buyer_initials"] as? String ?: "",
@@ -103,13 +110,48 @@ object ApiClient {
         }
     }
 
-    fun addItem(gruppoId: Int, topicId: Int, nome: String, userId: Int): List<Int> {
-        val payload = gson.toJson(mapOf(
+    private fun decodeLinkFromNome(nomeRaw: String, linkRaw: String): Pair<String, String> {
+        val marker = "[YUKA_LINK]"
+        val split = nomeRaw.split(marker, limit = 2)
+        if (split.size == 2) {
+            val nome = split[0].trim().ifEmpty { "Prodotto Yuka" }
+            val link = split[1].trim()
+            return Pair(nome, if (link.isNotEmpty()) link else linkRaw)
+        }
+
+        if (linkRaw.isNotBlank()) return Pair(nomeRaw, linkRaw)
+
+        val regex = Regex("https?://\\S+")
+        val match = regex.find(nomeRaw)
+        return if (match != null) {
+            val link = match.value.trim()
+            val nome = nomeRaw.replace(link, "").trim().ifEmpty { "Prodotto Yuka" }
+            Pair(nome, link)
+        } else {
+            Pair(nomeRaw, "")
+        }
+    }
+
+    fun addItem(
+        gruppoId: Int,
+        topicId: Int,
+        nome: String,
+        userId: Int,
+        linkUrl: String? = null,
+        splitItems: Boolean = true
+    ): List<Int> {
+        val payloadMap = mutableMapOf<String, Any>(
             "gruppo_id" to gruppoId,
             "topic_id"  to topicId,
             "nome"      to nome,
-            "user_id"   to userId
-        ))
+            "user_id"   to userId,
+            "split_items" to splitItems
+        )
+        val linkPulito = linkUrl?.trim().orEmpty()
+        if (linkPulito.isNotEmpty()) {
+            payloadMap["link_url"] = linkPulito
+        }
+        val payload = gson.toJson(payloadMap)
         val req = Request.Builder()
             .url("$baseUrl/lista")
             .post(payload.toRequestBody(JSON_TYPE))
@@ -123,6 +165,43 @@ object ApiClient {
                 ?.mapNotNull { (it as? Double)?.toInt() }
                 .orEmpty()
         }
+    }
+
+    fun resolveSharedProductTitle(url: String): String? {
+        val cleanUrl = url.trim()
+        if (cleanUrl.isEmpty()) return null
+
+        val req = Request.Builder()
+            .url(cleanUrl)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) BotSpesa/1.0")
+            .get()
+            .build()
+
+        return runCatching {
+            http.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val html = response.body?.string().orEmpty().take(600_000)
+                val og = ogTitleRegex.find(html)?.groupValues?.getOrNull(1)?.trim()
+                val title = titleRegex.find(html)?.groupValues?.getOrNull(1)?.trim()
+                sanitizeResolvedTitle(og ?: title)
+            }
+        }.getOrNull()
+    }
+
+    private fun sanitizeResolvedTitle(raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+
+        val cleaned = value
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace(Regex("\\s+"), " ")
+            .replace(Regex("\\s*[|•-]\\s*Yuka.*$", RegexOption.IGNORE_CASE), "")
+            .trim()
+
+        return cleaned.takeIf { it.length >= 3 }
     }
 
     fun toggleItem(gruppoId: Int, itemId: Int, userId: Int): String {
