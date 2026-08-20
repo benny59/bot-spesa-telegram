@@ -1,6 +1,8 @@
 # bot_spesa.rb (Versione Refactored v2 - Robust & Secure)
 
-require "resolv-replace"
+# Nota: evitato require "resolv-replace" su Termux/Android
+# perché il resolver Ruby dual-stack può bloccare le connessioni a api.telegram.org
+# su IPv6 non instradato e causare timeout TCP/"execution expired".
 require "telegram/bot"
 require "json"
 require_relative "db"
