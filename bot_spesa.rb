@@ -1,5 +1,6 @@
 # bot_spesa.rb (Versione Refactored v2 - Robust & Secure)
 
+require "resolv-replace"
 require "telegram/bot"
 require "json"
 require_relative "db"
