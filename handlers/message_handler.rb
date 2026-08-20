@@ -416,6 +416,8 @@ end
     is_callback = message.is_a?(Telegram::Bot::Types::CallbackQuery)
     real_message = is_callback ? message.message : message
     groups_and_topics = DataManager.prendi_gruppi_con_articoli(user_id, show_all)
+    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I MIEI ARTICOLI"
+
     puts "🔍 [DEBUG HANDLE] Gruppi trovati: #{groups_and_topics.size}"
     if groups_and_topics.any?
       # Stampiamo il primo per vedere se contiene ancora articoli completati
@@ -438,7 +440,6 @@ end
     page = [[page, 0].max, total_pages - 1].min
     slice = groups_and_topics.slice(page * per_page, per_page) || []
 
-    title = show_all ? "📦 TUTTI GLI ARTICOLI" : "📋 I MIEI ARTICOLI"
     text = "<b>#{title}</b> (Pag. #{page + 1}/#{total_pages})\n"
 
     # CHIAMATA AL GENERATORE ESTERNO
