@@ -502,7 +502,7 @@ when /^add_from_hist_id:(\d+):(-?\d+):(\d+)$/
   )
   unless storico_item
     bot.api.answer_callback_query(callback_query_id: callback.id, text: "Voce storico non trovata") rescue nil
-    next
+    return
   end
 
   nome = storico_item["nome"].to_s
