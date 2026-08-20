@@ -7,16 +7,36 @@ require_relative "../models/context"
 require_relative "../db"
 
 class CallbackHandler
+  def self.safe_answer_callback_query(bot, callback, **kwargs)
+    return if callback.nil? || callback.id.to_s.empty?
+
+    bot.api.answer_callback_query({ callback_query_id: callback.id }.merge(kwargs))
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    message = e.message.to_s
+    if message.include?("query is too old") ||
+       message.include?("response timeout expired") ||
+       message.include?("query ID is invalid") ||
+       message.include?("message is not modified")
+      puts "[CALLBACK] ℹ️ Callback vecchio/invalid: #{message}"
+    else
+      puts "[CALLBACK] ⚠️ answer_callback_query fallita: #{message}"
+    end
+  rescue => e
+    puts "[CALLBACK] ⚠️ answer_callback_query non disponibile: #{e.class}: #{e.message}"
+  end
+
   def self.route(bot, callback, context)
     data = callback.data
     user_id = callback.from.id
     user_name = callback.from.first_name
-    bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
-    puts "[CALLBACK] 🖱️ Ricevuto: '#{data}' da #{user_name}"
 
-    case data
-    # In CallbackHandler (o nel blocco case del callback in bot_spesa.rb)
-    when /^adm_app:(\d+):(.+):(.+)$/
+    begin
+      safe_answer_callback_query(bot, callback)
+      puts "[CALLBACK] 🖱️ Ricevuto: '#{data}' da #{user_name}"
+
+      case data
+      # In CallbackHandler (o nel blocco case del callback in bot_spesa.rb)
+      when /^adm_app:(\d+):(.+):(.+)$/
       target_id, target_user, target_name = $1.to_i, $2, $3.gsub("_", " ")
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ Utente approvato!")
 
@@ -694,9 +714,21 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       # 4. Creiamo un contesto aggiornato e rimandiamo la tastiera fisica
       new_context = Context.new(chat_id: callback.message.chat.id, user_id: u_id, scope: :private)
       KeyboardGenerator.show_private_keyboard(bot, callback.message.chat.id, new_context)
-    else
-      puts "[CALLBACK] ❓ Azione non gestita: #{data}"
-      bot.api.answer_callback_query(callback_query_id: callback.id, text: "Funzione in fase di refactoring")
+      else
+        puts "[CALLBACK] ❓ Azione non gestita: #{data}"
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "Funzione in fase di refactoring")
+      end
+    rescue Telegram::Bot::Exceptions::ResponseError => e
+      message = e.message.to_s
+      if message.include?("query is too old") ||
+         message.include?("response timeout expired") ||
+         message.include?("query ID is invalid") ||
+         message.include?("message is not modified")
+        puts "[CALLBACK] ⚠️ Callback scaduto/invalid: #{message}"
+      else
+        puts "[CALLBACK] ⚠️ ResponseError durante callback: #{message}"
+      end
+      return
     end
   end
 
