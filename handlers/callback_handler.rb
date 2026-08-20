@@ -492,9 +492,71 @@ when /^trigger_list:(-?\d*):(\d*)$/
       )
 
       #bot.api.answer_callback_query(callback_query_id: callback.id)
+when /^add_from_hist_id:(\d+):(-?\d+):(\d+)$/
+  storico_id, g_id, t_id = $1.to_i, $2.to_i, $3.to_i
+  bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
+
+  storico_item = DB.get_first_row(
+    "SELECT nome, link_url FROM storico_articoli WHERE id = ? AND gruppo_id = ? AND topic_id = ?",
+    [storico_id, g_id, t_id]
+  )
+  unless storico_item
+    bot.api.answer_callback_query(callback_query_id: callback.id, text: "Voce storico non trovata") rescue nil
+    next
+  end
+
+  nome = storico_item["nome"].to_s
+  link_url = storico_item["link_url"].to_s.strip
+  link_url = nil if link_url.empty?
+
+  # Recupero nome utente (Uniforme a core_aggiunta)
+  u_name = callback.from.first_name
+  t_chat_id = DataManager.prendi_telegram_chat_id(g_id)
+
+  esiste_id = DB.get_first_value(
+    "SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND (comprato IS NULL OR comprato = '')",
+    [g_id, t_id, nome.downcase]
+  )
+
+  if esiste_id
+    DataManager.rimuovi_da_lista(esiste_id)
+
+    # MESSAGGIO UNIFORMATO (Rimozione)
+    if t_chat_id && t_chat_id != callback.message.chat.id
+      bot.api.send_message(
+        chat_id: t_chat_id,
+        text: "➖ <b>#{u_name}</b> ha rimosso: #{StoricoManager.nome_storico_per_telegram(nome)}",
+        parse_mode: "HTML",
+        message_thread_id: t_id != 0 ? t_id : nil
+      )
+    end
+  else
+    DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: user_id, items_text: nome, topic_id: t_id, link_url: link_url, split_items: false)
+
+    # MESSAGGIO UNIFORMATO (Aggiunta)
+    if t_chat_id && t_chat_id != callback.message.chat.id
+      bot.api.send_message(
+        chat_id: t_chat_id,
+        text: "➕ <b>#{u_name}</b> ha aggiunto: #{StoricoManager.nome_storico_per_telegram(nome)}",
+        parse_mode: "HTML",
+        message_thread_id: t_id != 0 ? t_id : nil
+      )
+    end
+  end
+
+  # Refresh UI
+  nuovo_markup = StoricoManager.genera_tastiera_checklist(bot, context, g_id, t_id)
+  bot.api.edit_message_reply_markup(chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: nuovo_markup)
 when /^add_from_hist:(.+):(-?\d+):(\d+)$/
   nome, g_id, t_id = $1, $2.to_i, $3.to_i
   bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
+
+  storico_item = DB.get_first_row(
+    "SELECT link_url FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ?",
+    [g_id, t_id, nome.downcase]
+  )
+  link_url = storico_item ? storico_item["link_url"].to_s.strip : ""
+  link_url = nil if link_url.to_s.empty?
 
   # Recupero nome utente (Uniforme a core_aggiunta)
   u_name = callback.from.first_name
@@ -512,19 +574,19 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
     if t_chat_id && t_chat_id != callback.message.chat.id
       bot.api.send_message(
         chat_id: t_chat_id,
-        text: "➖ <b>#{u_name}</b> ha rimosso: #{nome}", # Stesso stile: Nome + Grassetto
+        text: "➖ <b>#{u_name}</b> ha rimosso: #{StoricoManager.nome_storico_per_telegram(nome)}",
         parse_mode: "HTML",
         message_thread_id: t_id != 0 ? t_id : nil
       )
     end
   else
-    DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: user_id, items_text: nome, topic_id: t_id)
+    DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: user_id, items_text: nome, topic_id: t_id, link_url: link_url, split_items: false)
     
     # MESSAGGIO UNIFORMATO (Aggiunta)
     if t_chat_id && t_chat_id != callback.message.chat.id
       bot.api.send_message(
         chat_id: t_chat_id,
-        text: "➕ <b>#{u_name}</b> ha aggiunto: #{nome}", # Icona ➕ come nel core_aggiunta
+        text: "➕ <b>#{u_name}</b> ha aggiunto: #{StoricoManager.nome_storico_per_telegram(nome)}",
         parse_mode: "HTML",
         message_thread_id: t_id != 0 ? t_id : nil
       )

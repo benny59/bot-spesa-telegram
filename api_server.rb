@@ -386,6 +386,7 @@ get '/storico/acquisti' do
     {
       id:           acquisto['id'],
       nome:         acquisto['nome'],
+      link_url:     acquisto['link_url'],
       creatore:     acquisto['creato_da'] ? acquisto['creatore'] : nil,
       acquirente:   acquisto['comprato_da'] ? acquisto['acquirente'] : nil,
       updated_at:   acquisto['updated_at'],

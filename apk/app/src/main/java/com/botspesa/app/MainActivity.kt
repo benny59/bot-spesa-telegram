@@ -1,6 +1,7 @@
 package com.botspesa.app
 
 import android.app.AlertDialog
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -191,6 +192,7 @@ class MainActivity : AppCompatActivity() {
                         StoricoAcquistiSheet.newInstance(gruppoId, topicId, gNome, tNome)
                         .show(supportFragmentManager, "storico_acquisti")
                     }
+                R.id.nav_lancia_yuka      -> lanciaYukaLocale()
                 R.id.nav_gestione_carte    -> apriGestioneCarte()
                 R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
                 R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
@@ -518,6 +520,26 @@ class MainActivity : AppCompatActivity() {
         val gNome = tvGruppo.text.toString().trimEnd('▾', ' ')
         GestioneCarteSheet.newInstance(gruppoId, userId, gNome)
             .show(supportFragmentManager, "gestione_carte")
+    }
+
+    private fun lanciaYukaLocale() {
+        val packageName = "io.yuka.android"
+        val explicitIntent = Intent(Intent.ACTION_MAIN).apply {
+            component = ComponentName(packageName, "$packageName.main.RootActivity")
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        try {
+            startActivity(launchIntent ?: explicitIntent)
+            return
+        } catch (_: Exception) {
+        }
+
+        Snackbar.make(drawerLayout, "Yuka non installata", Snackbar.LENGTH_SHORT).show()
     }
 
     private fun mostraDialogCollegaTelegram(primoAvvio: Boolean = false) {

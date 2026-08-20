@@ -5,6 +5,17 @@ require "cgi"
 
 class StoricoManager
 
+  YUKA_MARKER = /\[YUKA_LINK\]/i
+  URL_REGEX = %r{https?://\S+}i
+
+  def self.nome_storico_per_telegram(raw)
+    nome = raw.to_s.dup
+    nome = nome.split(YUKA_MARKER, 2).first.to_s
+    nome = nome.gsub(URL_REGEX, " ")
+    nome = nome.gsub(/\s+/, " ").strip
+    nome.empty? ? "Prodotto" : nome
+  end
+
   def self.notifica_acquisto_html(nome, articoli)
     nome_sicuro = CGI.escapeHTML(nome.to_s)
     elenco = articoli.map { |articolo| CGI.escapeHTML(articolo.to_s) }.join(', ')
@@ -54,7 +65,7 @@ class StoricoManager
   # Recupera i suggerimenti marcando quelli già presenti in lista
   def self.suggerimenti_per_checklist(gruppo_id, topic_id)
     sql = <<~SQL
-      SELECT s.nome, s.conteggio,
+      SELECT s.id, s.nome, s.link_url, s.conteggio,
       (SELECT 1 FROM items i 
        WHERE i.gruppo_id = s.gruppo_id 
        AND i.topic_id = s.topic_id 
@@ -80,14 +91,15 @@ class StoricoManager
         # 1. Recuperiamo il conteggio dallo storico (passato dal DataManager)
         volte = item["conteggio"].to_i
         label_count = volte > 0 ? " (#{volte})" : ""
+        nome_label = nome_storico_per_telegram(item["nome"]).capitalize
 
         # 2. Prepariamo la label: es. "✅ Pane (12)" o "+ Latte (5)"
         status_prefix = item["in_lista"] ? "✅" : "+"
-        label = "#{status_prefix} #{item["nome"].capitalize}#{label_count}"
+        label = "#{status_prefix} #{nome_label}#{label_count}"
 
         Telegram::Bot::Types::InlineKeyboardButton.new(
           text: label,
-          callback_data: "add_from_hist:#{item["nome"]}:#{gruppo_id}:#{topic_id}",
+          callback_data: "add_from_hist_id:#{item["id"]}:#{gruppo_id}:#{topic_id}",
         )
       end
       keyboard << row
@@ -117,7 +129,7 @@ class StoricoManager
       data = Time.parse(acquisto["updated_at"]).strftime("%d/%m/%Y %H:%M")
       acquirente = CGI.escapeHTML(acquisto["acquirente"].to_s)
       creatore = CGI.escapeHTML(acquisto["creatore"].to_s)
-      nome = CGI.escapeHTML(acquisto["nome"].to_s)
+      nome = CGI.escapeHTML(nome_storico_per_telegram(acquisto["nome"]))
       identita = if acquisto["creato_da"] && acquisto["comprato_da"] &&
                     acquisto["creato_da"].to_i != acquisto["comprato_da"].to_i
           "Inserito da #{creatore} • acquistato da #{acquirente}"

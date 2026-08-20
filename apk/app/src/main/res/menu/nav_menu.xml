@@ -23,6 +23,10 @@
             android:id="@+id/nav_storico"
             android:icon="@drawable/ic_checklist"
             android:title="@string/nav_storico" />
+        <item
+            android:id="@+id/nav_lancia_yuka"
+            android:icon="@drawable/ic_yuka_logo"
+            android:title="@string/nav_lancia_yuka" />
     </group>
 
     <item

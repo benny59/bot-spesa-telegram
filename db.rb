@@ -134,6 +134,7 @@ SQL
     gruppo_id INTEGER,
     topic_id INTEGER DEFAULT 0,
     nome TEXT,
+    link_url TEXT,
     conteggio INTEGER DEFAULT 0,
     creato_da INTEGER,       -- <--- AGGIUNTO
     comprato_da INTEGER,     -- <--- AGGIUNTO
@@ -161,6 +162,11 @@ SQL
         WHERE UPPER(TRIM(u.initials)) = UPPER(TRIM(storico_articoli.comprato_da))
       ) = 1;
   SQL
+
+  storico_columns = db.execute("PRAGMA table_info(storico_articoli)").map { |row| row["name"] }
+  unless storico_columns.include?("link_url")
+    db.execute("ALTER TABLE storico_articoli ADD COLUMN link_url TEXT")
+  end
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS gruppo_carte_collegamenti (
@@ -314,17 +320,19 @@ class DataManager
 
   # Helper DRY per UPSERT storico_articoli (consolidato da esegui_scopetta e storico_manager)
   # Parametri creato_da_id e comprato_da_id sono opzionali (usati da esegui_scopetta, nil da storico_manager)
-  def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil)
+  def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil, link_url = nil)
     # Normalizza il nome: case-insensitive (Insalata = insalata)
     nome_normalizzato = nome.to_s.strip.downcase
     nome_formattato = nome_normalizzato.capitalize
+    link_pulito = link_url.to_s.strip
+    link_pulito = nil if link_pulito.empty?
 
     puts "  📝 [UPSERT] Elaborazione: '#{nome_formattato}' (G:#{gruppo_id}, T:#{topic_id})"
 
     # CONSOLIDAMENTO: Se esistono duplicati case-different (o in topic_id diversi), consolidarli PRIMA
     # ATTENZIONE: Il constraint unico è UNIQUE(nome, gruppo_id), quindi non filtriamo per topic_id qui!
-    duplicati = DB.execute(
-      "SELECT id, conteggio, topic_id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ? ORDER BY id ASC",
+      duplicati = DB.execute(
+      "SELECT id, conteggio, topic_id, link_url FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ? ORDER BY id ASC",
       [nome_normalizzato, gruppo_id]
     )
 
@@ -345,9 +353,12 @@ class DataManager
       )[0]
 
       # Aggiorna il record da mantenere al conteggio totale e nome Capitalize, e all'ultimo topic_id
+      link_esistente = duplicati.map { |rec| rec["link_url"].to_s.strip }.find { |v| !v.empty? }
+      link_finale = link_pulito || link_esistente
+
       DB.execute(
-        "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = ?, updated_at = ?, ultima_aggiunta = ? WHERE id = ?",
-        [nome_formattato, topic_id, total_count, max_dates["max_upd"], max_dates["max_ult"], keep_id]
+        "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = ?, link_url = ?, updated_at = ?, ultima_aggiunta = ? WHERE id = ?",
+        [nome_formattato, topic_id, total_count, link_finale, max_dates["max_upd"], max_dates["max_ult"], keep_id]
       )
 
       puts "  ✅ [UPSERT] Record #{keep_id} aggiornato con conteggio=#{total_count}"
@@ -370,13 +381,13 @@ class DataManager
       puts "  🔄 [UPSERT] UPDATE - Record esiste (ID=#{esistente["id"]})"
       if creato_da_id && comprato_da_id
         DB.execute(
-          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, updated_at = datetime('now') WHERE id = ?",
-          [nome_formattato, topic_id, creato_da_id, comprato_da_id, esistente["id"]]
+          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), updated_at = datetime('now') WHERE id = ?",
+          [nome_formattato, topic_id, creato_da_id, comprato_da_id, link_pulito, esistente["id"]]
         )
       else
         DB.execute(
-          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-          [nome_formattato, topic_id, esistente["id"]]
+          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+          [nome_formattato, topic_id, link_pulito, esistente["id"]]
         )
       end
       puts "  ✅ [UPSERT] UPDATE completato"
@@ -385,13 +396,13 @@ class DataManager
       puts "  ➕ [UPSERT] INSERT - Nuovo record"
       if creato_da_id && comprato_da_id
         DB.execute(
-          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, creato_da, comprato_da, ultima_aggiunta) VALUES (?, ?, ?, 1, ?, ?, datetime('now'))",
-          [gruppo_id, topic_id, nome_formattato, creato_da_id, comprato_da_id]
+          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, creato_da, comprato_da, ultima_aggiunta) VALUES (?, ?, ?, ?, 1, ?, ?, datetime('now'))",
+          [gruppo_id, topic_id, nome_formattato, link_pulito, creato_da_id, comprato_da_id]
         )
       else
         DB.execute(
-          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))",
-          [gruppo_id, topic_id, nome_formattato]
+          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))",
+          [gruppo_id, topic_id, nome_formattato, link_pulito]
         )
       end
       puts "  ✅ [UPSERT] INSERT completato"
@@ -407,7 +418,7 @@ class DataManager
     if target_ids && !target_ids.empty?
       placeholders = target_ids.map { "?" }.join(",")
       query = <<~SQL
-        SELECT id, nome, creato_da, comprato, deleted
+        SELECT id, nome, link_url, creato_da, comprato, deleted
         FROM items
         WHERE id IN (#{placeholders})
           AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
@@ -416,7 +427,7 @@ class DataManager
       puts "🧹 [SCOPETTA] Modalità: target_ids (#{target_ids.size} items)"
     else
       query = <<~SQL
-        SELECT id, nome, creato_da, comprato, deleted
+        SELECT id, nome, link_url, creato_da, comprato, deleted
         FROM items
         WHERE gruppo_id = ?
           AND topic_id = ?
@@ -434,7 +445,7 @@ class DataManager
       da_cancellare.each do |item|
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         if item["comprato"].to_s.strip != ""
-          self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"])
+          self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"], item["link_url"])
         end
       end
 
@@ -631,6 +642,7 @@ end
           UPPER(SUBSTR(LOWER(nome),1,1)) || SUBSTR(LOWER(nome),2) as nome_normalizzato,
           gruppo_id,
           MAX(topic_id) as topic_id_scelto,
+          MAX(NULLIF(TRIM(link_url), '')) as link_url_scelto,
           GROUP_CONCAT(id) as ids,
           SUM(conteggio) as total_count
         FROM storico_articoli
@@ -651,8 +663,8 @@ end
           
           # Inserisce uno consolidato
           DB.execute(
-            "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, updated_at, ultima_aggiunta) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-            [dup["gruppo_id"], topic_scelto, dup["nome_normalizzato"], total]
+            "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, updated_at, ultima_aggiunta) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            [dup["gruppo_id"], topic_scelto, dup["nome_normalizzato"], dup["link_url_scelto"], total]
           )
         end
         puts "   ✓ Consolidati #{duplicates.size} insiemi di duplicati pre-esistenti"
@@ -1024,6 +1036,7 @@ end
     DB.execute(
       <<-SQL,
         SELECT s.id, s.nome, s.updated_at, s.conteggio, s.creato_da, s.comprato_da,
+           s.link_url,
                COALESCE(NULLIF(TRIM(creatore.first_name || ' ' || IFNULL(creatore.last_name, '')), ''), 'Utente') AS creatore,
                COALESCE(NULLIF(TRIM(acquirente.first_name || ' ' || IFNULL(acquirente.last_name, '')), ''), 'Utente') AS acquirente
         FROM storico_articoli s
