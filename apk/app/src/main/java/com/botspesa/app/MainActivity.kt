@@ -30,6 +30,8 @@ import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.navigation.NavigationView
 import com.google.android.material.snackbar.Snackbar
@@ -39,8 +41,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URLDecoder
+import java.text.NumberFormat
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.regex.Pattern
 
 class MainActivity : AppCompatActivity() {
@@ -67,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingNuovoTopicId = 0
     private var pendingSharedText: String? = null
     private var pendingSharedLink: String? = null
+    private var pendingSharedBarcode: String? = null
     private var cameraImageUri: Uri? = null
     // "": vista normale, "tutti": tutti gli articoli, "miei": i miei articoli
     private var vistaAttuale: String = ""
@@ -79,6 +84,9 @@ class MainActivity : AppCompatActivity() {
     }
     private val requestCameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) launchCamera() else Toast.makeText(this, "Permesso fotocamera negato", Toast.LENGTH_SHORT).show()
+    }
+    private val productScanLauncher = registerForActivityResult(ScanContract()) { result ->
+        result.contents?.let(::caricaAnteprimaProdotto)
     }
 
     private val gruppoId  get() = prefs().getInt("gruppo_id", 1)
@@ -169,11 +177,20 @@ class MainActivity : AppCompatActivity() {
         drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
 
-        val navHeader = findViewById<NavigationView>(R.id.navView).getHeaderView(0)
+        val navView = findViewById<NavigationView>(R.id.navView)
+        val navHeader = navView.getHeaderView(0)
         navHeader.findViewById<TextView>(R.id.tvAppName).text =
             getString(R.string.app_name_version, BuildConfig.VERSION_NAME)
 
-        findViewById<NavigationView>(R.id.navView).setNavigationItemSelectedListener { item ->
+        val satispayMenuItem = navView.menu.findItem(R.id.nav_lancia_satispay)
+        val satispayIcon = runCatching {
+            packageManager.getApplicationIcon("com.satispay.customer")
+        }.getOrNull()
+        if (satispayIcon != null) {
+            satispayMenuItem?.icon = satispayIcon
+        }
+
+        navView.setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
             when (item.itemId) {
                 R.id.nav_lista            -> { vistaAttuale = ""; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
@@ -193,6 +210,7 @@ class MainActivity : AppCompatActivity() {
                         .show(supportFragmentManager, "storico_acquisti")
                     }
                 R.id.nav_lancia_yuka      -> lanciaYukaLocale()
+                R.id.nav_lancia_satispay  -> lanciaSatispayLocale()
                 R.id.nav_gestione_carte    -> apriGestioneCarte()
                 R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
                 R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
@@ -260,6 +278,7 @@ class MainActivity : AppCompatActivity() {
         val (descrizione, link) = extractSharePayload(sharedText, sharedSubject)
         pendingSharedText = descrizione
         pendingSharedLink = link
+        pendingSharedBarcode = extractValidBarcode(sharedText) ?: extractValidBarcode(link.orEmpty())
     }
 
     private fun extractSharePayload(raw: String, subject: String?): Pair<String, String?> {
@@ -288,6 +307,22 @@ class MainActivity : AppCompatActivity() {
     private fun extractFirstUrl(raw: String): String? {
         val matcher = Pattern.compile("https?://\\S+").matcher(raw)
         return if (matcher.find()) matcher.group().trim() else null
+    }
+
+    private fun extractValidBarcode(raw: String): String? {
+        return Regex("(?<!\\d)\\d{8,14}(?!\\d)")
+            .findAll(raw)
+            .map { it.value }
+            .firstOrNull(::isValidGtin)
+    }
+
+    private fun isValidGtin(value: String): Boolean {
+        if (value.length !in setOf(8, 12, 13, 14)) return false
+        val digits = value.map { it.digitToInt() }
+        val sum = digits.dropLast(1).reversed().mapIndexed { index, digit ->
+            digit * if (index % 2 == 0) 3 else 1
+        }.sum()
+        return (10 - sum % 10) % 10 == digits.last()
     }
 
     private fun titleFromUrl(url: String?): String? {
@@ -341,20 +376,33 @@ class MainActivity : AppCompatActivity() {
     private fun tryConsumePendingShare() {
         val text = pendingSharedText ?: return
         val link = pendingSharedLink
+        val barcode = pendingSharedBarcode
         if (!prefs().contains("api_url") || userId == 0) return
 
         pendingSharedText = null
         pendingSharedLink = null
+        pendingSharedBarcode = null
 
         lifecycleScope.launch {
-            val resolved = withContext(Dispatchers.IO) {
+            val (resolved, preview) = withContext(Dispatchers.IO) {
                 if (text.equals("Prodotto Yuka", ignoreCase = true) && !link.isNullOrBlank()) {
-                    ApiClient.resolveSharedProductTitle(link)
+                    Pair(
+                        ApiClient.resolveSharedProductTitle(link),
+                        barcode?.takeIf { BuildConfig.PRODUCT_SCAN_ENABLED }
+                            ?.let { runCatching { ApiClient.getProductPreview(it) }.getOrNull() }
+                    )
                 } else {
-                    null
+                    Pair(
+                        null,
+                        barcode?.takeIf { BuildConfig.PRODUCT_SCAN_ENABLED }
+                            ?.let { runCatching { ApiClient.getProductPreview(it) }.getOrNull() }
+                    )
                 }
             }
-            mostraDialogAggiungi(prefilledText = resolved ?: text, prefilledLink = link)
+            val prefilled = resolved ?: text.takeUnless { it.equals("Prodotto Yuka", true) }
+                ?: preview?.displayName
+                ?: text
+            mostraDialogAggiungi(prefilledText = prefilled, prefilledLink = link, productPreview = preview)
         }
     }
 
@@ -523,23 +571,108 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun lanciaYukaLocale() {
-        val packageName = "io.yuka.android"
-        val explicitIntent = Intent(Intent.ACTION_MAIN).apply {
-            component = ComponentName(packageName, "$packageName.main.RootActivity")
-            addCategory(Intent.CATEGORY_LAUNCHER)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
+        lanciaAppGenerica(
+            packageName = "io.yuka.android",
+            activityClass = ".main.RootActivity",
+            fallbackUrl = "https://play.google.com/store/apps/details?id=io.yuka.android",
+            displayName = "Yuka"
+        )
+    }
 
-        try {
-            startActivity(launchIntent ?: explicitIntent)
+    private fun avviaScansioneProdotto() {
+        val yukaIntent = packageManager.getLaunchIntentForPackage("io.yuka.android")
+        if (yukaIntent == null) {
+            avviaScannerInterno()
             return
-        } catch (_: Exception) {
         }
 
-        Snackbar.make(drawerLayout, "Yuka non installata", Snackbar.LENGTH_SHORT).show()
+        AlertDialog.Builder(this)
+            .setTitle("Scansiona prodotto")
+            .setItems(arrayOf("Con Yuka", "Con Bot Spesa")) { _, which ->
+                if (which == 0) {
+                    Toast.makeText(
+                        this,
+                        "Dopo la scansione condividi il prodotto con Bot Spesa",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    startActivity(yukaIntent)
+                } else {
+                    avviaScannerInterno()
+                }
+            }
+            .setNegativeButton("Annulla", null)
+            .show()
+    }
+
+    private fun avviaScannerInterno() {
+        productScanLauncher.launch(
+            ScanOptions()
+                .setPrompt("Inquadra il barcode del prodotto")
+                .setDesiredBarcodeFormats(ScanOptions.PRODUCT_CODE_TYPES)
+                .setBeepEnabled(false)
+                .setOrientationLocked(false)
+        )
+    }
+
+    private fun caricaAnteprimaProdotto(barcode: String) {
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(barcode) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(this@MainActivity, "Prodotto non trovato: inserisci il nome", Toast.LENGTH_LONG).show()
+                mostraDialogAggiungi()
+            } else {
+                mostraDialogAggiungi(prefilledText = preview.displayName, productPreview = preview)
+            }
+        }
+    }
+
+    private fun lanciaSatispayLocale() {
+        lanciaAppGenerica(
+            packageName = "com.satispay.customer",
+            activityClass = ".main.SplashActivity",
+            fallbackUrl = "https://play.google.com/store/apps/details?id=com.satispay.customer",
+            displayName = "Satispay"
+        )
+    }
+
+    private fun lanciaAppGenerica(
+        packageName: String,
+        activityClass: String,
+        fallbackUrl: String,
+        displayName: String
+    ) {
+        val explicitIntent = try {
+            Intent(Intent.ACTION_MAIN).apply {
+                component = ComponentName(packageName, "$packageName$activityClass")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        } catch (_: Exception) {
+            null
+        }
+
+        if (explicitIntent != null) {
+            try {
+                startActivity(explicitIntent)
+                return
+            } catch (_: Exception) {
+            }
+        }
+
+        val fallbackMessage = "$displayName non installata"
+        Snackbar.make(drawerLayout, fallbackMessage, Snackbar.LENGTH_SHORT)
+            .setAction("Apri") {
+                try {
+                    val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(storeIntent)
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Impossibile aprire il link", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
     }
 
     private fun mostraDialogCollegaTelegram(primoAvvio: Boolean = false) {
@@ -1073,7 +1206,11 @@ class MainActivity : AppCompatActivity() {
         else eliminaItem(item)
     }
 
-    private fun mostraDialogAggiungi(prefilledText: String? = null, prefilledLink: String? = null) {
+    private fun mostraDialogAggiungi(
+        prefilledText: String? = null,
+        prefilledLink: String? = null,
+        productPreview: ApiClient.ProductPreview? = null
+    ) {
         lifecycleScope.launch {
             val destinazioni = withContext(Dispatchers.IO) {
                 runCatching {
@@ -1119,10 +1256,23 @@ class MainActivity : AppCompatActivity() {
                 })
             }
             val dp = resources.displayMetrics.density
+            val scanButton = com.google.android.material.button.MaterialButton(this@MainActivity).apply {
+                text = "Scansiona prodotto"
+                isAllCaps = false
+                visibility = if (BuildConfig.PRODUCT_SCAN_ENABLED) android.view.View.VISIBLE else android.view.View.GONE
+            }
             val content = android.widget.LinearLayout(this@MainActivity).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
                 setPadding((24 * dp).toInt(), 0, (24 * dp).toInt(), 0)
                 addView(input)
+                productPreview?.let { preview ->
+                    addView(TextView(this@MainActivity).apply {
+                        text = productPreviewText(preview)
+                        textSize = 14f
+                        setPadding(0, 0, 0, (8 * dp).toInt())
+                    })
+                }
+                addView(scanButton)
                 addView(TextView(this@MainActivity).apply {
                     text = "Destinazione"
                     textSize = 14f
@@ -1147,6 +1297,10 @@ class MainActivity : AppCompatActivity() {
                 return destinazioni[radio.tag as Int]
             }
             dlg.setOnShowListener {
+                scanButton.setOnClickListener {
+                    dlg.dismiss()
+                    avviaScansioneProdotto()
+                }
                 dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                     val testo = input.text.toString().trim()
                     if (testo.isEmpty()) {
@@ -1169,6 +1323,27 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             dlg.show()
+        }
+    }
+
+    private fun productPreviewText(preview: ApiClient.ProductPreview): String {
+        val format = NumberFormat.getNumberInstance(Locale.ITALY).apply { maximumFractionDigits = 1 }
+        val details = buildList {
+            preview.energyKcal100g?.let { add("${format.format(it)} kcal") }
+            preview.sugars100g?.let { add("zuccheri ${format.format(it)} g") }
+            preview.saturatedFat100g?.let { add("saturi ${format.format(it)} g") }
+            preview.salt100g?.let { add("sale ${format.format(it)} g") }
+        }
+        return buildString {
+            append("Open Food Facts")
+            if (preview.nutriscoreGrade.isNotBlank()) {
+                append(" · Nutri-Score ")
+                append(preview.nutriscoreGrade.uppercase())
+            }
+            if (details.isNotEmpty()) {
+                append("\nPer 100 g: ")
+                append(details.joinToString(" · "))
+            }
         }
     }
 

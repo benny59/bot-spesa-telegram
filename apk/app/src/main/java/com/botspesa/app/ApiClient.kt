@@ -69,6 +69,26 @@ object ApiClient {
 
     data class ConteggiListe(val tutti: Int, val miei: Int)
 
+    data class ProductPreview(
+        val barcode: String,
+        val name: String,
+        val brand: String,
+        val quantity: String,
+        val imageUrl: String,
+        val nutriscoreGrade: String,
+        val energyKcal100g: Double?,
+        val sugars100g: Double?,
+        val saturatedFat100g: Double?,
+        val salt100g: Double?,
+        val sourceUrl: String
+    ) {
+        val displayName: String
+            get() = listOf(name, brand, quantity)
+                .filter { it.isNotBlank() }
+                .distinctBy { it.lowercase() }
+                .joinToString(" ")
+    }
+
     fun getConteggiListe(userId: Int): ConteggiListe {
         val req = Request.Builder().url("$baseUrl/lista/conteggi?user_id=$userId").auth().build()
         val body = http.newCall(req).execute().use { it.body!!.string() }
@@ -77,6 +97,34 @@ object ApiClient {
             tutti = (raw["tutti"] as? Double)?.toInt() ?: 0,
             miei = (raw["miei"] as? Double)?.toInt() ?: 0
         )
+    }
+
+    fun getProductPreview(barcode: String): ProductPreview? {
+        val cleanBarcode = barcode.filter(Char::isDigit)
+        val req = Request.Builder()
+            .url("$baseUrl/prodotti/$cleanBarcode/anteprima")
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val raw: Map<String, Any?> = gson.fromJson(
+                response.body?.string().orEmpty(),
+                object : TypeToken<Map<String, Any?>>() {}.type
+            )
+            ProductPreview(
+                barcode = raw["barcode"] as? String ?: cleanBarcode,
+                name = raw["name"] as? String ?: return@use null,
+                brand = raw["brand"] as? String ?: "",
+                quantity = raw["quantity"] as? String ?: "",
+                imageUrl = raw["image_url"] as? String ?: "",
+                nutriscoreGrade = raw["nutriscore_grade"] as? String ?: "",
+                energyKcal100g = raw["energy_kcal_100g"] as? Double,
+                sugars100g = raw["sugars_100g"] as? Double,
+                saturatedFat100g = raw["saturated_fat_100g"] as? Double,
+                salt100g = raw["salt_100g"] as? Double,
+                sourceUrl = raw["source_url"] as? String ?: ""
+            )
+        }
     }
 
     private fun parseItems(body: String): List<SpesaItem> {

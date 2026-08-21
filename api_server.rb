@@ -14,6 +14,7 @@ require_relative 'models/lista'
 require_relative 'models/whitelist'
 require_relative 'models/barcode_scanner'
 require_relative 'models/carte_fedelta'
+require_relative 'models/open_food_facts_client'
 require_relative 'handlers/storico_manager'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
@@ -121,6 +122,18 @@ end
 
 get '/ping' do
   { status: 'ok', version: '1.0' }.to_json
+end
+
+get '/prodotti/:barcode/anteprima' do
+  halt 404, { error: 'funzione non disponibile' }.to_json if ENV['PRODUCT_SCAN_ENABLED'] == 'false'
+
+  barcode = params[:barcode].to_s
+  halt 400, { error: 'barcode non valido' }.to_json unless barcode.match?(/\A\d{8,14}\z/)
+
+  product = OpenFoodFactsClient.lookup(barcode)
+  halt 404, { found: false, barcode: barcode }.to_json unless product
+
+  product.to_json
 end
 
 get '/gruppi' do

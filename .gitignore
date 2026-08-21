@@ -16,6 +16,9 @@ data/
 
 # Test folder
 test/
+!test/
+test/*
+!test/open_food_facts_client_test.rb
 
 # Ruby
 .bundle/

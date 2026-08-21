@@ -30,6 +30,7 @@
     <string name="checklist">Checklist</string>
     <string name="nav_storico">Storico acquisti</string>
     <string name="nav_lancia_yuka">Lancia Yuka</string>
+    <string name="nav_lancia_satispay">Apri Satispay</string>
     <string name="nav_gestione_carte">Gestione mie carte</string>
     <string name="nav_config_rete">Configurazione rete</string>
     <string name="nav_colori_gruppi">Colori topic</string>

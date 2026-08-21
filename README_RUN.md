@@ -33,6 +33,21 @@ Troubleshooting tips:
 - If a gem fails to install (native extension), install system deps (e.g., `libsqlite3-dev` on Debian/Ubuntu).
 - To inspect the DB quickly, open `spesa.db` with the SQLite viewer extension or `sqlite3 spesa.db`.
 
+Product scan rollback
+
+The Open Food Facts/Yuka insertion flow does not change the database schema. To disable the server endpoint, start the API with:
+
+```bash
+PRODUCT_SCAN_ENABLED=false ruby api_server.rb
+```
+
+To build an APK with the previous insertion dialog and no product scan button:
+
+```bash
+cd apk
+./gradlew assembleDebug -PPRODUCT_SCAN_ENABLED=false
+```
+
 5) Production boot chain (Termux, versioned)
 
 Keep boot logic versioned in this repo and deploy only symlinks to `.termux/boot`.
