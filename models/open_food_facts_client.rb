@@ -13,7 +13,7 @@ class OpenFoodFactsClient
     nutriments
   ].join(",")
 
-  def self.lookup(barcode, connection: nil)
+  def self.lookup(barcode, user_agent:, connection: nil)
     code = barcode.to_s.gsub(/\D/, "")
     return nil unless code.match?(/\A\d{8,14}\z/)
 
@@ -22,10 +22,7 @@ class OpenFoodFactsClient
       client.options.timeout = 5
     end
     response = http.get("/api/v2/product/#{code}.json", { fields: FIELDS }) do |request|
-      request.headers["User-Agent"] = ENV.fetch(
-        "OPEN_FOOD_FACTS_USER_AGENT",
-        "BotSpesa/1.0 (configure OPEN_FOOD_FACTS_USER_AGENT)"
-      )
+      request.headers["User-Agent"] = user_agent
     end
     return nil unless response.success?
 

@@ -35,11 +35,14 @@ Troubleshooting tips:
 
 Product scan rollback
 
-The Open Food Facts/Yuka insertion flow does not change the database schema. To disable the server endpoint, start the API with:
+The Open Food Facts/Yuka insertion flow does not change the database schema. To disable the server endpoint persistently:
 
 ```bash
-PRODUCT_SCAN_ENABLED=false ruby api_server.rb
+sqlite3 "$HOME/termux-home/spesa/spesa.db" \
+	"INSERT OR REPLACE INTO config (key, value) VALUES ('product_scan_enabled', 'false');"
 ```
+
+Set the same key to `true` to enable it again. If the key is absent, the feature is enabled by default.
 
 To build an APK with the previous insertion dialog and no product scan button:
 
@@ -47,6 +50,15 @@ To build an APK with the previous insertion dialog and no product scan button:
 cd apk
 ./gradlew assembleDebug -PPRODUCT_SCAN_ENABLED=false
 ```
+
+Open Food Facts requires an identifying User-Agent. Configure it once in the existing `config` table on the production shell:
+
+```bash
+sqlite3 "$HOME/termux-home/spesa/spesa.db" \
+	"INSERT OR REPLACE INTO config (key, value) VALUES ('open_food_facts_user_agent', 'BotSpesa/1.1 (contact@example.com)');"
+```
+
+Replace `contact@example.com` with a monitored contact address. The value persists across reboots and is read by the API server for every Open Food Facts request.
 
 5) Production boot chain (Termux, versioned)
 

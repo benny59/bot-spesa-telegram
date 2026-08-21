@@ -125,12 +125,22 @@ get '/ping' do
 end
 
 get '/prodotti/:barcode/anteprima' do
-  halt 404, { error: 'funzione non disponibile' }.to_json if ENV['PRODUCT_SCAN_ENABLED'] == 'false'
+  product_scan_enabled = DB.get_first_value(
+    "SELECT value FROM config WHERE key = ?",
+    ['product_scan_enabled']
+  ).to_s.strip.downcase
+  halt 404, { error: 'funzione non disponibile' }.to_json if product_scan_enabled == 'false'
 
   barcode = params[:barcode].to_s
   halt 400, { error: 'barcode non valido' }.to_json unless barcode.match?(/\A\d{8,14}\z/)
 
-  product = OpenFoodFactsClient.lookup(barcode)
+  user_agent = DB.get_first_value(
+    "SELECT value FROM config WHERE key = ?",
+    ['open_food_facts_user_agent']
+  ).to_s.strip
+  halt 503, { error: 'open_food_facts_user_agent non configurato' }.to_json if user_agent.empty?
+
+  product = OpenFoodFactsClient.lookup(barcode, user_agent: user_agent)
   halt 404, { found: false, barcode: barcode }.to_json unless product
 
   product.to_json
