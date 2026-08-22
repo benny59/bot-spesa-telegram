@@ -89,8 +89,8 @@ class Lista
 
   def self.sposta_topic(item_id, gruppo_id, topic_id)
     DB.execute(
-      "UPDATE items SET topic_id = ? WHERE id = ? AND gruppo_id = ?",
-      [topic_id, item_id, gruppo_id]
+      "UPDATE items SET gruppo_id = ?, topic_id = ? WHERE id = ?",
+      [gruppo_id, topic_id, item_id]
     )
     DB.changes > 0
   end

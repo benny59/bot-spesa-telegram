@@ -937,19 +937,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun mostraDialogSpostaItem(item: SpesaItem) {
         lifecycleScope.launch {
-            val topics = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getTopics(item.gruppoId) }.getOrDefault(emptyList())
-            }.filter { it.topicId != item.topicId }
-            if (topics.isEmpty()) {
-                Toast.makeText(this@MainActivity, "Nessun altro topic disponibile", Toast.LENGTH_SHORT).show()
+            val destinazioni = withContext(Dispatchers.IO) {
+                runCatching {
+                    val gruppi = ApiClient.getGruppiTyped(userId).filter { it.id != 0 }
+                    buildList {
+                        gruppi.forEach { gruppo ->
+                            val topics = ApiClient.getTopics(gruppo.id)
+                            topics.forEach { topic ->
+                                if (!(gruppo.id == item.gruppoId && topic.topicId == item.topicId)) {
+                                    add(AddDestination(gruppo.id, topic.topicId, "${gruppo.nome}: ${topic.nome}"))
+                                }
+                            }
+                        }
+                    }
+                }.getOrDefault(emptyList())
+            }
+            if (destinazioni.isEmpty()) {
+                Toast.makeText(this@MainActivity, "Nessun altro gruppo/topic disponibile", Toast.LENGTH_SHORT).show()
                 return@launch
             }
             AlertDialog.Builder(this@MainActivity)
                 .setTitle(R.string.sposta_topic)
-                .setItems(topics.map { it.nome }.toTypedArray()) { _, index ->
+                .setItems(destinazioni.map { it.label }.toTypedArray()) { _, index ->
+                    val target = destinazioni[index]
                     lifecycleScope.launch {
                         val ok = withContext(Dispatchers.IO) {
-                            runCatching { ApiClient.moveItem(item.id, topics[index].topicId, userId) }.getOrDefault(false)
+                            runCatching { ApiClient.moveItem(item.id, target.gruppoId, target.topicId, userId) }.getOrDefault(false)
                         }
                         if (ok) aggiornaLista()
                         else Toast.makeText(this@MainActivity, "Spostamento non riuscito", Toast.LENGTH_SHORT).show()

@@ -346,8 +346,8 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
-    fun moveItem(itemId: Int, topicId: Int, userId: Int): Boolean {
-        val payload = gson.toJson(mapOf("topic_id" to topicId, "user_id" to userId))
+    fun moveItem(itemId: Int, gruppoId: Int, topicId: Int, userId: Int): Boolean {
+        val payload = gson.toJson(mapOf("gruppo_id" to gruppoId, "topic_id" to topicId, "user_id" to userId))
         val req = Request.Builder()
             .url("$baseUrl/lista/$itemId/topic")
             .patch(payload.toRequestBody(JSON_TYPE))

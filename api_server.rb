@@ -304,15 +304,23 @@ patch '/lista/:id/topic' do
   item_id = params[:id].to_i
   body = json_body
   user_id = body['user_id']&.to_i || 0
+  target_gruppo_id = body['gruppo_id']&.to_i
   topic_id = body['topic_id']&.to_i
   halt 400, { error: 'topic_id mancante' }.to_json if topic_id.nil?
+  halt 400, { error: 'gruppo_id mancante' }.to_json if target_gruppo_id.nil?
 
   item = item_accessibile!(item_id, user_id)
-  gruppo_id = item['gruppo_id'].to_i
-  halt 400, { error: 'La lista personale non ha topic' }.to_json if gruppo_id == 0
+  current_gruppo_id = item['gruppo_id'].to_i
+  halt 400, { error: 'La lista personale non ha topic' }.to_json if current_gruppo_id == 0
+
+  halt 404, { error: 'gruppo di destinazione non trovato' }.to_json unless DB.get_first_value("SELECT 1 FROM gruppi WHERE id = ?", [target_gruppo_id])
+  halt 403, { error: 'accesso negato al gruppo di destinazione' }.to_json unless DB.get_first_value(
+    "SELECT 1 FROM memberships WHERE user_id = ? AND gruppo_id = ?",
+    [user_id, target_gruppo_id]
+  )
 
   if topic_id != 0
-    chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [gruppo_id])
+    chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [target_gruppo_id])
     topic_valido = DB.get_first_value(
       "SELECT 1 FROM topics WHERE chat_id = ? AND topic_id = ?",
       [chat_id, topic_id]
@@ -320,14 +328,14 @@ patch '/lista/:id/topic' do
     halt 404, { error: 'topic non trovato' }.to_json unless topic_valido
   end
 
-  halt 404, { error: 'item non trovato' }.to_json unless Lista.sposta_topic(item_id, gruppo_id, topic_id)
+  halt 404, { error: 'item non trovato' }.to_json unless Lista.sposta_topic(item_id, target_gruppo_id, topic_id)
 
   utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
   nome = CGI.escapeHTML(item['nome'].to_s)
   autore = CGI.escapeHTML(utente)
-  notifica_gruppo(gruppo_id, item['topic_id'], "\u27A1\uFE0F <b>#{autore}</b> ha spostato: <b>#{nome}</b>")
-  notifica_gruppo(gruppo_id, topic_id, "\u2B05\uFE0F <b>#{autore}</b> ha spostato qui: <b>#{nome}</b>")
-  { ok: true, gruppo_id: gruppo_id, topic_id: topic_id }.to_json
+  notifica_gruppo(current_gruppo_id, item['topic_id'], "\u27A1\uFE0F <b>#{autore}</b> ha spostato: <b>#{nome}</b>")
+  notifica_gruppo(target_gruppo_id, topic_id, "\u2B05\uFE0F <b>#{autore}</b> ha spostato qui: <b>#{nome}</b>")
+  { ok: true, gruppo_id: target_gruppo_id, topic_id: topic_id }.to_json
 end
 
 # Rotta specifica PRIMA di quella parametrica per evitare conflitti
