@@ -9,7 +9,7 @@ class KeyboardGenerator
   # transport markers/URLs used for app-backward compatibility.
   def self.safe_item_label(raw_name, max_len = 52)
     label = raw_name.to_s
-    label = label.split("[YUKA_LINK]", 2).first
+    label = label.gsub(/\[?YUKA_LINK\]?/i, " ")
     label = label.gsub(/https?:\/\/\S+/, "")
     label = label.gsub(/[\u0000-\u001F\u007F]/, " ")
     label = label.gsub(/\s+/, " ").strip

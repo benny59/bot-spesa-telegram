@@ -10,7 +10,7 @@ class StoricoManager
 
   def self.nome_storico_per_telegram(raw)
     nome = raw.to_s.dup
-    nome = nome.split(YUKA_MARKER, 2).first.to_s
+    nome = nome.gsub(/\[?YUKA_LINK\]?/i, " ")
     nome = nome.gsub(URL_REGEX, " ")
     nome = nome.gsub(/\s+/, " ").strip
     nome.empty? ? "Prodotto" : nome
