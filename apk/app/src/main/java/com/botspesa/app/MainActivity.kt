@@ -609,8 +609,9 @@ class MainActivity : AppCompatActivity() {
             ScanOptions()
                 .setPrompt("Inquadra il barcode del prodotto")
                 .setDesiredBarcodeFormats(ScanOptions.PRODUCT_CODE_TYPES)
+                .setCaptureActivity(ProductScanActivity::class.java)
                 .setBeepEnabled(false)
-                .setOrientationLocked(false)
+                .setOrientationLocked(true)
         )
     }
 

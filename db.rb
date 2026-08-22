@@ -1068,15 +1068,13 @@ end
 
   def self.prendi_articoli_ordinati(gruppo_id, topic_id)
     sql = self.get_base_query_articoli_con_metadata + <<-SQL
-    WHERE i.gruppo_id = ? AND i.topic_id = ?
+    WHERE i.gruppo_id = ? AND i.topic_id = ? AND COALESCE(i.deleted, 0) = 0
     ORDER BY 
-      -- 1. Gli item cancellati restano visibili ma in fondo
-      (i.deleted IS NOT NULL AND i.deleted != 0) ASC,
-      -- 2. I comprati vanno in fondo (0 se non comprato, 1 se comprato)
-      (i.comprato IS NOT NULL AND i.comprato != '') ASC, 
-      -- 3. Gli articoli più frequenti in alto
-      volte DESC, 
-      -- 4. I più recenti per primi tra quelli con stesse 'volte'
+      -- 1. I comprati vanno in fondo (0 se non comprato, 1 se comprato)
+      (i.comprato IS NOT NULL AND i.comprato != '') ASC,
+      -- 2. Gli articoli più frequenti in alto
+      volte DESC,
+      -- 3. I più recenti per primi tra quelli con stesse 'volte'
       i.id DESC
     SQL
     DB.execute(sql, [gruppo_id.to_i, topic_id.to_i])
@@ -1141,7 +1139,7 @@ end
         SELECT i.id, i.nome, i.gruppo_id, i.topic_id
         FROM items i
         WHERE CAST(i.comprato AS INTEGER) = ?
-          AND i.deleted = 0
+          AND COALESCE(i.deleted, 0) = 0
           AND (
             (i.gruppo_id = 0 AND i.creato_da = ?)
             OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
@@ -1232,10 +1230,10 @@ end
       FROM gruppi g
       JOIN memberships m ON g.id = m.gruppo_id
       JOIN items i ON g.id = i.gruppo_id
-      WHERE i.deleted = 0
+      WHERE COALESCE(i.deleted, 0) = 0
       UNION ALL
       SELECT 0, '👤 Lista Personale', NULL, 0, 1
-      WHERE EXISTS (SELECT 1 FROM items WHERE gruppo_id = 0 AND creato_da = ? AND deleted = 0)
+      WHERE EXISTS (SELECT 1 FROM items WHERE gruppo_id = 0 AND creato_da = ? AND COALESCE(deleted, 0) = 0)
       ORDER BY ordine_lista DESC, gruppo_nome ASC, topic_id ASC
     SQL
       DB.execute(query, [user_id])
@@ -1247,7 +1245,7 @@ end
              g.chat_id, COALESCE(i.topic_id, 0) AS topic_id
       FROM items i
       LEFT JOIN gruppi g ON i.gruppo_id = g.id
-      WHERE i.creato_da = ? AND i.deleted = 0
+      WHERE i.creato_da = ? AND COALESCE(i.deleted, 0) = 0
       ORDER BY gruppo_id = 0 DESC, g.nome ASC, topic_id ASC
     SQL
       DB.execute(query, [user_id])
@@ -1269,7 +1267,7 @@ end
     FROM items i
     LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
-    WHERE i.gruppo_id = ? AND i.topic_id = ? AND i.deleted = 0
+    WHERE i.gruppo_id = ? AND i.topic_id = ? AND COALESCE(i.deleted, 0) = 0
   SQL
 
     order = <<-SQL

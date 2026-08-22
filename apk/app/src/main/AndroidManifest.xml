@@ -27,6 +27,11 @@
             android:screenOrientation="fullSensor" />
 
         <activity
+            android:name=".ProductScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
