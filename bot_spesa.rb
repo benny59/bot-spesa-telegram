@@ -55,7 +55,7 @@ Telegram::Bot::Client.run(TOKEN) do |bot|
       case update
       when Telegram::Bot::Types::Message
         # AGGIORNATO: Permettiamo il passaggio anche se è un cambio titolo gruppo
-        is_service_msg = update.forum_topic_created || update.forum_topic_edited || update.new_chat_title
+        is_service_msg = update.forum_topic_created || update.forum_topic_edited || update.new_chat_title || update.migrate_to_chat_id || update.migrate_from_chat_id
 
         next if update.text.nil? && update.photo.nil? && !is_service_msg
 

@@ -10,10 +10,34 @@ require_relative "./cleanup_manager"  # needed for /cleanup command
 class MessageHandler
   # ==============================================================================
   # ROUTER PRINCIPALE (DISPATCHER)
+  def self.ensure_group_registered!(msg, user_id = msg.from.id)
+    return if msg.chat.nil? || msg.chat.id.to_i >= 0
+
+    chat_id = msg.chat.id.to_i
+    existing = DataManager.prendi_gruppo_da_chat_id(chat_id)
+    return unless existing.nil? || existing.empty?
+
+    if msg.respond_to?(:migrate_from_chat_id) && msg.migrate_from_chat_id.to_i != 0
+      old_chat_id = msg.migrate_from_chat_id.to_i
+      old_group = DataManager.prendi_gruppo_da_chat_id(old_chat_id)
+      if old_group && !old_group.empty?
+        DB.execute("UPDATE gruppi SET chat_id = ? WHERE id = ?", [chat_id, old_group["id"]])
+        DB.execute("UPDATE topics SET chat_id = ? WHERE chat_id = ?", [chat_id, old_chat_id])
+        puts "🔄 [GROUP_MIGRATION] Rimosso ID vecchio #{old_chat_id} -> #{chat_id} per gruppo #{old_group['id']}"
+        return
+      end
+    end
+
+    nome_gruppo = msg.chat.title.to_s.strip.empty? ? "Gruppo #{chat_id}" : msg.chat.title.to_s.strip
+    DataManager.registra_gruppo_se_nuovo(chat_id, nome_gruppo, user_id)
+  end
+
   def self.route(bot, msg, context)
     u_id = msg.from.id
     c_id = msg.chat.id
     g_chat_id = msg.chat.id
+
+    self.ensure_group_registered!(msg, u_id)
 
     raw_text = msg.text.to_s.strip
     text = raw_text.split("@").first # Prende solo "/newgroup" da "/newgroup@bot"
