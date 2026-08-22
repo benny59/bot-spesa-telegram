@@ -1066,18 +1066,34 @@ end
     SQL
   end
 
-  def self.prendi_articoli_ordinati(gruppo_id, topic_id)
+  def self.articoli_attivi(gruppo_id, topic_id, user_id = nil, show_all: true)
     sql = self.get_base_query_articoli_con_metadata + <<-SQL
-    WHERE i.gruppo_id = ? AND i.topic_id = ? AND COALESCE(i.deleted, 0) = 0
+    WHERE i.gruppo_id = ? AND i.topic_id = ?
+    SQL
+    params = [gruppo_id.to_i, topic_id.to_i]
+
+    unless show_all
+      sql += " AND i.creato_da = ?"
+      params << user_id.to_i
+    end
+
+    sql += <<-SQL
     ORDER BY 
-      -- 1. I comprati vanno in fondo (0 se non comprato, 1 se comprato)
+      -- 1. Gli item soft-deleted restano visibili ma in fondo
+      (i.deleted IS NOT NULL AND i.deleted != 0) ASC,
+      -- 2. I comprati vanno in fondo
       (i.comprato IS NOT NULL AND i.comprato != '') ASC,
-      -- 2. Gli articoli più frequenti in alto
+      -- 3. Gli articoli più frequenti in alto
       volte DESC,
-      -- 3. I più recenti per primi tra quelli con stesse 'volte'
+      -- 4. I più recenti per primi tra quelli con stesse 'volte'
       i.id DESC
     SQL
-    DB.execute(sql, [gruppo_id.to_i, topic_id.to_i])
+
+    DB.execute(sql, params)
+  end
+
+  def self.prendi_articoli_ordinati(gruppo_id, topic_id)
+    self.articoli_attivi(gruppo_id, topic_id, nil, show_all: true)
   end
 
   def self.prendi_foto_articolo(item_id)
@@ -1223,29 +1239,30 @@ end
   # 1. Recupera i contesti (gruppi/topic) che contengono articoli rilevanti
   def self.prendi_gruppi_con_articoli(user_id, show_all_authors = false)
     if show_all_authors
-      # Modalità "📦 TUTTI": Ogni gruppo/topic che ha ALMENO un articolo di CHIUNQUE
+      # Modalità "📦 TUTTI": Ogni gruppo/topic che ha ALMENO un articolo di CHIUNQUE,
+      # inclusi gli item soft-deleted, che restano visibili ma marcati in fondo alla lista.
       query = <<-SQL
       SELECT DISTINCT g.id AS gruppo_id, g.nome AS gruppo_nome, g.chat_id, 
              COALESCE(i.topic_id, 0) AS topic_id, 0 AS ordine_lista
       FROM gruppi g
       JOIN memberships m ON g.id = m.gruppo_id
       JOIN items i ON g.id = i.gruppo_id
-      WHERE COALESCE(i.deleted, 0) = 0
       UNION ALL
       SELECT 0, '👤 Lista Personale', NULL, 0, 1
-      WHERE EXISTS (SELECT 1 FROM items WHERE gruppo_id = 0 AND creato_da = ? AND COALESCE(deleted, 0) = 0)
+      WHERE EXISTS (SELECT 1 FROM items WHERE gruppo_id = 0 AND creato_da = ?)
       ORDER BY ordine_lista DESC, gruppo_nome ASC, topic_id ASC
     SQL
       DB.execute(query, [user_id])
     else
-      # Modalità "📋 I MIEI": Solo gruppi/topic dove IO ho aggiunto qualcosa
+      # Modalità "📋 I MIEI": Solo gruppi/topic dove IO ho aggiunto qualcosa,
+      # inclusi gli item soft-deleted se sono stati creati da me.
       query = <<-SQL
       SELECT DISTINCT COALESCE(g.id, 0) AS gruppo_id, 
              COALESCE(g.nome, '👤 Lista Personale') AS gruppo_nome,
              g.chat_id, COALESCE(i.topic_id, 0) AS topic_id
       FROM items i
       LEFT JOIN gruppi g ON i.gruppo_id = g.id
-      WHERE i.creato_da = ? AND COALESCE(i.deleted, 0) = 0
+      WHERE i.creato_da = ?
       ORDER BY gruppo_id = 0 DESC, g.nome ASC, topic_id ASC
     SQL
       DB.execute(query, [user_id])
@@ -1260,30 +1277,7 @@ end
 
   # 2. Recupera gli articoli effettivi
   def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
-    # Aggiungiamo la subquery identica a quella della lista standard
-    base_query = <<-SQL
-    SELECT i.*, u.initials AS autore_init, buyer.initials AS buyer_init,
-           (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) as ha_foto_reale
-    FROM items i
-    LEFT JOIN user_names u ON i.creato_da = u.user_id
-    LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
-    WHERE i.gruppo_id = ? AND i.topic_id = ? AND COALESCE(i.deleted, 0) = 0
-  SQL
-
-    order = <<-SQL
-      ORDER BY
-        CASE WHEN COALESCE(TRIM(i.comprato), '') = '' THEN 0 ELSE 1 END,
-        LOWER(COALESCE(u.first_name, '')),
-        LOWER(COALESCE(u.last_name, '')),
-        datetime(i.creato_il) DESC,
-        i.id DESC
-    SQL
-
-    if show_all && g_id != 0
-      DB.execute("#{base_query} #{order}", [g_id, t_id])
-    else
-      DB.execute("#{base_query} AND i.creato_da = ? #{order}", [g_id, t_id, user_id])
-    end
+    self.articoli_attivi(g_id, t_id, user_id, show_all: show_all || g_id == 0)
   end
 
   def self.registra_gruppo_se_nuovo(chat_id, nome_gruppo, user_id)
