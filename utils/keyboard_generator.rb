@@ -96,7 +96,7 @@ class KeyboardGenerator
       num_foto = item["ha_foto"].to_i
       foto_marker = num_foto > 0 ? " 👁" : ""
       display_name = (is_deleted || is_unavailable) ? "~~ #{nome_pulito} ~~" : nome_pulito
-      display_name = "#{display_name}#{foto_marker}" unless display_name.empty?
+      display_name = "#{foto_marker}#{display_name}" unless display_name.empty?
       display_name = clamp_inline_text(display_name)
 
       autore = item["autore_init"] || "??"
@@ -234,7 +234,7 @@ class KeyboardGenerator
         nome = safe_item_label(art["nome"], 40)
         nome = "~~ #{nome} ~~" if is_deleted || is_unavailable
 
-        row_text = "#{status} #{tag}#{nome}#{buyer_tag}#{icona_foto}"
+          row_text = "#{status} #{tag}#{icona_foto}#{nome}#{buyer_tag}"
         item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
           text: clamp_inline_text(row_text),
           callback_data: "myallcomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",
