@@ -108,7 +108,7 @@ class KeyboardGenerator
       elsif is_unavailable
         del_label = "❌ #{autore}"
       else
-        del_label = "❌ #{autore}"
+        del_label = "🗑️ #{autore}"
       end
       del_label += " ✅ #{buyer}" if is_comprato && !is_deleted && !is_unavailable
       del_label = clamp_inline_text(del_label)
