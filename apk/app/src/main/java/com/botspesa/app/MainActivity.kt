@@ -878,6 +878,7 @@ class MainActivity : AppCompatActivity() {
                     R.id.action_add_foto -> mostraDialogSorgenteFoto(item.id)
                     R.id.action_elimina_foto -> eliminaFotoConferma(item)
                     R.id.action_sposta_topic -> mostraDialogSpostaItem(item)
+                    R.id.action_disponibile -> toggleDisponibilita(item)
                     R.id.action_elimina  -> eliminaConferma(item)
                 }
                 true
@@ -1205,6 +1206,21 @@ class MainActivity : AppCompatActivity() {
     private fun toggleDeleteItem(item: SpesaItem) {
         if (item.deleted) restoreItem(item)
         else eliminaItem(item)
+    }
+
+    private fun toggleDisponibilita(item: SpesaItem) {
+        lifecycleScope.launch {
+            val nuovoValore = !item.disponibile
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.setDisponibile(item.gruppoId, item.id, userId, nuovoValore) }.getOrDefault(false)
+            }
+            if (ok) {
+                aggiornaLista()
+                mostraEsitoBreve(if (nuovoValore) "Articolo disponibile" else "Articolo non disponibile", true)
+            } else {
+                Toast.makeText(this@MainActivity, "Aggiornamento disponibilità non riuscito", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun mostraDialogAggiungi(

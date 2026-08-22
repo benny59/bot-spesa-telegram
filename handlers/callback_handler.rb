@@ -278,8 +278,12 @@ when /^trigger_list:(-?\d*):(\d*)$/
 
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
 
-      # 1. Logica DB (IDENTICA - DRY)
-      if DataManager.comprato?(item_id)
+      # 1. Un item soft-deleted viene ripristinato; un item non disponibile torna disponibile; gli altri cambiano stato acquisto.
+      if DataManager.item_deleted?(item_id)
+        DataManager.undo_delete_item(item_id)
+      elsif DataManager.item_unavailable?(item_id)
+        DataManager.set_disponibile(item_id, true)
+      elsif DataManager.comprato?(item_id)
         DataManager.despunta_articolo(item_id)
       else
         DataManager.spunta_articolo(item_id, user_id)
@@ -629,6 +633,12 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       end
 
       # Refresh dell'interfaccia
+      self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
+    when /^toggle_disponibile:(\d+):(-?\d+):(\d+):(\d+)$/
+      item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
+      nuovo_valore = !DataManager.item_unavailable?(item_id)
+      DataManager.set_disponibile(item_id, nuovo_valore)
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: nuovo_valore ? "✅ Disponibile" : "🚫 Non disponibile") rescue nil
       self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
     when /^set_target:(.+):(.+)$/
       g_db_id = $1.to_i # L'ID interno (es: 50)

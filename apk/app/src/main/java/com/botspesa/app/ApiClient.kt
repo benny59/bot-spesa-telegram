@@ -141,6 +141,13 @@ object ApiClient {
                 is String -> deletedValue == "1" || deletedValue.equals("true", ignoreCase = true)
                 else -> false
             }
+            val disponibileValue = item["disponibile"]
+            val disponibile = when (disponibileValue) {
+                is Boolean -> disponibileValue
+                is Double -> disponibileValue.toInt() != 0
+                is String -> disponibileValue.equals("true", ignoreCase = true) || disponibileValue == "1"
+                else -> true
+            }
             SpesaItem(
                 id           = (item["id"] as Double).toInt(),
                 nome         = decoded.first,
@@ -154,7 +161,8 @@ object ApiClient {
                 nomeTopic    = item["nome_topic"] as? String ?: "",
                 nomeGruppo   = item["nome_gruppo"] as? String ?: "",
                 nomeContesto = item["nome_contesto"] as? String ?: "",
-                deleted      = deleted
+                deleted      = deleted,
+                disponibile  = disponibile
             )
         }
     }
@@ -309,6 +317,20 @@ object ApiClient {
         val req = Request.Builder()
             .url("$baseUrl/lista/$itemId/restore?gruppo_id=$gruppoId&user_id=$userId")
             .post("".toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun setDisponibile(gruppoId: Int, itemId: Int, userId: Int, disponibile: Boolean): Boolean {
+        val payload = gson.toJson(mapOf(
+            "gruppo_id" to gruppoId,
+            "user_id" to userId,
+            "disponibile" to disponibile
+        ))
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/disponibile")
+            .patch(payload.toRequestBody(JSON_TYPE))
             .auth()
             .build()
         return http.newCall(req).execute().use { it.isSuccessful }

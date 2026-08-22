@@ -73,6 +73,16 @@ class SpesaAdapter(
                 holder.tvInitials.setBackgroundResource(R.drawable.circle_initials)
                 holder.tvInitialsBuyer.visibility = View.GONE
             }
+            item.isUnavailable -> {
+                holder.tvNome.paintFlags = holder.tvNome.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+                holder.tvNome.alpha = 0.75f
+                holder.tvComprato.text = "✕"
+                holder.tvInitials.visibility = View.VISIBLE
+                holder.tvInitials.text = item.userInitials.ifEmpty { "?" }
+                holder.tvInitials.alpha = 0.75f
+                holder.tvInitials.setBackgroundResource(R.drawable.circle_initials)
+                holder.tvInitialsBuyer.visibility = View.GONE
+            }
             item.isBought -> {
                 holder.tvNome.paintFlags = holder.tvNome.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
                 holder.tvNome.alpha = 0.45f

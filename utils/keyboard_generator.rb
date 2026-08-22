@@ -87,32 +87,32 @@ class KeyboardGenerator
 
     page_items.each do |item|
       nome_pulito = safe_item_label(item["nome"])
-      # Determina se è comprato o cancellato
       is_comprato = item["comprato"] && !item["comprato"].to_s.empty?
       is_deleted = item["deleted"].to_i == 1
+      is_unavailable = item["disponibile"].to_i == 0
 
-      # --- FIX ICONA ---
-      # Usiamo .to_i perché SQLite a volte restituisce il conteggio come stringa o nullo
       num_foto = item["ha_foto"].to_i
       foto_icon = num_foto > 0 ? " 📸" : ""
-      display_name = is_deleted ? "~~ #{nome_pulito} ~~" : nome_pulito
+      display_name = (is_deleted || is_unavailable) ? "~~ #{nome_pulito} ~~" : nome_pulito
       display_name = clamp_inline_text(display_name)
 
-      # Recupera iniziali
       autore = item["autore_init"] || "??"
       buyer = item["buyer_init"]
 
-      # 1. Testo dell'item
-      # In Telegram non c'è parsing HTML per i bottoni inline, quindi usiamo un effetto testuale leggibile:
-      item_text = is_deleted ? "~~ #{nome_pulito} ~~" : nome_pulito
+      item_text = (is_deleted || is_unavailable) ? "~~ #{nome_pulito} ~~" : nome_pulito
 
-      # 2. Etichetta del bottone: se l'item è cancellato, il bottone fa undo
-      del_label = is_deleted ? "↩️ #{foto_icon} #{autore}" : "🗑️ #{foto_icon} #{autore}"
-      del_label += " ✅ #{buyer}" if is_comprato && !is_deleted
+      if is_deleted
+        del_label = "↩️ #{foto_icon} #{autore}"
+      elsif is_unavailable
+        del_label = "❌ #{foto_icon} #{autore}"
+      else
+        del_label = "❌ #{foto_icon} #{autore}"
+      end
+      del_label += " ✅ #{buyer}" if is_comprato && !is_deleted && !is_unavailable
       del_label = clamp_inline_text(del_label)
 
       cb_data = "mycomprato:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}:0"
-      cb_del = "delete_item:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}"
+      cb_del = is_unavailable ? "toggle_disponibile:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}" : "delete_item:#{item["id"]}:#{g_id}:#{t_id}:#{current_page}"
 
       keyboard << [
         Telegram::Bot::Types::InlineKeyboardButton.new(text: display_name, callback_data: cb_data),
@@ -215,12 +215,24 @@ class KeyboardGenerator
 
       # Tasti Articoli
       DataManager.prendi_articoli_per_storico(g_id, t_id, user_id, show_all).each do |art|
-        status = (art["comprato"] && !art["comprato"].empty?) ? "✅" : "▫️"
+        is_deleted = art["deleted"].to_i == 1
+        is_unavailable = art["disponibile"].to_i == 0
+        status = if is_deleted
+          "↩️"
+        elsif is_unavailable
+          "❌"
+        elsif art["comprato"] && !art["comprato"].empty?
+          "✅"
+        else
+          "▫️"
+        end
         tag = (show_all && g_id != 0) ? "[#{art["autore_init"] || "?"}] " : ""
         buyer_tag = status == "✅" ? " [#{art["buyer_init"] || "?"}]" : ""
         icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 📸" : ""
+        nome = safe_item_label(art["nome"], 40)
+        nome = "~~ #{nome} ~~" if is_deleted || is_unavailable
 
-        row_text = "#{status} #{tag}#{safe_item_label(art["nome"], 40)}#{buyer_tag}#{icona_foto}"
+        row_text = "#{status} #{tag}#{nome}#{buyer_tag}#{icona_foto}"
         item_buttons << [Telegram::Bot::Types::InlineKeyboardButton.new(
           text: clamp_inline_text(row_text),
           callback_data: "myallcomprato:#{art["id"]}:#{g_id}:#{t_id}:#{page}:#{show_all ? 1 : 0}",

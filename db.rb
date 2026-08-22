@@ -67,6 +67,7 @@ SQL
       link_url TEXT,
       comprato TEXT DEFAULT '',
       deleted INTEGER NOT NULL DEFAULT 0,
+      disponibile INTEGER NOT NULL DEFAULT 1,
       creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (gruppo_id) REFERENCES gruppi (id)
     );
@@ -75,6 +76,9 @@ SQL
   columns = db.execute("PRAGMA table_info(items)").map { |row| row["name"] }
   unless columns.include?("deleted")
     db.execute("ALTER TABLE items ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+  end
+  unless columns.include?("disponibile")
+    db.execute("ALTER TABLE items ADD COLUMN disponibile INTEGER NOT NULL DEFAULT 1")
   end
   unless columns.include?("link_url")
     db.execute("ALTER TABLE items ADD COLUMN link_url TEXT")
@@ -257,6 +261,27 @@ class DataManager
 
   def self.item_deleted?(item_id)
     DB.get_first_value("SELECT deleted FROM items WHERE id = ?", [item_id]).to_i == 1
+  end
+
+  def self.item_unavailable?(item_id)
+    DB.get_first_value("SELECT COALESCE(disponibile, 1) FROM items WHERE id = ?", [item_id]).to_i == 0
+  end
+
+  def self.set_disponibile(item_id, disponibile)
+    item_id = item_id.to_i
+    return false if item_id <= 0
+
+    available = (disponibile == true || disponibile == 1 || disponibile.to_s == "true") ? 1 : 0
+    DB.execute("UPDATE items SET disponibile = ? WHERE id = ?", [available, item_id])
+    DB.changes > 0
+  end
+
+  def self.toggle_disponibile(item_id)
+    item_id = item_id.to_i
+    return false if item_id <= 0
+
+    current = DB.get_first_value("SELECT COALESCE(disponibile, 1) FROM items WHERE id = ?", [item_id]).to_i
+    set_disponibile(item_id, current == 0)
   end
 
   # In db.rb (classe DataManager)
@@ -442,6 +467,13 @@ class DataManager
     return 0 if da_cancellare.empty?
 
     DB.transaction do
+      if gruppo_id && topic_id
+        DB.execute(
+          "UPDATE items SET disponibile = 1 WHERE gruppo_id = ? AND topic_id = ? AND COALESCE(disponibile, 1) = 0 AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = ''",
+          [gruppo_id, topic_id]
+        )
+      end
+
       da_cancellare.each do |item|
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         if item["comprato"].to_s.strip != ""
@@ -1083,9 +1115,11 @@ end
       (i.deleted IS NOT NULL AND i.deleted != 0) ASC,
       -- 2. I comprati vanno in fondo
       (i.comprato IS NOT NULL AND i.comprato != '') ASC,
-      -- 3. Gli articoli più frequenti in alto
+      -- 3. Gli item non disponibili restano in fondo ma visibili
+      (COALESCE(i.disponibile, 1) = 0) ASC,
+      -- 4. Gli articoli più frequenti in alto
       volte DESC,
-      -- 4. I più recenti per primi tra quelli con stesse 'volte'
+      -- 5. I più recenti per primi tra quelli con stesse 'volte'
       i.id DESC
     SQL
 
@@ -1277,7 +1311,7 @@ end
 
   # 2. Recupera gli articoli effettivi
   def self.prendi_articoli_per_storico(g_id, t_id, user_id, show_all)
-    self.articoli_attivi(g_id, t_id, user_id, show_all: show_all || g_id == 0)
+    self.articoli_attivi(g_id, t_id, user_id, show_all: show_all && g_id != 0)
   end
 
   def self.registra_gruppo_se_nuovo(chat_id, nome_gruppo, user_id)

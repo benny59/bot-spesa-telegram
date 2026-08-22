@@ -223,6 +223,7 @@ get '/lista' do
       user_initials: i['user_initials'].to_s,
       creato_il:     i['creato_il'],
       deleted:       i['deleted'].to_i == 1,
+      disponibile:   i['disponibile'].to_i != 0,
       has_foto:      foto_ids.include?(i['id'])
     }
   end.to_json
@@ -458,6 +459,31 @@ post '/lista/:id/restore' do
   { ok: true, restored: true }.to_json
 end
 
+patch '/lista/:id/disponibile' do
+  item_id = params[:id].to_i
+  body = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  user_id = body['user_id']&.to_i || 0
+  disponibile = body['disponibile']
+
+  halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
+  halt 400, { error: 'stato mancante' }.to_json if disponibile.nil?
+
+  item = DB.get_first_row("SELECT id, nome, topic_id, gruppo_id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+  halt 404, { error: 'item non trovato' }.to_json unless item
+
+  value = (disponibile == true || disponibile == 1 || disponibile.to_s == 'true')
+  DataManager.set_disponibile(item_id, value)
+
+  if gruppo_id != 0 && user_id != 0
+    nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+    stato = value ? 'disponibile' : 'non disponibile'
+    notifica_gruppo(gruppo_id, item['topic_id'], "#{value ? '✅' : '🚫'} <b>#{CGI.escapeHTML(nome_utente)}</b> ha segnato: #{CGI.escapeHTML(item['nome'])} come #{stato}")
+  end
+
+  { ok: true, disponibile: value }.to_json
+end
+
 # Checklist: suggerimenti dallo storico (top articoli del gruppo)
 get '/checklist' do
   gruppo_id = params[:gruppo_id]&.to_i
@@ -683,6 +709,8 @@ def serializza_item(i, nome_gruppo: '')
     creato_da:     i['creato_da'],
     user_initials: i['user_initials'].to_s,
     creato_il:     i['creato_il'],
+    deleted:       i['deleted'].to_i == 1,
+    disponibile:   i['disponibile'].to_i != 0,
     has_foto:      i['ha_foto'].to_i > 0,
     nome_gruppo:   gruppo_label,
     nome_contesto: gruppo_label.empty? ? 'Lista Personale' : gruppo_label

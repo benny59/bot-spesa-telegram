@@ -14,6 +14,9 @@
         android:id="@+id/action_sposta_topic"
         android:title="@string/sposta_topic" />
     <item
+        android:id="@+id/action_disponibile"
+        android:title="Disponibile / non disponibile" />
+    <item
         android:id="@+id/action_elimina"
         android:title="@string/elimina_articolo" />
 </menu>

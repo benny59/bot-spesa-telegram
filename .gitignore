@@ -19,6 +19,7 @@ test/
 !test/
 test/*
 !test/open_food_facts_client_test.rb
+!test/deleted_item_cross_view_test.rb
 
 # Ruby
 .bundle/
