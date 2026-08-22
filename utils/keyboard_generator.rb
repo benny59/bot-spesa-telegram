@@ -91,22 +91,24 @@ class KeyboardGenerator
       is_deleted = item["deleted"].to_i == 1
       is_unavailable = item["disponibile"].to_i == 0
 
+      # La fotocamera è troppo allettante: usiamo un occhio nel nome item,
+      # il pulsante foto rimane solo in fondo alla lista
       num_foto = item["ha_foto"].to_i
-      foto_icon = num_foto > 0 ? " 📸" : ""
+      foto_marker = num_foto > 0 ? " 👁" : ""
       display_name = (is_deleted || is_unavailable) ? "~~ #{nome_pulito} ~~" : nome_pulito
+      display_name = "#{display_name}#{foto_marker}" unless display_name.empty?
       display_name = clamp_inline_text(display_name)
 
       autore = item["autore_init"] || "??"
       buyer = item["buyer_init"]
 
-      item_text = (is_deleted || is_unavailable) ? "~~ #{nome_pulito} ~~" : nome_pulito
-
+      # Bottone azione: solo cestino, senza icona foto
       if is_deleted
-        del_label = "↩️ #{foto_icon} #{autore}"
+        del_label = "↩️ #{autore}"
       elsif is_unavailable
-        del_label = "❌ #{foto_icon} #{autore}"
+        del_label = "❌ #{autore}"
       else
-        del_label = "❌ #{foto_icon} #{autore}"
+        del_label = "❌ #{autore}"
       end
       del_label += " ✅ #{buyer}" if is_comprato && !is_deleted && !is_unavailable
       del_label = clamp_inline_text(del_label)
@@ -228,7 +230,7 @@ class KeyboardGenerator
         end
         tag = (show_all && g_id != 0) ? "[#{art["autore_init"] || "?"}] " : ""
         buyer_tag = status == "✅" ? " [#{art["buyer_init"] || "?"}]" : ""
-        icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 📸" : ""
+        icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 👁" : ""
         nome = safe_item_label(art["nome"], 40)
         nome = "~~ #{nome} ~~" if is_deleted || is_unavailable
 
