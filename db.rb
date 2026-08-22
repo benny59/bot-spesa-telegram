@@ -1037,29 +1037,72 @@ end
     nome
   end
 
+  def self.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
+    return false if user_id.to_i <= 0 || gruppo_id.to_i <= 0
+
+    DB.get_first_value(
+      <<-SQL,
+        SELECT 1
+        FROM gruppi g
+        WHERE g.id = ?
+          AND (
+            EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = ? AND m.gruppo_id = g.id)
+            OR g.creato_da = ?
+            OR EXISTS (
+              SELECT 1
+              FROM items i
+              WHERE i.gruppo_id = g.id
+                AND i.creato_da = ?
+            )
+          )
+        LIMIT 1
+      SQL
+      [gruppo_id, user_id, user_id, user_id]
+    ) == 1
+  end
+
+  def self.prendi_gruppi_accessibili(user_id)
+    return [] if user_id.to_i <= 0
+
+    DB.execute(
+      <<-SQL,
+        SELECT DISTINCT g.id, g.nome, g.chat_id
+        FROM gruppi g
+        WHERE EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = ? AND m.gruppo_id = g.id)
+           OR g.creato_da = ?
+           OR EXISTS (
+             SELECT 1
+             FROM items i
+             WHERE i.gruppo_id = g.id
+               AND i.creato_da = ?
+           )
+        ORDER BY g.nome
+      SQL
+      [user_id, user_id, user_id]
+    )
+  end
+
   def self.prendi_destinazioni_censite(user_id)
     destinazioni = [{ "chat_id" => 0, "topic_id" => 0, "nome" => "👤 Lista Personale", "g_nome" => "Privata" }]
 
-    sql = <<-SQL
-      SELECT g.id, g.chat_id, t.topic_id, t.nome as t_nome, g.nome as g_nome
-      FROM memberships m
-      JOIN gruppi g ON m.gruppo_id = g.id
-      LEFT JOIN topics t ON g.chat_id = t.chat_id  -- <--- CAMBIATO IN LEFT JOIN
-      WHERE m.user_id = ?
-    SQL
+    rows = self.prendi_gruppi_accessibili(user_id)
+    rows.each do |r|
+      chat_id = r["chat_id"].to_i
+      topic_rows = DB.execute("SELECT topic_id, nome AS t_nome FROM topics WHERE chat_id = ? ORDER BY nome", [chat_id])
+      if topic_rows.empty?
+        topic_rows = [{ "topic_id" => 0, "t_nome" => "Generale" }]
+      end
 
-    res = DB.execute(sql, [user_id])
-    res.each do |r|
-      # Se t_nome è NULL (grazie al LEFT JOIN), topic_id sarà nullo o 0
-      t_id = r["topic_id"] || 0
-      t_label = r["t_nome"].to_s.strip.empty? ? (t_id == 0 ? "Generale" : "Topic #{t_id}") : r["t_nome"]
-
-      destinazioni << {
-        "chat_id" => r["id"],
-        "topic_id" => t_id,
-        "nome" => "👥 #{r["g_nome"]}: #{t_label}",
-        "g_nome" => r["g_nome"],
-      }
+      topic_rows.each do |t|
+        t_id = t["topic_id"] || 0
+        t_label = t["t_nome"].to_s.strip.empty? ? (t_id == 0 ? "Generale" : "Topic #{t_id}") : t["t_nome"]
+        destinazioni << {
+          "chat_id" => chat_id,
+          "topic_id" => t_id,
+          "nome" => "👥 #{r["nome"]}: #{t_label}",
+          "g_nome" => r["nome"],
+        }
+      end
     end
     destinazioni
   end

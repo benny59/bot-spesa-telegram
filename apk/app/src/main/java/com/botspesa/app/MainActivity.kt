@@ -953,7 +953,7 @@ class MainActivity : AppCompatActivity() {
                 }.getOrDefault(emptyList())
             }
             if (destinazioni.isEmpty()) {
-                Toast.makeText(this@MainActivity, "Nessun altro gruppo/topic disponibile", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "Nessun altro gruppo/topic disponibile per questo profilo", Toast.LENGTH_SHORT).show()
                 return@launch
             }
             AlertDialog.Builder(this@MainActivity)

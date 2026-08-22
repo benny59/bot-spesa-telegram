@@ -149,16 +149,7 @@ end
 get '/gruppi' do
   user_id = params[:user_id]&.to_i
   rows = if user_id && user_id != 0
-    DB.execute(
-      <<~SQL,
-        SELECT g.id, g.nome, g.chat_id
-        FROM gruppi g
-        JOIN memberships m ON m.gruppo_id = g.id
-        WHERE m.user_id = ?
-        ORDER BY g.nome
-      SQL
-      [user_id]
-    )
+    DataManager.prendi_gruppi_accessibili(user_id)
   else
     DB.execute("SELECT id, nome, chat_id FROM gruppi ORDER BY nome")
   end
@@ -240,10 +231,7 @@ post '/lista' do
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
   if gruppo_id != 0
-    consentito = DB.get_first_value(
-      "SELECT 1 FROM memberships WHERE user_id = ? AND gruppo_id = ?",
-      [user_id, gruppo_id]
-    )
+    consentito = DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
     halt 403, { error: 'accesso negato' }.to_json unless consentito
   end
 
@@ -314,10 +302,7 @@ patch '/lista/:id/topic' do
   halt 400, { error: 'La lista personale non ha topic' }.to_json if current_gruppo_id == 0
 
   halt 404, { error: 'gruppo di destinazione non trovato' }.to_json unless DB.get_first_value("SELECT 1 FROM gruppi WHERE id = ?", [target_gruppo_id])
-  halt 403, { error: 'accesso negato al gruppo di destinazione' }.to_json unless DB.get_first_value(
-    "SELECT 1 FROM memberships WHERE user_id = ? AND gruppo_id = ?",
-    [user_id, target_gruppo_id]
-  )
+  halt 403, { error: 'accesso negato al gruppo di destinazione' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, target_gruppo_id)
 
   if topic_id != 0
     chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [target_gruppo_id])
