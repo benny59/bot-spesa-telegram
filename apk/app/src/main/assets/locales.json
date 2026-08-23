@@ -1,0 +1,16 @@
+{
+  "it": {
+    "admin.title": "⚙️ Amministrazione",
+    "admin.language": "Lingua",
+    "admin.pending_count": "Richieste in sospeso",
+    "admin.no_pending": "Nessuna richiesta in sospeso",
+    "admin.authorized_users": "Utenti autorizzati"
+  },
+  "de": {
+    "admin.title": "⚙️ Verwaltung",
+    "admin.language": "Sprache",
+    "admin.pending_count": "Ausstehende Anfragen",
+    "admin.no_pending": "Keine ausstehenden Anfragen",
+    "admin.authorized_users": "Autorisierte Benutzer"
+  }
+}

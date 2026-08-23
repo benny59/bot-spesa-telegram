@@ -35,4 +35,16 @@
     <string name="nav_config_rete">Configurazione rete</string>
     <string name="nav_colori_gruppi">Colori topic</string>
     <string name="nav_amministrazione">Amministrazione</string>
+    <string name="nav_tutti_count">Tutti gli articoli (%1$d)</string>
+    <string name="nav_miei_count">I miei articoli (%1$d)</string>
+    <string name="vista_tutti">Tutti gli articoli</string>
+    <string name="vista_miei">I miei articoli</string>
+    <string name="action_disponibile">Disponibile / non disponibile</string>
+    <string name="status_articolo_disponibile">Articolo disponibile</string>
+    <string name="status_articolo_non_disponibile">Articolo non disponibile</string>
+    <string name="admin_title">⚙️ Amministrazione</string>
+    <string name="admin_lingua">Lingua</string>
+    <string name="admin_pending_count">Richieste in sospeso</string>
+    <string name="admin_no_pending">Nessuna richiesta in sospeso</string>
+    <string name="admin_utenti_autorizzati">Utenti autorizzati</string>
 </resources>

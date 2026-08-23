@@ -5,6 +5,9 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
@@ -32,6 +35,7 @@ class AdminSheet : BottomSheetDialogFragment() {
     private lateinit var tvNoPending: TextView
     private lateinit var tvPendingCount: TextView
     private lateinit var rvUtenti: RecyclerView
+    private lateinit var spinnerLingua: Spinner
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_admin_sheet, container, false)
@@ -44,6 +48,28 @@ class AdminSheet : BottomSheetDialogFragment() {
         tvNoPending    = view.findViewById(R.id.tvNoPending)
         tvPendingCount = view.findViewById(R.id.tvPendingCount)
         rvUtenti       = view.findViewById(R.id.rvUtenti)
+        spinnerLingua  = view.findViewById(R.id.spinnerLingua)
+
+        val opzioni = LocalizationManager.supportedLanguages().map { it.label }
+        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, opzioni)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerLingua.adapter = adapter
+
+        val currentLanguage = LocalizationManager.currentLanguageCode(requireContext())
+        val currentIndex = LocalizationManager.supportedLanguages().indexOfFirst { it.code == currentLanguage }
+        if (currentIndex >= 0) spinnerLingua.setSelection(currentIndex)
+
+        spinnerLingua.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selected = LocalizationManager.supportedLanguages()[position].code
+                if (selected != currentLanguage) {
+                    LocalizationManager.applyLanguage(requireContext(), selected)
+                    requireActivity().recreate()
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
 
         rvPending.isNestedScrollingEnabled = false
         rvUtenti.isNestedScrollingEnabled  = false

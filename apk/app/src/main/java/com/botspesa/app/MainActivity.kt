@@ -20,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
+import androidx.core.os.LocaleListCompat
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import androidx.drawerlayout.widget.DrawerLayout
@@ -139,6 +140,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        LocalizationManager.applyAppLocale(this)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
@@ -871,7 +873,7 @@ class MainActivity : AppCompatActivity() {
         PopupMenu(this, anchor).apply {
             menuInflater.inflate(R.menu.item_context_menu, menu)
             menu.findItem(R.id.action_elimina_foto).isVisible = item.hasFoto
-            menu.findItem(R.id.action_sposta_topic).isVisible = item.gruppoId != 0
+            menu.findItem(R.id.action_sposta_topic).isVisible = true
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     R.id.action_modifica -> mostraDialogModificaItem(item)
@@ -941,10 +943,14 @@ class MainActivity : AppCompatActivity() {
                 runCatching {
                     val gruppi = ApiClient.getGruppiTyped(userId).filter { it.id != 0 }
                     buildList {
+                        if (item.gruppoId != 0) {
+                            add(AddDestination(0, 0, "Lista Personale"))
+                        }
                         gruppi.forEach { gruppo ->
                             val topics = ApiClient.getTopics(gruppo.id)
                             topics.forEach { topic ->
-                                if (!(gruppo.id == item.gruppoId && topic.topicId == item.topicId)) {
+                                val sameCurrent = (gruppo.id == item.gruppoId && topic.topicId == item.topicId)
+                                if (!sameCurrent) {
                                     add(AddDestination(gruppo.id, topic.topicId, "${gruppo.nome}: ${topic.nome}"))
                                 }
                             }
@@ -1143,8 +1149,8 @@ class MainActivity : AppCompatActivity() {
                 runCatching { ApiClient.getConteggiListe(userId) }.getOrNull()
             } ?: return@launch
             val menu = findViewById<NavigationView>(R.id.navView).menu
-            menu.findItem(R.id.nav_tutti).title = "Tutti gli articoli (${conteggi.tutti})"
-            menu.findItem(R.id.nav_miei).title = "I miei articoli (${conteggi.miei})"
+            menu.findItem(R.id.nav_tutti).title = getString(R.string.nav_tutti_count, conteggi.tutti)
+            menu.findItem(R.id.nav_miei).title = getString(R.string.nav_miei_count, conteggi.miei)
         }
     }
 
@@ -1229,7 +1235,11 @@ class MainActivity : AppCompatActivity() {
             }
             if (ok) {
                 aggiornaLista()
-                mostraEsitoBreve(if (nuovoValore) "Articolo disponibile" else "Articolo non disponibile", true)
+                mostraEsitoBreve(
+                    if (nuovoValore) getString(R.string.status_articolo_disponibile)
+                    else getString(R.string.status_articolo_non_disponibile),
+                    true
+                )
             } else {
                 Toast.makeText(this@MainActivity, "Aggiornamento disponibilità non riuscito", Toast.LENGTH_SHORT).show()
             }
@@ -1447,12 +1457,12 @@ class MainActivity : AppCompatActivity() {
             result.onSuccess { (gNome, tNome, gId) ->
                 when (vistaAttuale) {
                     "tutti" -> {
-                        tvGruppo.text = "Tutti gli articoli"
+                        tvGruppo.text = getString(R.string.vista_tutti)
                         tvTopic.visibility = android.view.View.GONE
                         applicaColoreToolbar(0, "")
                     }
                     "miei" -> {
-                        tvGruppo.text = "I miei articoli"
+                        tvGruppo.text = getString(R.string.vista_miei)
                         tvTopic.visibility = android.view.View.GONE
                         applicaColoreToolbar(0, "")
                     }
@@ -1471,61 +1481,89 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun mostraDialogCambioTopic() {
-        if (gruppoId == 0) return  // Lista Personale non ha topics
+    private fun mostraDialogCambioTopic() = mostraDialogSceltaDestinazione()
+
+    private fun mostraDialogCambioGruppo() = mostraDialogSceltaDestinazione()
+
+    private fun mostraDialogSceltaDestinazione() {
         lifecycleScope.launch {
-            val topics = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getTopics(gruppoId) }.getOrDefault(emptyList())
+            val destinazioni = withContext(Dispatchers.IO) {
+                runCatching {
+                    val gruppi = ApiClient.getGruppiTyped(userId)
+                    buildList {
+                        add(AddDestination(0, 0, "Lista Personale"))
+                        gruppi.filter { it.id != 0 }.forEach { gruppo ->
+                            val topics = ApiClient.getTopics(gruppo.id)
+                            if (topics.isEmpty()) {
+                                add(AddDestination(gruppo.id, 0, "${gruppo.nome}: Principale"))
+                            } else {
+                                topics.forEach { topic ->
+                                    add(AddDestination(gruppo.id, topic.topicId, "${gruppo.nome}: ${topic.nome}"))
+                                }
+                            }
+                        }
+                    }
+                }.getOrDefault(emptyList())
             }
-            if (topics.isEmpty()) return@launch
-            android.app.AlertDialog.Builder(this@MainActivity)
-                .setTitle(getString(R.string.seleziona_topic))
-                .setItems(topics.map { it.nome }.toTypedArray()) { _, idx ->
-                    val topic = topics[idx]
-                    prefs().edit().putInt("topic_id", topic.topicId).apply()
+            if (destinazioni.isEmpty()) {
+                Toast.makeText(this@MainActivity, "Nessuna destinazione disponibile", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            val radioGroup = android.widget.RadioGroup(this@MainActivity).apply {
+                orientation = android.widget.RadioGroup.VERTICAL
+            }
+            val currentIndex = destinazioni.indexOfFirst {
+                it.gruppoId == gruppoId && it.topicId == topicId
+            }.takeIf { it >= 0 } ?: 0
+
+            destinazioni.forEachIndexed { index, destinazione ->
+                radioGroup.addView(android.widget.RadioButton(this@MainActivity).apply {
+                    id = android.view.View.generateViewId()
+                    text = destinazione.label
+                    tag = index
+                    isChecked = index == currentIndex
+                })
+            }
+
+            val dp = resources.displayMetrics.density
+            val content = android.widget.LinearLayout(this@MainActivity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding((24 * dp).toInt(), 0, (24 * dp).toInt(), 0)
+                addView(android.widget.ScrollView(this@MainActivity).apply {
+                    addView(radioGroup)
+                }, android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    (320 * dp).toInt()
+                ))
+            }
+
+            val dialog = android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("Seleziona destinazione")
+                .setView(content)
+                .setPositiveButton("OK", null)
+                .setNegativeButton("Annulla", null)
+                .create()
+
+            dialog.setOnShowListener {
+                dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val selectedRadio = radioGroup.findViewById<android.widget.RadioButton>(radioGroup.checkedRadioButtonId)
+                    val selected = if (selectedRadio != null) {
+                        destinazioni[selectedRadio.tag as Int]
+                    } else {
+                        destinazioni[currentIndex]
+                    }
+
+                    prefs().edit()
+                        .putInt("gruppo_id", selected.gruppoId)
+                        .putInt("topic_id", selected.topicId)
+                        .apply()
                     aggiornaLista()
                     caricaInfoGruppo()
+                    dialog.dismiss()
                 }
-                .show()
-        }
-    }
-
-    private fun mostraDialogCambioGruppo() {
-        lifecycleScope.launch {
-            val gruppi = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getGruppiTyped(userId) }.getOrDefault(emptyList())
             }
-            if (gruppi.isEmpty()) return@launch
-            android.app.AlertDialog.Builder(this@MainActivity)
-                .setTitle(getString(R.string.seleziona_gruppo))
-                .setItems(gruppi.map { it.nome }.toTypedArray()) { _, idx ->
-                    val gruppo = gruppi[idx]
-                    lifecycleScope.launch {
-                        if (gruppo.id == 0) {
-                            // Lista Personale: nessun topic, salva direttamente
-                            prefs().edit().putInt("gruppo_id", 0).putInt("topic_id", 0).apply()
-                            aggiornaLista()
-                            caricaInfoGruppo()
-                            return@launch
-                        }
-                        val topics = withContext(Dispatchers.IO) {
-                            runCatching { ApiClient.getTopics(gruppo.id) }.getOrDefault(emptyList())
-                        }
-                        android.app.AlertDialog.Builder(this@MainActivity)
-                            .setTitle(getString(R.string.seleziona_topic))
-                            .setItems(topics.map { it.nome }.toTypedArray()) { _, tIdx ->
-                                val topic = topics[tIdx]
-                                prefs().edit()
-                                    .putInt("gruppo_id", gruppo.id)
-                                    .putInt("topic_id", topic.topicId)
-                                    .apply()
-                                aggiornaLista()
-                                caricaInfoGruppo()
-                            }
-                            .show()
-                    }
-                }
-                .show()
+            dialog.show()
         }
     }
 

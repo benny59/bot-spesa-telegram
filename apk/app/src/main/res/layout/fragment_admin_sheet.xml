@@ -13,15 +13,29 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="⚙️ Amministrazione"
+            android:text="@string/admin_title"
             android:textAppearance="?attr/textAppearanceHeadline6"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/admin_lingua"
+            android:textAppearance="?attr/textAppearanceSubtitle1"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <Spinner
+            android:id="@+id/spinnerLingua"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginBottom="16dp" />
 
         <TextView
             android:id="@+id/tvPendingCount"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Richieste in sospeso"
+            android:text="@string/admin_pending_count"
             android:textAppearance="?attr/textAppearanceSubtitle1"
             android:textStyle="bold"
             android:layout_marginBottom="8dp" />
@@ -30,7 +44,7 @@
             android:id="@+id/tvNoPending"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Nessuna richiesta in sospeso"
+            android:text="@string/admin_no_pending"
             android:textAppearance="?attr/textAppearanceBody2"
             android:alpha="0.6"
             android:visibility="gone" />
@@ -50,7 +64,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Utenti autorizzati"
+            android:text="@string/admin_utenti_autorizzati"
             android:textAppearance="?attr/textAppearanceSubtitle1"
             android:textStyle="bold"
             android:layout_marginBottom="8dp" />
