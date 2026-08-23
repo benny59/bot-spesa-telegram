@@ -98,10 +98,7 @@ def item_accessibile!(item_id, user_id)
   consentito = if item['gruppo_id'].to_i == 0
     item['creato_da'].to_i == user_id.to_i
   else
-    DB.get_first_value(
-      "SELECT 1 FROM memberships WHERE user_id = ? AND gruppo_id = ?",
-      [user_id, item['gruppo_id']]
-    )
+    DataManager.utente_ha_accesso_al_gruppo?(user_id, item['gruppo_id'])
   end
   halt 403, { error: 'accesso negato' }.to_json unless consentito
   item
@@ -299,18 +296,22 @@ patch '/lista/:id/topic' do
 
   item = item_accessibile!(item_id, user_id)
   current_gruppo_id = item['gruppo_id'].to_i
-  halt 400, { error: 'La lista personale non ha topic' }.to_json if current_gruppo_id == 0
 
-  halt 404, { error: 'gruppo di destinazione non trovato' }.to_json unless DB.get_first_value("SELECT 1 FROM gruppi WHERE id = ?", [target_gruppo_id])
-  halt 403, { error: 'accesso negato al gruppo di destinazione' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, target_gruppo_id)
+  if target_gruppo_id == 0
+    halt 400, { error: 'La lista personale usa topic_id 0' }.to_json unless topic_id == 0
+    halt 403, { error: 'accesso negato alla lista personale' }.to_json unless item['creato_da'].to_i == user_id.to_i
+  else
+    halt 404, { error: 'gruppo di destinazione non trovato' }.to_json unless DB.get_first_value("SELECT 1 FROM gruppi WHERE id = ?", [target_gruppo_id])
+    halt 403, { error: 'accesso negato al gruppo di destinazione' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, target_gruppo_id)
 
-  if topic_id != 0
-    chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [target_gruppo_id])
-    topic_valido = DB.get_first_value(
-      "SELECT 1 FROM topics WHERE chat_id = ? AND topic_id = ?",
-      [chat_id, topic_id]
-    )
-    halt 404, { error: 'topic non trovato' }.to_json unless topic_valido
+    if topic_id != 0
+      chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [target_gruppo_id])
+      topic_valido = DB.get_first_value(
+        "SELECT 1 FROM topics WHERE chat_id = ? AND topic_id = ?",
+        [chat_id, topic_id]
+      )
+      halt 404, { error: 'topic non trovato' }.to_json unless topic_valido
+    end
   end
 
   halt 404, { error: 'item non trovato' }.to_json unless Lista.sposta_topic(item_id, target_gruppo_id, topic_id)
@@ -318,8 +319,8 @@ patch '/lista/:id/topic' do
   utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
   nome = CGI.escapeHTML(item['nome'].to_s)
   autore = CGI.escapeHTML(utente)
-  notifica_gruppo(current_gruppo_id, item['topic_id'], "\u27A1\uFE0F <b>#{autore}</b> ha spostato: <b>#{nome}</b>")
-  notifica_gruppo(target_gruppo_id, topic_id, "\u2B05\uFE0F <b>#{autore}</b> ha spostato qui: <b>#{nome}</b>")
+  notifica_gruppo(current_gruppo_id, item['topic_id'], "\u27A1\uFE0F <b>#{autore}</b> ha spostato: <b>#{nome}</b>") unless current_gruppo_id == 0
+  notifica_gruppo(target_gruppo_id, topic_id, "\u2B05\uFE0F <b>#{autore}</b> ha spostato qui: <b>#{nome}</b>") unless target_gruppo_id == 0
   { ok: true, gruppo_id: target_gruppo_id, topic_id: topic_id }.to_json
 end
 

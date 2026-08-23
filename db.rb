@@ -1001,8 +1001,7 @@ end
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
     WHERE i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
        OR (i.gruppo_id = 0 AND i.creato_da = ?)
-      ORDER BY i.gruppo_id, i.topic_id,
-           CASE WHEN COALESCE(TRIM(i.comprato), '') = '' THEN 0 ELSE 1 END,
+      ORDER BY #{self.item_state_order_sql("i")}, i.gruppo_id, i.topic_id,
            LOWER(COALESCE(u.first_name, '')), LOWER(COALESCE(u.last_name, '')),
            datetime(i.creato_il) DESC, i.id DESC
   SQL
@@ -1141,6 +1140,17 @@ end
     SQL
   end
 
+  def self.item_state_order_sql(alias_name = "i")
+    <<-SQL
+      CASE
+        WHEN #{alias_name}.deleted = 1 THEN 3
+        WHEN COALESCE(#{alias_name}.disponibile, 1) = 0 THEN 2
+        WHEN TRIM(COALESCE(#{alias_name}.comprato, '')) != '' THEN 1
+        ELSE 0
+      END ASC
+    SQL
+  end
+
   def self.articoli_attivi(gruppo_id, topic_id, user_id = nil, show_all: true)
     sql = self.get_base_query_articoli_con_metadata + <<-SQL
     WHERE i.gruppo_id = ? AND i.topic_id = ?
@@ -1153,16 +1163,9 @@ end
     end
 
     sql += <<-SQL
-    ORDER BY 
-      -- 1. Gli item soft-deleted restano visibili ma in fondo
-      (i.deleted IS NOT NULL AND i.deleted != 0) ASC,
-      -- 2. I comprati vanno in fondo
-      (i.comprato IS NOT NULL AND i.comprato != '') ASC,
-      -- 3. Gli item non disponibili restano in fondo ma visibili
-      (COALESCE(i.disponibile, 1) = 0) ASC,
-      -- 4. Gli articoli più frequenti in alto
+    ORDER BY
+      #{self.item_state_order_sql("i")},
       volte DESC,
-      -- 5. I più recenti per primi tra quelli con stesse 'volte'
       i.id DESC
     SQL
 

@@ -10,7 +10,7 @@ class Lista
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
      WHERE i.gruppo_id = ?
        AND i.topic_id = ?
-     ORDER BY i.deleted, i.comprato, i.id",
+     ORDER BY #{DataManager.item_state_order_sql("i")}, i.id DESC",
       [gruppo_id, topic_id]
     )
   end
@@ -22,7 +22,7 @@ class Lista
      LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
      WHERE i.gruppo_id = 0 AND i.creato_da = ?
-     ORDER BY i.deleted, i.comprato, i.id",
+     ORDER BY #{DataManager.item_state_order_sql("i")}, i.id DESC",
       [user_id]
     )
   end
