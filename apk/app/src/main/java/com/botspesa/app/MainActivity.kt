@@ -84,7 +84,7 @@ class MainActivity : AppCompatActivity() {
         if (ok) cameraImageUri?.let(::gestisciFotoSelezionata)
     }
     private val requestCameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) launchCamera() else Toast.makeText(this, "Permesso fotocamera negato", Toast.LENGTH_SHORT).show()
+        if (ok) launchCamera() else Toast.makeText(this, getString(R.string.permesso_fotocamera_negato), Toast.LENGTH_SHORT).show()
     }
     private val productScanLauncher = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let(::caricaAnteprimaProdotto)
@@ -103,7 +103,7 @@ class MainActivity : AppCompatActivity() {
         val tvUser = header.findViewById<TextView>(R.id.tvUserName)
         val nome = listOf(firstName, lastName).filter { it.isNotEmpty() }.joinToString(" ")
         if (nome.isNotEmpty()) tvUser.text = "👤 $nome"
-        else tvUser.text = if (userId != 0) "👤 utente collegato" else "(non collegato)"
+        else tvUser.text = if (userId != 0) getString(R.string.utente_collegato) else getString(R.string.non_collegato)
 
         // Aggiorna sempre dal server per tenere is_creator sincronizzato
         if (userId != 0) {
@@ -217,6 +217,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
                 R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
                 R.id.nav_config_rete       -> mostraDialogConfigRete()
+                R.id.nav_lingua            -> mostraDialogLingua()
                 R.id.nav_colori_gruppi     -> mostraDialogColoriTopic()
                 R.id.nav_amministrazione   -> AdminSheet.newInstance(userId).show(supportFragmentManager, "admin")
             }
@@ -430,7 +431,7 @@ class MainActivity : AppCompatActivity() {
     private fun condividiListaCorrente() {
         val daComprare = items.filterNot { it.isBought }
         if (daComprare.isEmpty()) {
-            Toast.makeText(this, "Nessun articolo da condividere", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.nessun_articolo_da_condividere), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -457,19 +458,19 @@ class MainActivity : AppCompatActivity() {
     private fun mostraScopettaConferma() {
         val daPulire = items.count { it.isBought || it.isDeleted }
         if (daPulire == 0) {
-            Toast.makeText(this, "Nessun articolo da pulire", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.nessun_articolo_da_pulire), Toast.LENGTH_SHORT).show()
             return
         }
         val titolo = if (vistaAttuale.isNotEmpty()) "🧹 Superscopetta" else getString(R.string.scopetta)
         val msg = if (vistaAttuale.isNotEmpty())
             "Rimuovere da tutti i gruppi gli articoli segnati come comprati o già cancellati?"
         else
-            "Rimuovere $daPulire articol${if (daPulire == 1) "o" else "i"} da pulire?"
+            getString(R.string.conferma_pulizia, daPulire, if (daPulire == 1) getString(R.string.articolo_singolare) else getString(R.string.articoli_plurale))
         AlertDialog.Builder(this)
             .setTitle(titolo)
             .setMessage(msg)
-            .setPositiveButton("Rimuovi") { _, _ -> eseguiScopetta() }
-            .setNegativeButton("Annulla", null)
+            .setPositiveButton(R.string.rimuovi) { _, _ -> eseguiScopetta() }
+            .setNegativeButton(R.string.annulla, null)
             .show()
     }
 
@@ -482,7 +483,7 @@ class MainActivity : AppCompatActivity() {
                     runCatching { ApiClient.eseguiScopetta(gruppoId, topicId, userId) }.getOrDefault(false)
             }
             if (ok) aggiornaLista()
-            else Toast.makeText(this@MainActivity, "Errore scopetta", Toast.LENGTH_SHORT).show()
+            else Toast.makeText(this@MainActivity, getString(R.string.errore_scopetta), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -589,8 +590,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         AlertDialog.Builder(this)
-            .setTitle("Scansiona prodotto")
-            .setItems(arrayOf("Con Yuka", "Con Bot Spesa")) { _, which ->
+            .setTitle(R.string.scansiona_prodotto)
+            .setItems(arrayOf(getString(R.string.con_yuka), getString(R.string.con_bot_spesa))) { _, which ->
                 if (which == 0) {
                     Toast.makeText(
                         this,
@@ -623,7 +624,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching { ApiClient.getProductPreview(barcode) }.getOrNull()
             }
             if (preview == null) {
-                Toast.makeText(this@MainActivity, "Prodotto non trovato: inserisci il nome", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, getString(R.string.prodotto_non_trovato), Toast.LENGTH_LONG).show()
                 mostraDialogAggiungi()
             } else {
                 mostraDialogAggiungi(prefilledText = preview.displayName, productPreview = preview)
@@ -665,14 +666,14 @@ class MainActivity : AppCompatActivity() {
 
         val fallbackMessage = "$displayName non installata"
         Snackbar.make(drawerLayout, fallbackMessage, Snackbar.LENGTH_SHORT)
-            .setAction("Apri") {
+            .setAction(getString(R.string.apri)) {
                 try {
                     val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     startActivity(storeIntent)
                 } catch (_: Exception) {
-                    Toast.makeText(this, "Impossibile aprire il link", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.impossibile_aprire_link), Toast.LENGTH_SHORT).show()
                 }
             }
             .show()
@@ -724,10 +725,10 @@ class MainActivity : AppCompatActivity() {
                             dlg.dismiss()
                             tryConsumePendingShare()
                         } else {
-                            etPin.error = "PIN non valido o scaduto"
+                            etPin.error = getString(R.string.pin_non_valido)
                         }
                     }.onFailure { e ->
-                        etPin.error = e.message ?: "Errore di rete"
+                        etPin.error = e.message ?: getString(R.string.errore_di_rete)
                     }
                 }
             }
@@ -760,15 +761,15 @@ class MainActivity : AppCompatActivity() {
         val dlg = AlertDialog.Builder(this)
             .setTitle(getString(R.string.nav_config_rete))
             .setView(layout)
-            .setPositiveButton("Salva", null)
-            .also { if (!primoAvvio) it.setNegativeButton("Annulla", null) }
+            .setPositiveButton(R.string.salva, null)
+            .also { if (!primoAvvio) it.setNegativeButton(R.string.annulla, null) }
             .create()
         dlg.setOnShowListener {
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val url   = etUrl.text.toString().trimEnd('/')
                 val token = etToken.text.toString().trim()
                 if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    etUrl.error = "Inserisci un URL completo, per esempio http://192.168.1.10:4568"
+                    etUrl.error = getString(R.string.inserisci_url_completo)
                     return@setOnClickListener
                 }
                 ApiClient.configure(url = url, tok = token)
@@ -777,7 +778,7 @@ class MainActivity : AppCompatActivity() {
                     val raggiungibile = withContext(Dispatchers.IO) { ApiClient.ping() }
                     dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                     if (!raggiungibile) {
-                        etUrl.error = "Server non raggiungibile"
+                        etUrl.error = getString(R.string.server_non_raggiungibile)
                         return@launch
                     }
                     p.edit().putString("api_url", url).putString("api_token", token).apply()
@@ -793,6 +794,25 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dlg.show()
+    }
+
+    private fun mostraDialogLingua() {
+        val opzioni = LocalizationManager.supportedLanguages()
+        val currentCode = LocalizationManager.currentLanguageCode(this)
+        val currentIndex = opzioni.indexOfFirst { it.code == currentCode }.takeIf { it >= 0 } ?: 0
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_lingua_titolo)
+            .setSingleChoiceItems(opzioni.map { it.label }.toTypedArray(), currentIndex) { dialog, position ->
+                val selected = opzioni[position].code
+                if (selected != currentCode) {
+                    LocalizationManager.applyLanguage(this, selected)
+                    recreate()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Annulla", null)
+            .show()
     }
 
     private fun mostraDialogColoriTopic() {
@@ -840,7 +860,7 @@ class MainActivity : AppCompatActivity() {
                         0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
                 val btnCambia = android.widget.Button(this@MainActivity).apply {
-                    text = "Cambia"
+                    text = getString(R.string.cambia)
                     setOnClickListener {
                         val nomi = colorPalette.map { it.second }.toTypedArray()
                         AlertDialog.Builder(this@MainActivity)
@@ -898,13 +918,13 @@ class MainActivity : AppCompatActivity() {
         val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.modifica_articolo)
             .setView(input)
-            .setPositiveButton("Salva", null)
-            .setNegativeButton("Annulla", null)
+            .setPositiveButton(R.string.salva, null)
+            .setNegativeButton(R.string.annulla, null)
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val nome = input.text.toString().trim()
-                if (nome.isEmpty()) input.error = "Il testo non può essere vuoto"
+                if (nome.isEmpty()) input.error = getString(R.string.testo_vuoto)
                 else {
                     dialog.dismiss()
                     lifecycleScope.launch {
@@ -912,7 +932,7 @@ class MainActivity : AppCompatActivity() {
                             runCatching { ApiClient.updateItem(item.id, nome, userId) }.getOrDefault(false)
                         }
                         if (ok) aggiornaLista()
-                        else Toast.makeText(this@MainActivity, "Modifica non riuscita", Toast.LENGTH_SHORT).show()
+                        else Toast.makeText(this@MainActivity, getString(R.string.modifica_non_riuscita), Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -923,14 +943,14 @@ class MainActivity : AppCompatActivity() {
     private fun eliminaFotoConferma(item: SpesaItem) {
         AlertDialog.Builder(this)
             .setTitle(R.string.elimina_foto)
-            .setMessage("Eliminare la foto associata a \"${item.nome}\"?")
-            .setPositiveButton("Elimina") { _, _ ->
+            .setMessage(getString(R.string.conferma_eliminazione_foto, item.nome))
+            .setPositiveButton(R.string.elimina) { _, _ ->
                 lifecycleScope.launch {
                     val ok = withContext(Dispatchers.IO) {
                         runCatching { ApiClient.deleteFoto(item.id, userId) }.getOrDefault(false)
                     }
                     if (ok) aggiornaLista()
-                    else Toast.makeText(this@MainActivity, "Eliminazione foto non riuscita", Toast.LENGTH_SHORT).show()
+                    else Toast.makeText(this@MainActivity, getString(R.string.eliminazione_foto_non_riuscita), Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Annulla", null)
@@ -959,7 +979,7 @@ class MainActivity : AppCompatActivity() {
                 }.getOrDefault(emptyList())
             }
             if (destinazioni.isEmpty()) {
-                Toast.makeText(this@MainActivity, "Nessun altro gruppo/topic disponibile per questo profilo", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.nessun_altro_gruppo_topic), Toast.LENGTH_SHORT).show()
                 return@launch
             }
             AlertDialog.Builder(this@MainActivity)
@@ -971,7 +991,7 @@ class MainActivity : AppCompatActivity() {
                             runCatching { ApiClient.moveItem(item.id, target.gruppoId, target.topicId, userId) }.getOrDefault(false)
                         }
                         if (ok) aggiornaLista()
-                        else Toast.makeText(this@MainActivity, "Spostamento non riuscito", Toast.LENGTH_SHORT).show()
+                        else Toast.makeText(this@MainActivity, getString(R.string.spostamento_non_riuscito), Toast.LENGTH_SHORT).show()
                     }
                 }
                 .show()
@@ -1036,7 +1056,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             result.onSuccess { aggiornaLista() }
-                  .onFailure { Toast.makeText(this@MainActivity, "Errore upload foto", Toast.LENGTH_SHORT).show() }
+                  .onFailure { Toast.makeText(this@MainActivity, getString(R.string.errore_upload_foto), Toast.LENGTH_SHORT).show() }
         }
     }
 
@@ -1050,7 +1070,7 @@ class MainActivity : AppCompatActivity() {
     private fun apriLinkArticolo(item: SpesaItem) {
         val raw = item.linkUrl.trim()
         if (raw.isEmpty()) {
-            Toast.makeText(this, "Link non disponibile", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.link_non_disponibile), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -1100,8 +1120,8 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setView(container)
-            .setPositiveButton("Apri") { _, _ -> apriBrowserFallback(linkUrl) }
-            .setNegativeButton("Chiudi", null)
+            .setPositiveButton(R.string.apri) { _, _ -> apriBrowserFallback(linkUrl) }
+            .setNegativeButton(R.string.chiudi_dialog, null)
             .show()
     }
 
@@ -1134,7 +1154,7 @@ class MainActivity : AppCompatActivity() {
                 adapter.notifyDataSetChanged()
                 aggiornaConteggiDrawer()
             }.onFailure {
-                Toast.makeText(this@MainActivity, "Connessione fallita: ${it.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.connessione_fallita, it.message ?: ""), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1164,7 +1184,7 @@ class MainActivity : AppCompatActivity() {
         aggiornaLista()
         caricaInfoGruppo()
         invalidateOptionsMenu()
-        Toast.makeText(this, "Contesto: ${item.nomeContesto}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.contesto_format, item.nomeContesto), Toast.LENGTH_SHORT).show()
     }
 
     private fun toggleItem(item: SpesaItem) {
@@ -1173,24 +1193,24 @@ class MainActivity : AppCompatActivity() {
                 runCatching { ApiClient.toggleItem(item.gruppoId, item.id, userId) }
             }
             result.onSuccess { aggiornaLista() }
-                  .onFailure { Toast.makeText(this@MainActivity, "Errore toggle", Toast.LENGTH_SHORT).show() }
+                  .onFailure { Toast.makeText(this@MainActivity, getString(R.string.errore_toggle), Toast.LENGTH_SHORT).show() }
         }
     }
 
     private fun eliminaConferma(item: SpesaItem) {
-        val titolo = if (item.deleted) "Ripristina articolo" else "Cancella articolo"
+        val titolo = if (item.deleted) getString(R.string.ripristina_articolo) else getString(R.string.cancella_articolo)
         val messaggio = if (item.deleted) {
-            "Ripristinare \"${item.nome}\" nella lista?"
+            getString(R.string.ripristinare_articolo, item.nome)
         } else {
-            "Cancellare \"${item.nome}\"?\nL’item resterà visibile in fondo alla lista e potrà essere ripristinato."
+            getString(R.string.cancellare_articolo, item.nome)
         }
         AlertDialog.Builder(this)
             .setTitle(titolo)
             .setMessage(messaggio)
-            .setPositiveButton(if (item.deleted) "Ripristina" else "Cancella") { _, _ ->
+            .setPositiveButton(if (item.deleted) R.string.ripristina else R.string.cancella) { _, _ ->
                 if (item.deleted) restoreItem(item) else eliminaItem(item)
             }
-            .setNegativeButton("Annulla", null)
+            .setNegativeButton(R.string.annulla, null)
             .show()
     }
 
@@ -1201,9 +1221,9 @@ class MainActivity : AppCompatActivity() {
             }
             if (ok) {
                 aggiornaLista()
-                mostraEsitoBreve("Articolo cancellato", true)
+                mostraEsitoBreve(getString(R.string.articolo_cancellato), true)
             } else {
-                Toast.makeText(this@MainActivity, "Cancellazione non riuscita", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.cancellazione_non_riuscita), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1215,9 +1235,9 @@ class MainActivity : AppCompatActivity() {
             }
             if (ok) {
                 aggiornaLista()
-                mostraEsitoBreve("Articolo ripristinato", true)
+                mostraEsitoBreve(getString(R.string.articolo_ripristinato), true)
             } else {
-                Toast.makeText(this@MainActivity, "Ripristino non riuscito", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.ripristino_non_riuscito), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1241,7 +1261,7 @@ class MainActivity : AppCompatActivity() {
                     true
                 )
             } else {
-                Toast.makeText(this@MainActivity, "Aggiornamento disponibilità non riuscito", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.aggiornamento_disponibilita_non_riuscito), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1256,7 +1276,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching {
                     val gruppi = ApiClient.getGruppiTyped(userId).filter { it.id != 0 }
                     buildList {
-                        add(AddDestination(0, 0, "Personale"))
+                        add(AddDestination(0, 0, getString(R.string.lista_personale)))
                         gruppi.forEach { gruppo ->
                             ApiClient.getTopics(gruppo.id).forEach { topic ->
                                 add(AddDestination(
@@ -1269,12 +1289,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }.getOrElse {
-                Toast.makeText(this@MainActivity, "Impossibile caricare le destinazioni", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.impossibile_caricare_destinazioni), Toast.LENGTH_SHORT).show()
                 return@launch
             }
 
             val input = EditText(this@MainActivity).apply {
-                hint = "es. Latte, Pane, Uova"
+                hint = getString(R.string.esempio_articolo)
                 if (!prefilledText.isNullOrBlank()) {
                     setText(prefilledText)
                     setSelection(text.length)
@@ -1297,7 +1317,7 @@ class MainActivity : AppCompatActivity() {
             }
             val dp = resources.displayMetrics.density
             val scanButton = com.google.android.material.button.MaterialButton(this@MainActivity).apply {
-                text = "Scansiona prodotto"
+                text = getString(R.string.scansiona_prodotto)
                 isAllCaps = false
                 visibility = if (BuildConfig.PRODUCT_SCAN_ENABLED) android.view.View.VISIBLE else android.view.View.GONE
             }
@@ -1314,7 +1334,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 addView(scanButton)
                 addView(TextView(this@MainActivity).apply {
-                    text = "Destinazione"
+                    text = getString(R.string.destinazione)
                     textSize = 14f
                     setPadding(0, (8 * dp).toInt(), 0, (4 * dp).toInt())
                 })
@@ -1326,11 +1346,11 @@ class MainActivity : AppCompatActivity() {
                 ))
             }
             val dlg = AlertDialog.Builder(this@MainActivity)
-                .setTitle("Aggiungi articoli")
+                .setTitle(R.string.aggiungi_articoli)
                 .setView(content)
-                .setPositiveButton("Aggiungi", null)
-                .setNeutralButton("Con foto", null)
-                .setNegativeButton("Annulla", null)
+                .setPositiveButton(R.string.aggiungi, null)
+                .setNeutralButton(R.string.con_foto, null)
+                .setNegativeButton(R.string.annulla, null)
                 .create()
             fun destinazioneSelezionata(): AddDestination {
                 val radio = radioGroup.findViewById<android.widget.RadioButton>(radioGroup.checkedRadioButtonId)
@@ -1344,7 +1364,7 @@ class MainActivity : AppCompatActivity() {
                 dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                     val testo = input.text.toString().trim()
                     if (testo.isEmpty()) {
-                        input.error = "Inserisci almeno un articolo"
+                        input.error = getString(R.string.inserisci_almeno_un_articolo)
                     } else {
                         dlg.dismiss()
                         aggiungiItem(testo, destinazioneSelezionata(), prefilledLink)

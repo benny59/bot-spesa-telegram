@@ -59,16 +59,19 @@
                 android:icon="@drawable/ic_wifi"
                 android:title="@string/nav_config_rete" />
             <item
+                android:id="@+id/nav_lingua"
+                android:icon="@drawable/ic_nav_settings"
+                android:title="@string/nav_lingua" />
+            <item
                 android:id="@+id/nav_colori_gruppi"
                 android:icon="@drawable/ic_palette"
                 android:title="@string/nav_colori_gruppi" />
+            <item
+                android:id="@+id/nav_amministrazione"
+                android:icon="@drawable/ic_nav_settings"
+                android:title="@string/nav_amministrazione"
+                android:visible="false" />
         </menu>
     </item>
-
-    <item
-        android:id="@+id/nav_amministrazione"
-        android:icon="@drawable/ic_nav_settings"
-        android:title="@string/nav_amministrazione"
-        android:visible="false" />
 
 </menu>
