@@ -916,7 +916,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching { ApiClient.getCategorie(item.gruppoId, item.topicId) }.getOrDefault(emptyList())
             }
             val opzioni = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
-            opzioni.addAll(categorie.map { it.id to it.nome })
+            opzioni.addAll(categorie.map { it.id to LocalizationManager.localizedCategoryName(this@MainActivity, it.nome) })
             val input = EditText(this@MainActivity).apply {
                 setText(item.nome)
                 setSelection(text.length)
@@ -1333,7 +1333,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching { ApiClient.getCategorie(gruppoId, topicId) }.getOrDefault(emptyList())
             }
             val opzioniCategoria = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
-            opzioniCategoria.addAll(categorieBase.map { it.id to it.nome })
+            opzioniCategoria.addAll(categorieBase.map { it.id to LocalizationManager.localizedCategoryName(this@MainActivity, it.nome) })
             categoriaSpinner.adapter = ArrayAdapter(
                 this@MainActivity,
                 android.R.layout.simple_spinner_item,

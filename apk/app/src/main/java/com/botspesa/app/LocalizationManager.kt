@@ -54,6 +54,29 @@ object LocalizationManager {
         return langMap[key]?.toString() ?: fallback
     }
 
+    fun localizedCategoryName(context: Context, rawCategoryName: String?): String {
+        val value = rawCategoryName?.trim().orEmpty()
+        if (value.isEmpty()) return value
+
+        if (currentLanguageCode(context) != "de") return value
+
+        return when (value.lowercase(Locale.ROOT)) {
+            "verdura" -> "Gemüse"
+            "frutta" -> "Obst"
+            "latticini" -> "Milchprodukte"
+            "carne" -> "Fleisch"
+            "pesce" -> "Fisch"
+            "pane" -> "Brot"
+            "snack" -> "Snacks"
+            "bevande" -> "Getränke"
+            "casa" -> "Haushalt"
+            "igiene" -> "Hygiene"
+            "gastronomia" -> "Gastronomie"
+            "altro" -> "Sonstiges"
+            else -> value
+        }
+    }
+
     private fun loadTranslations(context: Context): Map<String, Map<String, String>>? {
         return runCatching {
             val input = context.assets.open(ASSET_TRANSLATIONS)
