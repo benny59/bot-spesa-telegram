@@ -16,6 +16,7 @@ require_relative 'models/barcode_scanner'
 require_relative 'models/carte_fedelta'
 require_relative 'models/open_food_facts_client'
 require_relative 'handlers/storico_manager'
+require_relative 'models/item_action_message'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
 def telegram_token_attivo
@@ -317,10 +318,8 @@ patch '/lista/:id/topic' do
   halt 404, { error: 'item non trovato' }.to_json unless Lista.sposta_topic(item_id, target_gruppo_id, topic_id)
 
   utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
-  nome = CGI.escapeHTML(item['nome'].to_s)
-  autore = CGI.escapeHTML(utente)
-  notifica_gruppo(current_gruppo_id, item['topic_id'], "\u27A1\uFE0F <b>#{autore}</b> ha spostato: <b>#{nome}</b>") unless current_gruppo_id == 0
-  notifica_gruppo(target_gruppo_id, topic_id, "\u2B05\uFE0F <b>#{autore}</b> ha spostato qui: <b>#{nome}</b>") unless target_gruppo_id == 0
+  notifica_gruppo(current_gruppo_id, item['topic_id'], DataManager.build_item_action_message(utente, item['nome'], 'spostato')) unless current_gruppo_id == 0
+  notifica_gruppo(target_gruppo_id, topic_id, DataManager.build_item_action_message(utente, item['nome'], 'spostato_qui')) unless target_gruppo_id == 0
   { ok: true, gruppo_id: target_gruppo_id, topic_id: topic_id }.to_json
 end
 
@@ -427,7 +426,7 @@ delete '/lista/:id' do
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
-    notifica_gruppo(gruppo_id, item['topic_id'], "\u2716\uFE0F <b>#{nome_utente}</b> ha cancellato: #{item['nome']}")
+    notifica_gruppo(gruppo_id, item['topic_id'], DataManager.build_item_action_message(nome_utente, item['nome'], 'soft_delete'))
   end
 
   { ok: true, soft_deleted: true }.to_json
@@ -447,7 +446,7 @@ post '/lista/:id/restore' do
 
   if gruppo_id != 0 && item
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [item['creato_da']]) || 'Utente'
-    notifica_gruppo(gruppo_id, item['topic_id'], "↩️ <b>#{nome_utente}</b> ha ripristinato: #{item['nome']}")
+    notifica_gruppo(gruppo_id, item['topic_id'], DataManager.build_item_action_message(nome_utente, item['nome'], 'rimesso_in_lista'))
   end
 
   { ok: true, restored: true }.to_json
@@ -471,8 +470,7 @@ patch '/lista/:id/disponibile' do
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
-    stato = value ? 'disponibile' : 'non disponibile'
-    notifica_gruppo(gruppo_id, item['topic_id'], "#{value ? '✅' : '🚫'} <b>#{CGI.escapeHTML(nome_utente)}</b> ha segnato: #{CGI.escapeHTML(item['nome'])} come #{stato}")
+    notifica_gruppo(gruppo_id, item['topic_id'], DataManager.build_item_action_message(nome_utente, item['nome'], value ? 'disponibile' : 'non_disponibile'))
   end
 
   { ok: true, disponibile: value }.to_json

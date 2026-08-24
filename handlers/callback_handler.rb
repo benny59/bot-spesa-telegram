@@ -243,12 +243,27 @@ when /^trigger_list:(-?\d*):(\d*)$/
       bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
 
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
+      item = DB.get_first_row("SELECT nome, gruppo_id, topic_id FROM items WHERE id = ?", [item_id])
+      azione = nil
 
       # 1. Logica DB (La tua)
       if DataManager.comprato?(item_id)
         DataManager.despunta_articolo(item_id)
+        azione = 'rimesso_in_lista'
       else
         DataManager.spunta_articolo(item_id, user_id)
+        azione = 'carrello'
+      end
+
+      if item && item['gruppo_id'].to_i != 0
+        nome_utente = callback.from.first_name || 'Utente'
+        testo = DataManager.build_item_action_message(nome_utente, item['nome'], azione)
+        bot.api.send_message(
+          chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
+          text: testo,
+          parse_mode: 'HTML',
+          message_thread_id: item['topic_id'].to_i != 0 ? item['topic_id'].to_i : nil
+        ) rescue nil
       end
 
       # 2. Refresh Standard
@@ -277,16 +292,33 @@ when /^trigger_list:(-?\d*):(\d*)$/
       bot.api.answer_callback_query(callback_query_id: callback.id) rescue nil
 
       item_id, g_id, t_id, page, s_all = $1.to_i, $2.to_i, $3.to_i, $4.to_i, $5.to_i
+      item = DB.get_first_row("SELECT nome, gruppo_id, topic_id FROM items WHERE id = ?", [item_id])
+      azione = nil
 
       # 1. Un item soft-deleted viene ripristinato; un item non disponibile torna disponibile; gli altri cambiano stato acquisto.
       if DataManager.item_deleted?(item_id)
         DataManager.undo_delete_item(item_id)
+        azione = 'rimesso_in_lista'
       elsif DataManager.item_unavailable?(item_id)
         DataManager.set_disponibile(item_id, true)
+        azione = 'disponibile'
       elsif DataManager.comprato?(item_id)
         DataManager.despunta_articolo(item_id)
+        azione = 'rimesso_in_lista'
       else
         DataManager.spunta_articolo(item_id, user_id)
+        azione = 'carrello'
+      end
+
+      if item && item['gruppo_id'].to_i != 0
+        nome_utente = callback.from.first_name || 'Utente'
+        testo = DataManager.build_item_action_message(nome_utente, item['nome'], azione)
+        bot.api.send_message(
+          chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
+          text: testo,
+          parse_mode: 'HTML',
+          message_thread_id: item['topic_id'].to_i != 0 ? item['topic_id'].to_i : nil
+        ) rescue nil
       end
 
       # 2. Refresh GLOBALE (Cambia solo questo!)
@@ -624,21 +656,48 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       when /^delete_item:(\d+):(-?\d+):(\d+):(\d+)$/
       item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
 
+      item = DB.get_first_row("SELECT nome, gruppo_id, topic_id FROM items WHERE id = ?", [item_id])
+      action = nil
+
       if DataManager.item_deleted?(item_id)
         DataManager.undo_delete_item(item_id)
+        action = 'rimesso_in_lista'
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "↩️ Ripristinato")
       else
         DataManager.soft_delete_item(item_id)
+        action = 'soft_delete'
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Cancellato")
+      end
+
+      if item && item['gruppo_id'].to_i != 0
+        testo = DataManager.build_item_action_message(callback.from.first_name || 'Utente', item['nome'], action)
+        bot.api.send_message(
+          chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
+          text: testo,
+          parse_mode: 'HTML',
+          message_thread_id: item['topic_id'].to_i != 0 ? item['topic_id'].to_i : nil
+        ) rescue nil
       end
 
       # Refresh dell'interfaccia
       self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
     when /^toggle_disponibile:(\d+):(-?\d+):(\d+):(\d+)$/
       item_id, g_id, t_id, page = $1.to_i, $2.to_i, $3.to_i, $4.to_i
+      item = DB.get_first_row("SELECT nome, gruppo_id, topic_id FROM items WHERE id = ?", [item_id])
       nuovo_valore = !DataManager.item_unavailable?(item_id)
       DataManager.set_disponibile(item_id, nuovo_valore)
       bot.api.answer_callback_query(callback_query_id: callback.id, text: nuovo_valore ? "✅ Disponibile" : "🚫 Non disponibile") rescue nil
+
+      if item && item['gruppo_id'].to_i != 0
+        testo = DataManager.build_item_action_message(callback.from.first_name || 'Utente', item['nome'], nuovo_valore ? 'disponibile' : 'non_disponibile')
+        bot.api.send_message(
+          chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
+          text: testo,
+          parse_mode: 'HTML',
+          message_thread_id: item['topic_id'].to_i != 0 ? item['topic_id'].to_i : nil
+        ) rescue nil
+      end
+
       self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)
     when /^set_target:(.+):(.+)$/
       g_db_id = $1.to_i # L'ID interno (es: 50)

@@ -267,6 +267,10 @@ class DataManager
     DB.get_first_value("SELECT COALESCE(disponibile, 1) FROM items WHERE id = ?", [item_id]).to_i == 0
   end
 
+  def self.build_item_action_message(actor, item_name, action)
+    ItemActionMessage.text_for(actor, item_name, action)
+  end
+
   def self.set_disponibile(item_id, disponibile)
     item_id = item_id.to_i
     return false if item_id <= 0

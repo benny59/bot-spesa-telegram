@@ -9,6 +9,7 @@ require_relative "db"
 require_relative "models/context"
 require_relative "handlers/message_handler"
 require_relative "handlers/callback_handler"
+require_relative "models/item_action_message"
 require_relative "utils/command_setter"
 
 # In bot_spesa.rb
