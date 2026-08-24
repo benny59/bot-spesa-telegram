@@ -1,0 +1,60 @@
+# frozen_string_literal: true
+
+require "cgi"
+
+module ItemActionMessage
+  module_function
+
+  def text_for(actor, item_name, action)
+    user_name = CGI.escapeHTML(actor.to_s.strip.empty? ? "Utente" : actor.to_s)
+    item_label = CGI.escapeHTML(item_name.to_s)
+
+    case action.to_s
+    when "carrello"
+      "🛒 <b>#{user_name}</b> ha messo nel carrello: <b>#{item_label}</b>"
+    when "rimesso_in_lista", "restore"
+      "↩️ <b>#{user_name}</b> ha rimesso in lista: <b>#{item_label}</b>"
+    when "soft_delete", "eliminato"
+      "🗑️ <b>#{user_name}</b> ha eliminato: <b>#{item_label}</b>"
+    when "disponibile"
+      "✅ <b>#{user_name}</b> ha segnato: <b>#{item_label}</b> come disponibile"
+    when "non_disponibile"
+      "🚫 <b>#{user_name}</b> ha segnato: <b>#{item_label}</b> come non disponibile"
+    when "spostato"
+      "➡️ <b>#{user_name}</b> ha spostato: <b>#{item_label}</b>"
+    when "spostato_qui"
+      "⬅️ <b>#{user_name}</b> ha spostato qui: <b>#{item_label}</b>"
+    when "aggiunto"
+      "➕ <b>#{user_name}</b> ha aggiunto: <b>#{item_label}</b>"
+    when "rimosso"
+      "➖ <b>#{user_name}</b> ha rimosso: <b>#{item_label}</b>"
+    when "modificato"
+      "✏️ <b>#{user_name}</b> ha modificato: <s>#{item_label}</s> → <b>#{item_label}</b>"
+    when "foto"
+      "📸 <b>#{user_name}</b> ha aggiunto una foto: <b>#{item_label}</b>"
+    else
+      "<b>#{user_name}</b>: <b>#{item_label}</b>"
+    end
+  end
+
+  def notify_group(bot, item_row, actor, action)
+    return unless bot
+    return unless item_row
+
+    gruppo_id = item_row["gruppo_id"].to_i
+    return if gruppo_id == 0
+
+    chat_id = DataManager.get_real_chat_id(gruppo_id)
+    return unless chat_id
+
+    topic_id = item_row["topic_id"].to_i
+    bot.api.send_message(
+      chat_id: chat_id,
+      text: text_for(actor, item_row["nome"], action),
+      parse_mode: "HTML",
+      message_thread_id: topic_id != 0 ? topic_id : nil
+    )
+  rescue => e
+    puts "⚠️ [ITEM_ACTION] notifica fallita: #{e.class}: #{e.message}"
+  end
+end

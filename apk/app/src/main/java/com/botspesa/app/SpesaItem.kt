@@ -13,6 +13,8 @@ data class SpesaItem(
     val nomeTopic: String = "",
     val nomeGruppo: String = "",
     val nomeContesto: String = "",
+    val categoriaId: Int = 0,
+    val categoriaNome: String = "",
     val deleted: Boolean = false,
     val disponibile: Boolean = true
 ) {

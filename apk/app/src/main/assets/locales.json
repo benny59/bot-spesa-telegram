@@ -4,13 +4,17 @@
     "admin.language": "Lingua",
     "admin.pending_count": "Richieste in sospeso",
     "admin.no_pending": "Nessuna richiesta in sospeso",
-    "admin.authorized_users": "Utenti autorizzati"
+    "admin.authorized_users": "Utenti autorizzati",
+    "menu.category": "Categoria",
+    "menu.no_category": "Nessuna categoria"
   },
   "de": {
     "admin.title": "⚙️ Verwaltung",
     "admin.language": "Sprache",
     "admin.pending_count": "Ausstehende Anfragen",
     "admin.no_pending": "Keine ausstehenden Anfragen",
-    "admin.authorized_users": "Autorisierte Benutzer"
+    "admin.authorized_users": "Autorisierte Benutzer",
+    "menu.category": "Kategorie",
+    "menu.no_category": "Keine Kategorie"
   }
 }

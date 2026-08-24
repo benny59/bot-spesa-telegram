@@ -17,6 +17,8 @@
     <string name="galleria">Galleria</string>
     <string name="elimina_articolo">Elimina articolo</string>
     <string name="modifica_articolo">Modifica</string>
+    <string name="categoria">Categoria</string>
+    <string name="nessuna_categoria">Nessuna categoria</string>
     <string name="elimina_foto">Elimina foto</string>
     <string name="sposta_topic">Sposta in un altro topic</string>
     <string name="scopetta">Scopetta</string>

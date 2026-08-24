@@ -17,6 +17,8 @@
     <string name="galleria">Galerie</string>
     <string name="elimina_articolo">Artikel löschen</string>
     <string name="modifica_articolo">Bearbeiten</string>
+    <string name="categoria">Kategorie</string>
+    <string name="nessuna_categoria">Keine Kategorie</string>
     <string name="elimina_foto">Foto löschen</string>
     <string name="sposta_topic">In ein anderes Topic verschieben</string>
     <string name="scopetta">Stubb</string>

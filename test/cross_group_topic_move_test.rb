@@ -59,4 +59,17 @@ ordered = DataManager.articoli_attivi(1, 0, nil, show_all: true).map { |row| row
 expected_order = ["Normale", "Checked", "Non disponibile", "Cancellato"]
 raise "l'ordine di visualizzazione non rispetta la priorità normale > checked > non disponibili > cancellati" unless ordered == expected_order
 
+# category-aware ordering: active items are grouped by category name, while inactive items stay last
+DB.execute("DELETE FROM categorie")
+DB.execute("DELETE FROM items")
+DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (1, 0, 'Verdura')")
+DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (1, 0, 'Frutta')")
+DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, categoria_id, comprato, disponibile, deleted) VALUES (1, 0, 42, 'Carote', (SELECT id FROM categorie WHERE gruppo_id = 1 AND topic_id = 0 AND nome = 'Verdura'), '', 1, 0)")
+DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, categoria_id, comprato, disponibile, deleted) VALUES (1, 0, 42, 'Mele', (SELECT id FROM categorie WHERE gruppo_id = 1 AND topic_id = 0 AND nome = 'Frutta'), '', 1, 0)")
+DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, categoria_id, comprato, disponibile, deleted) VALUES (1, 0, 42, 'Pane', NULL, '', 1, 0)")
+DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, categoria_id, comprato, disponibile, deleted) VALUES (1, 0, 42, 'Latte', NULL, '42', 1, 0)")
+ordered_by_category = DataManager.articoli_attivi(1, 0, nil, show_all: true).map { |row| row["nome"] }
+expected_category_order = ["Mele", "Carote", "Pane", "Latte"]
+raise "l'ordinamento per categoria non è stato applicato" unless ordered_by_category == expected_category_order
+
 puts "cross-group/topic move ok"

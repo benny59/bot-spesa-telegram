@@ -206,6 +206,8 @@ get '/lista' do
       topic_id:      i['topic_id'],
       nome:          i['nome'],
       link_url:      i['link_url'].to_s,
+      categoria_id:  i['categoria_id']&.to_i,
+      categoria_nome: i['categoria_nome'].to_s,
       comprato:      i['comprato'].to_s.empty? ? '' : i['buyer_initials'].to_s,
       buyer_initials: i['buyer_initials'].to_s,
       creato_da:     i['creato_da'],
@@ -218,6 +220,14 @@ get '/lista' do
   end.to_json
 end
 
+get '/categorie' do
+  categorie = DB.execute(
+    "SELECT id, nome FROM categorie ORDER BY nome ASC"
+  )
+
+  categorie.map { |r| { id: r['id'].to_i, nome: r['nome'] } }.to_json
+end
+
 post '/lista' do
   body      = json_body
   gruppo_id = body['gruppo_id']&.to_i
@@ -225,6 +235,7 @@ post '/lista' do
   testo     = body['nome'].to_s.strip
   link_url  = body['link_url'].to_s.strip
   split_items = body.key?('split_items') ? !!body['split_items'] : true
+  categoria_id = body['categoria_id']&.to_i
   user_id   = body['user_id']&.to_i || 0
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
@@ -239,7 +250,8 @@ post '/lista' do
     items_text: testo,
     topic_id: topic_id,
     link_url: link_url,
-    split_items: split_items
+    split_items: split_items,
+    categoria_id: categoria_id
   )
 
   if gruppo_id != 0 && user_id != 0
@@ -269,10 +281,21 @@ patch '/lista/:id' do
   body = json_body
   user_id = body['user_id']&.to_i || 0
   nome = body['nome'].to_s.strip
+  categoria_id = body['categoria_id']
   halt 400, { error: 'nome mancante' }.to_json if nome.empty?
 
   item = item_accessibile!(item_id, user_id)
   halt 404, { error: 'item non trovato' }.to_json unless Lista.modifica_nome(item_id, nome)
+
+  if categoria_id
+    categoria_id_i = categoria_id.to_i
+    if categoria_id_i > 0
+      categoria = DB.get_first_row("SELECT id FROM categorie WHERE id = ?", [categoria_id_i])
+      Lista.aggiorna_categoria(item_id, categoria_id_i) if categoria
+    else
+      Lista.aggiorna_categoria(item_id, nil)
+    end
+  end
 
   if item['gruppo_id'].to_i != 0
     utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'

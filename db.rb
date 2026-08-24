@@ -48,6 +48,18 @@ SQL
   SQL
 
   db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS categorie (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gruppo_id INTEGER,
+      topic_id INTEGER DEFAULT 0,
+      nome TEXT NOT NULL,
+      creato_da INTEGER,
+      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(gruppo_id, topic_id, nome)
+    );
+  SQL
+
+  db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS user_names (
       user_id INTEGER PRIMARY KEY,
       first_name TEXT,
@@ -65,17 +77,19 @@ SQL
       creato_da INTEGER,
       nome TEXT,
       link_url TEXT,
+      categoria_id INTEGER,
       comprato TEXT DEFAULT '',
       deleted INTEGER NOT NULL DEFAULT 0,
       disponibile INTEGER NOT NULL DEFAULT 1,
       creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (gruppo_id) REFERENCES gruppi (id)
+      FOREIGN KEY (gruppo_id) REFERENCES gruppi (id),
+      FOREIGN KEY (categoria_id) REFERENCES categorie (id)
     );
   SQL
 
   columns = db.execute("PRAGMA table_info(items)").map { |row| row["name"] }
-  unless columns.include?("deleted")
-    db.execute("ALTER TABLE items ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+  unless columns.include?("categoria_id")
+    db.execute("ALTER TABLE items ADD COLUMN categoria_id INTEGER")
   end
   unless columns.include?("disponibile")
     db.execute("ALTER TABLE items ADD COLUMN disponibile INTEGER NOT NULL DEFAULT 1")
@@ -196,6 +210,8 @@ SQL
   SQL
 
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_gruppo_topic ON items (gruppo_id, topic_id);"
+  db.execute "CREATE INDEX IF NOT EXISTS idx_items_categoria ON items (categoria_id);"
+  db.execute "CREATE INDEX IF NOT EXISTS idx_categorie_gruppo_topic ON categorie (gruppo_id, topic_id, nome);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_topic ON pending_actions (chat_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_gruppo_topic ON storico_articoli (gruppo_id, topic_id, conteggio DESC, ultima_aggiunta DESC);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_nome_gruppo ON storico_articoli (nome, gruppo_id, topic_id);"
@@ -596,7 +612,7 @@ end
   # ----------------------------------------------------------------------------
   # PILASTRO '+': AGGIUNTA ARTICOLI
   # ----------------------------------------------------------------------------
-  def self.aggiungi_articoli(gruppo_id:, user_id:, items_text:, topic_id: 0, link_url: nil, split_items: true)
+  def self.aggiungi_articoli(gruppo_id:, user_id:, items_text:, topic_id: 0, link_url: nil, split_items: true, categoria_id: nil)
     puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{gruppo_id} | T:#{topic_id} | U:#{user_id}"
 
     nomi = if split_items
@@ -604,39 +620,46 @@ end
     else
       [items_text.to_s.strip].reject(&:empty?)
     end
-    # non forziamo il minuscolo: lasciamo libera la formattazione dell'utente
     return [] if nomi.empty?
+
+    categoria_id = categoria_id.to_i if categoria_id
+    categoria_id = nil if categoria_id && categoria_id <= 0
+    if categoria_id
+      esiste_categoria = DB.get_first_value("SELECT 1 FROM categorie WHERE id = ?", [categoria_id])
+      categoria_id = nil unless esiste_categoria
+    end
+
     link_pulito = link_url.to_s.strip
     link_pulito = nil if link_pulito.empty?
 
-    ids_creati = [] # <--- Cambiamo il contatore in un array di ID
+    ids_creati = []
 
     DB.transaction do
       nomi.each do |nome|
-        # Controllo duplicati esistente (case‑insensitive)
         esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome.downcase])
 
         if esiste
           if link_pulito
-            # Se l'item esiste gia', agganciamo il link quando manca.
             DB.execute(
               "UPDATE items SET link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?) WHERE id = ?",
               [link_pulito, esiste]
             )
           end
-          ids_creati << esiste # Se esiste già, prendiamo l'ID esistente per l'eventuale foto
+          if categoria_id
+            DB.execute("UPDATE items SET categoria_id = ? WHERE id = ?", [categoria_id, esiste])
+          end
+          ids_creati << esiste
           next
         end
 
-        # Inseriamo esattamente come scritto dall'utente (libertà di formattazione)
-           DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url) VALUES (?, ?, ?, ?, ?)",
-             [gruppo_id, topic_id, user_id, nome, link_pulito])
-        ids_creati << DB.last_insert_row_id # Recupera l'ID appena fatto
+        DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url, categoria_id) VALUES (?, ?, ?, ?, ?, ?)",
+          [gruppo_id, topic_id, user_id, nome, link_pulito, categoria_id])
+        ids_creati << DB.last_insert_row_id
       end
     end
 
     puts "[DATA_MONITOR] ✅ Successo: #{ids_creati.size} record pronti."
-    ids_creati # <--- Restituiamo gli ID invece dei nomi
+    ids_creati
   rescue => e
     puts "❌ [DATA_ERROR] Errore in aggiungi_articoli: #{e.message}"
     raise e
@@ -1135,12 +1158,14 @@ end
            IFNULL(s.conteggio, 0) as volte, 
            u1.initials AS autore_init,
            u2.initials AS buyer_init,
+           c.nome AS categoria_nome,
            (SELECT COUNT(*) FROM item_images WHERE item_id = i.id) as ha_foto
     FROM items i
     LEFT JOIN storico_articoli s ON LOWER(i.nome) = LOWER(s.nome) 
       AND i.gruppo_id = s.gruppo_id AND i.topic_id = s.topic_id
     LEFT JOIN user_names u1 ON i.creato_da = u1.user_id 
     LEFT JOIN user_names u2 ON CAST(i.comprato AS INTEGER) = u2.user_id
+    LEFT JOIN categorie c ON i.categoria_id = c.id
     SQL
   end
 
@@ -1169,6 +1194,8 @@ end
     sql += <<-SQL
     ORDER BY
       #{self.item_state_order_sql("i")},
+      CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC,
+      c.nome ASC,
       volte DESC,
       i.id DESC
     SQL

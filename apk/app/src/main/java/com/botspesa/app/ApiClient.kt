@@ -57,6 +57,22 @@ object ApiClient {
         return parseItems(body)
     }
 
+    fun getCategorie(gruppoId: Int, topicId: Int): List<CategoriaItem> {
+        val req = Request.Builder()
+            .url("$baseUrl/categorie?gruppo_id=$gruppoId&topic_id=$topicId")
+            .auth()
+            .build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        val raw: List<Map<String, Any>> = gson.fromJson(body, type)
+        return raw.map { item ->
+            CategoriaItem(
+                id = (item["id"] as? Double)?.toInt() ?: 0,
+                nome = item["nome"] as? String ?: ""
+            )
+        }
+    }
+
     fun getMiei(userId: Int): List<SpesaItem> {
         val req = Request.Builder().url("$baseUrl/lista/miei?user_id=$userId").auth().build()
         return parseItems(http.newCall(req).execute().use { it.body!!.string() })
@@ -68,6 +84,8 @@ object ApiClient {
     }
 
     data class ConteggiListe(val tutti: Int, val miei: Int)
+
+    data class CategoriaItem(val id: Int, val nome: String)
 
     data class ProductPreview(
         val barcode: String,
@@ -161,6 +179,8 @@ object ApiClient {
                 nomeTopic    = item["nome_topic"] as? String ?: "",
                 nomeGruppo   = item["nome_gruppo"] as? String ?: "",
                 nomeContesto = item["nome_contesto"] as? String ?: "",
+                categoriaId  = (item["categoria_id"] as? Double)?.toInt() ?: 0,
+                categoriaNome = item["categoria_nome"] as? String ?: "",
                 deleted      = deleted,
                 disponibile  = disponibile
             )
@@ -195,7 +215,8 @@ object ApiClient {
         nome: String,
         userId: Int,
         linkUrl: String? = null,
-        splitItems: Boolean = true
+        splitItems: Boolean = true,
+        categoriaId: Int? = null
     ): List<Int> {
         val payloadMap = mutableMapOf<String, Any>(
             "gruppo_id" to gruppoId,
@@ -207,6 +228,9 @@ object ApiClient {
         val linkPulito = linkUrl?.trim().orEmpty()
         if (linkPulito.isNotEmpty()) {
             payloadMap["link_url"] = linkPulito
+        }
+        if (categoriaId != null && categoriaId > 0) {
+            payloadMap["categoria_id"] = categoriaId
         }
         val payload = gson.toJson(payloadMap)
         val req = Request.Builder()
@@ -336,8 +360,12 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
-    fun updateItem(itemId: Int, nome: String, userId: Int): Boolean {
-        val payload = gson.toJson(mapOf("nome" to nome, "user_id" to userId))
+    fun updateItem(itemId: Int, nome: String, userId: Int, categoriaId: Int? = null): Boolean {
+        val payloadMap = mutableMapOf<String, Any>("nome" to nome, "user_id" to userId)
+        if (categoriaId != null) {
+            payloadMap["categoria_id"] = categoriaId
+        }
+        val payload = gson.toJson(payloadMap)
         val req = Request.Builder()
             .url("$baseUrl/lista/$itemId")
             .patch(payload.toRequestBody(JSON_TYPE))

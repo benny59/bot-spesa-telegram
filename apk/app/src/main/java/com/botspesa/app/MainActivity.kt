@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.PopupMenu
@@ -910,34 +911,60 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostraDialogModificaItem(item: SpesaItem) {
-        val input = EditText(this).apply {
-            setText(item.nome)
-            setSelection(text.length)
-            setPadding(48, 16, 48, 16)
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(R.string.modifica_articolo)
-            .setView(input)
-            .setPositiveButton(R.string.salva, null)
-            .setNegativeButton(R.string.annulla, null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val nome = input.text.toString().trim()
-                if (nome.isEmpty()) input.error = getString(R.string.testo_vuoto)
-                else {
-                    dialog.dismiss()
-                    lifecycleScope.launch {
-                        val ok = withContext(Dispatchers.IO) {
-                            runCatching { ApiClient.updateItem(item.id, nome, userId) }.getOrDefault(false)
+        lifecycleScope.launch {
+            val categorie = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getCategorie(item.gruppoId, item.topicId) }.getOrDefault(emptyList())
+            }
+            val opzioni = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
+            opzioni.addAll(categorie.map { it.id to it.nome })
+            val input = EditText(this@MainActivity).apply {
+                setText(item.nome)
+                setSelection(text.length)
+                setPadding(48, 16, 48, 16)
+            }
+            val spinner = android.widget.Spinner(this@MainActivity).apply {
+                adapter = ArrayAdapter(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_item,
+                    opzioni.map { it.second }
+                ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                setSelection(opzioni.indexOfFirst { it.first == item.categoriaId }.takeIf { it >= 0 } ?: 0)
+            }
+            val container = android.widget.LinearLayout(this@MainActivity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(48, 16, 48, 16)
+                addView(input)
+                addView(TextView(this@MainActivity).apply {
+                    text = getString(R.string.categoria)
+                    setPadding(0, 16, 0, 8)
+                })
+                addView(spinner)
+            }
+            val dialog = AlertDialog.Builder(this@MainActivity)
+                .setTitle(R.string.modifica_articolo)
+                .setView(container)
+                .setPositiveButton(R.string.salva, null)
+                .setNegativeButton(R.string.annulla, null)
+                .create()
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val nome = input.text.toString().trim()
+                    if (nome.isEmpty()) input.error = getString(R.string.testo_vuoto)
+                    else {
+                        val categoriaSelezionata = opzioni[spinner.selectedItemPosition].first
+                        dialog.dismiss()
+                        lifecycleScope.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                runCatching { ApiClient.updateItem(item.id, nome, userId, categoriaSelezionata.takeIf { it > 0 }) }.getOrDefault(false)
+                            }
+                            if (ok) aggiornaLista()
+                            else Toast.makeText(this@MainActivity, getString(R.string.modifica_non_riuscita), Toast.LENGTH_SHORT).show()
                         }
-                        if (ok) aggiornaLista()
-                        else Toast.makeText(this@MainActivity, getString(R.string.modifica_non_riuscita), Toast.LENGTH_SHORT).show()
                     }
                 }
             }
+            dialog.show()
         }
-        dialog.show()
     }
 
     private fun eliminaFotoConferma(item: SpesaItem) {
@@ -1301,6 +1328,17 @@ class MainActivity : AppCompatActivity() {
                 }
                 setPadding(0, 16, 0, 16)
             }
+            val categoriaSpinner = android.widget.Spinner(this@MainActivity)
+            val categorieBase = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getCategorie(gruppoId, topicId) }.getOrDefault(emptyList())
+            }
+            val opzioniCategoria = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
+            opzioniCategoria.addAll(categorieBase.map { it.id to it.nome })
+            categoriaSpinner.adapter = ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_item,
+                opzioniCategoria.map { it.second }
+            ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
             val radioGroup = android.widget.RadioGroup(this@MainActivity).apply {
                 orientation = android.widget.RadioGroup.VERTICAL
             }
@@ -1325,11 +1363,17 @@ class MainActivity : AppCompatActivity() {
                 orientation = android.widget.LinearLayout.VERTICAL
                 setPadding((24 * dp).toInt(), 0, (24 * dp).toInt(), 0)
                 addView(input)
+                addView(TextView(this@MainActivity).apply {
+                    text = getString(R.string.categoria)
+                    textSize = 14f
+                    setPadding(0, 0, 0, (4 * dp).toInt())
+                })
+                addView(categoriaSpinner)
                 productPreview?.let { preview ->
                     addView(TextView(this@MainActivity).apply {
                         text = productPreviewText(preview)
                         textSize = 14f
-                        setPadding(0, 0, 0, (8 * dp).toInt())
+                        setPadding(0, (8 * dp).toInt(), 0, (8 * dp).toInt())
                     })
                 }
                 addView(scanButton)
@@ -1367,7 +1411,8 @@ class MainActivity : AppCompatActivity() {
                         input.error = getString(R.string.inserisci_almeno_un_articolo)
                     } else {
                         dlg.dismiss()
-                        aggiungiItem(testo, destinazioneSelezionata(), prefilledLink)
+                        val categoriaIdSelezionata = opzioniCategoria[categoriaSpinner.selectedItemPosition].first
+                        aggiungiItem(testo, destinazioneSelezionata(), prefilledLink, categoriaIdSelezionata.takeIf { it > 0 })
                     }
                 }
                 dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -1407,7 +1452,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun aggiungiItem(testo: String, destinazione: AddDestination, linkUrl: String? = null) {
+    private fun aggiungiItem(testo: String, destinazione: AddDestination, linkUrl: String? = null, categoriaId: Int? = null) {
         val usaSplit = linkUrl.isNullOrBlank()
         val payloadNome = if (linkUrl.isNullOrBlank()) {
             testo
@@ -1423,7 +1468,8 @@ class MainActivity : AppCompatActivity() {
                         payloadNome,
                         userId,
                         linkUrl = linkUrl,
-                        splitItems = usaSplit
+                        splitItems = usaSplit,
+                        categoriaId = categoriaId
                     )
                         .also { if (it.isEmpty()) throw IllegalStateException("Articolo non creato") }
                 }

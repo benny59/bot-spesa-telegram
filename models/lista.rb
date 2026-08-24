@@ -4,25 +4,27 @@ require_relative "../db"
 class Lista
   def self.tutti(gruppo_id, topic_id)
     DB.execute(
-      "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials
+      "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials, c.nome AS categoria_nome
      FROM items i
      LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
+    LEFT JOIN categorie c ON i.categoria_id = c.id
      WHERE i.gruppo_id = ?
        AND i.topic_id = ?
-     ORDER BY #{DataManager.item_state_order_sql("i")}, i.id DESC",
+     ORDER BY #{DataManager.item_state_order_sql("i")}, CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC, c.nome ASC, i.id DESC",
       [gruppo_id, topic_id]
     )
   end
 
   def self.personale(user_id)
     DB.execute(
-      "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials
+      "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials, c.nome AS categoria_nome
      FROM items i
      LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
+    LEFT JOIN categorie c ON i.categoria_id = c.id
      WHERE i.gruppo_id = 0 AND i.creato_da = ?
-     ORDER BY #{DataManager.item_state_order_sql("i")}, i.id DESC",
+     ORDER BY #{DataManager.item_state_order_sql("i")}, CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC, c.nome ASC, i.id DESC",
       [user_id]
     )
   end
@@ -84,6 +86,13 @@ class Lista
 
   def self.modifica_nome(item_id, nome)
     DB.execute("UPDATE items SET nome = ? WHERE id = ?", [nome, item_id])
+    DB.changes > 0
+  end
+
+  def self.aggiorna_categoria(item_id, categoria_id)
+    categoria_id = categoria_id.to_i if categoria_id
+    categoria_id = nil if categoria_id && categoria_id <= 0
+    DB.execute("UPDATE items SET categoria_id = ? WHERE id = ?", [categoria_id, item_id])
     DB.changes > 0
   end
 
