@@ -29,11 +29,38 @@ module ItemActionMessage
     when "rimosso"
       "➖ <b>#{user_name}</b> ha rimosso: <b>#{item_label}</b>"
     when "modificato"
-      "✏️ <b>#{user_name}</b> ha modificato: <s>#{item_label}</s> → <b>#{item_label}</b>"
+      "✏️ <b>#{user_name}</b> ha modificato: <b>#{item_label}</b>"
     when "foto"
       "📸 <b>#{user_name}</b> ha aggiunto una foto: <b>#{item_label}</b>"
     else
       "<b>#{user_name}</b>: <b>#{item_label}</b>"
+    end
+  end
+
+  def edit_text_for(actor, item_name, previous_name = nil, new_name = nil, previous_category = nil, new_category = nil)
+    user_name = CGI.escapeHTML(actor.to_s.strip.empty? ? "Utente" : actor.to_s)
+    item_label = CGI.escapeHTML(item_name.to_s)
+    old_name = CGI.escapeHTML(previous_name.to_s)
+    new_name_value = CGI.escapeHTML(new_name.to_s)
+    old_category = CGI.escapeHTML(previous_category.to_s)
+    new_category_value = CGI.escapeHTML(new_category.to_s)
+
+    if old_name.strip != new_name_value.strip
+      return "✏️ <b>#{user_name}</b> ha modificato: <s>#{old_name}</s> → <b>#{new_name_value}</b>"
+    end
+
+    if old_category.strip != new_category_value.strip
+      return if old_category.strip.empty? && new_category_value.strip.empty?
+
+      if old_category.strip.empty?
+        "✏️ <b>#{user_name}</b> ha impostato la categoria: <b>#{new_category_value}</b> per <b>#{item_label}</b>"
+      elsif new_category_value.strip.empty?
+        "✏️ <b>#{user_name}</b> ha rimosso la categoria: <s>#{old_category}</s> da <b>#{item_label}</b>"
+      else
+        "✏️ <b>#{user_name}</b> ha modificato categoria: <s>#{old_category}</s> → <b>#{new_category_value}</b> per <b>#{item_label}</b>"
+      end
+    else
+      "✏️ <b>#{user_name}</b> ha modificato: <b>#{item_label}</b>"
     end
   end
 

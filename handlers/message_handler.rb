@@ -274,6 +274,12 @@ when "/setup_pin"
       CarteFedeltaGruppo.show_group_cards(bot, context.config["db_id"], g_chat_id, u_id, context.config["topic_id"])
     when "💳 LE MIE CARTE"
       CarteFedelta.mostra_personali(bot, u_id)
+    when "/lista"
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
+      items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+      header = DataManager.genera_header_contesto(g_id, t_id)
+      self.core_mostra_lista(bot, context, items, header, g_id, t_id, 0)
     when /^\?(.*)/
       # 1. NON ricalcolare nulla. Usa il contesto già pronto!
       g_id = context.config["db_id"].to_i

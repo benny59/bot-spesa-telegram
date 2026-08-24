@@ -287,6 +287,10 @@ class DataManager
     ItemActionMessage.text_for(actor, item_name, action)
   end
 
+  def self.build_item_edit_message(actor, item_name, previous_name, new_name, previous_category = nil, new_category = nil)
+    ItemActionMessage.edit_text_for(actor, item_name, previous_name, new_name, previous_category, new_category)
+  end
+
   def self.set_disponibile(item_id, disponibile)
     item_id = item_id.to_i
     return false if item_id <= 0

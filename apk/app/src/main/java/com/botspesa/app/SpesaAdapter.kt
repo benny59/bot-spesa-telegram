@@ -55,9 +55,13 @@ class SpesaAdapter(
         }
         holder.tvContextSeparator.setOnClickListener { onContext(item) }
         holder.tvNome.text = item.nome
-        if (item.nomeGruppo.isNotEmpty()) {
+
+        val labels = mutableListOf<String>()
+        if (item.nomeGruppo.isNotEmpty()) labels.add(item.nomeGruppo)
+        if (item.categoriaNome.isNotEmpty()) labels.add(item.categoriaNome)
+        if (labels.isNotEmpty()) {
             holder.tvGruppoNome.visibility = View.VISIBLE
-            holder.tvGruppoNome.text = item.nomeGruppo
+            holder.tvGruppoNome.text = labels.joinToString(" • ")
         } else {
             holder.tvGruppoNome.visibility = View.GONE
         }

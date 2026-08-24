@@ -299,10 +299,12 @@ patch '/lista/:id' do
 
   if item['gruppo_id'].to_i != 0
     utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+    vecchia_categoria = item['categoria_id'] ? DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [item['categoria_id']]) : nil
+    nuova_categoria = categoria_id_i && categoria_id_i > 0 ? DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_id_i]) : nil
+
     notifica_gruppo(
       item['gruppo_id'], item['topic_id'],
-      "\u270F\uFE0F <b>#{CGI.escapeHTML(utente)}</b> ha modificato: " \
-      "<s>#{CGI.escapeHTML(item['nome'].to_s)}</s> \u2192 <b>#{CGI.escapeHTML(nome)}</b>"
+      DataManager.build_item_edit_message(utente, nome, item['nome'].to_s, nome, vecchia_categoria, nuova_categoria)
     )
   end
 

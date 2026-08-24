@@ -6,7 +6,16 @@
     "admin.no_pending": "Nessuna richiesta in sospeso",
     "admin.authorized_users": "Utenti autorizzati",
     "menu.category": "Categoria",
-    "menu.no_category": "Nessuna categoria"
+    "menu.no_category": "Nessuna categoria",
+    "category.frutta": "Frutta",
+    "category.verdure": "Verdure",
+    "category.latticini": "Latticini",
+    "category.pane": "Pane",
+    "category.carne": "Carne",
+    "category.pesce": "Pesce",
+    "category.casa": "Casa",
+    "category.bevande": "Bevande",
+    "category.altro": "Altro"
   },
   "de": {
     "admin.title": "⚙️ Verwaltung",
@@ -15,6 +24,15 @@
     "admin.no_pending": "Keine ausstehenden Anfragen",
     "admin.authorized_users": "Autorisierte Benutzer",
     "menu.category": "Kategorie",
-    "menu.no_category": "Keine Kategorie"
+    "menu.no_category": "Keine Kategorie",
+    "category.frutta": "Obst",
+    "category.verdure": "Gemüse",
+    "category.latticini": "Milchprodukte",
+    "category.pane": "Brot",
+    "category.carne": "Fleisch",
+    "category.pesce": "Fisch",
+    "category.casa": "Haushalt",
+    "category.bevande": "Getränke",
+    "category.altro": "Sonstiges"
   }
 }
