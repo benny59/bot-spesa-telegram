@@ -123,5 +123,15 @@ Dir.mktmpdir do |dir|
     raise "Telegram Tutti gli articoli perde l'indicazione non disponibile" unless unavailable_label&.include?("❌") || unavailable_label&.include?("~~")
 
     puts "Unavailable item coerente tra Android e Telegram."
+
+    DB.execute("DELETE FROM categorie WHERE nome = 'Verdura' OR nome = 'Frutta'")
+    DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (100, 'Verdura', 4, 0)")
+    DB.execute("INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, last_categoria_id, ultima_aggiunta, updated_at) VALUES (4, 0, 'Mela', 2, 100, datetime('now'), datetime('now'))")
+
+    DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Mela", topic_id: 0, split_items: false)
+    new_item = DB.get_first_row("SELECT categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Mela"])
+    raise "Fallback categoria da storico non applicato" unless new_item && new_item["categoria_id"].to_i == 100
+
+    puts "Fallback categoria da storico coerente."
   end
 end

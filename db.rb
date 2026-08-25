@@ -154,13 +154,15 @@ SQL
     nome TEXT,
     link_url TEXT,
     conteggio INTEGER DEFAULT 0,
-    creato_da INTEGER,       -- <--- AGGIUNTO
-    comprato_da INTEGER,     -- <--- AGGIUNTO
+    creato_da INTEGER,
+    comprato_da INTEGER,
+    last_categoria_id INTEGER,
     ultima_aggiunta DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(nome, gruppo_id, topic_id),
-    FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE
+    FOREIGN KEY (gruppo_id) REFERENCES gruppi(id) ON DELETE CASCADE,
+    FOREIGN KEY (last_categoria_id) REFERENCES categorie(id)
   );
 SQL
 
@@ -184,6 +186,9 @@ SQL
   storico_columns = db.execute("PRAGMA table_info(storico_articoli)").map { |row| row["name"] }
   unless storico_columns.include?("link_url")
     db.execute("ALTER TABLE storico_articoli ADD COLUMN link_url TEXT")
+  end
+  unless storico_columns.include?("last_categoria_id")
+    db.execute("ALTER TABLE storico_articoli ADD COLUMN last_categoria_id INTEGER")
   end
 
   db.execute <<-SQL
@@ -215,6 +220,7 @@ SQL
   db.execute "CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_topic ON pending_actions (chat_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_gruppo_topic ON storico_articoli (gruppo_id, topic_id, conteggio DESC, ultima_aggiunta DESC);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_nome_gruppo ON storico_articoli (nome, gruppo_id, topic_id);"
+  db.execute "CREATE INDEX IF NOT EXISTS idx_storico_last_categoria ON storico_articoli (gruppo_id, topic_id, LOWER(nome), last_categoria_id);"
 
   puts "✅ [DB] Database inizializzato correttamente."
   db
@@ -458,6 +464,49 @@ class DataManager
     end
   end
 
+  def self.risolvi_categoria_default(gruppo_id, topic_id, nome, categoria_id_explicit = nil)
+    categoria_id_explicit = categoria_id_explicit.to_i if categoria_id_explicit
+    return nil if categoria_id_explicit && categoria_id_explicit <= 0
+    return categoria_id_explicit if categoria_id_explicit && categoria_id_explicit > 0
+
+    nome_norm = nome.to_s.strip
+    return nil if nome_norm.empty?
+
+    row = DB.get_first_row(
+      "SELECT last_categoria_id FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? ORDER BY ultima_aggiunta DESC, updated_at DESC LIMIT 1",
+      [gruppo_id.to_i, topic_id.to_i, nome_norm.downcase]
+    )
+    return nil unless row
+
+    categoria_id = row["last_categoria_id"].to_i
+    return nil if categoria_id <= 0
+
+    esiste = DB.get_first_value("SELECT 1 FROM categorie WHERE id = ?", [categoria_id])
+    esiste ? categoria_id : nil
+  end
+
+  def self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_id)
+    categoria_id = categoria_id.to_i if categoria_id
+    return if categoria_id.nil? || categoria_id <= 0
+
+    nome_norm = nome.to_s.strip
+    return if nome_norm.empty?
+
+    DB.execute(
+      "UPDATE storico_articoli SET last_categoria_id = ?, updated_at = datetime('now') WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ?",
+      [categoria_id, gruppo_id.to_i, topic_id.to_i, nome_norm.downcase]
+    )
+
+    # Se il record non esiste ancora, lo creiamo con il dato minimo necessario.
+    return if DB.changes > 0
+
+    DB.execute(
+      "INSERT OR IGNORE INTO storico_articoli (gruppo_id, topic_id, nome, last_categoria_id, conteggio, ultima_aggiunta, updated_at)
+       VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))",
+      [gruppo_id.to_i, topic_id.to_i, nome_norm, categoria_id]
+    )
+  end
+
   # LA SCOPETTA (Cleanup & Storico)
   # ----------------------------------------------------------------------------
   # Cancella gli articoli comprati e aggiorna il conteggio nello storico
@@ -640,6 +689,8 @@ end
 
     DB.transaction do
       nomi.each do |nome|
+        categoria_effettiva = categoria_id || self.risolvi_categoria_default(gruppo_id, topic_id, nome)
+
         esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome.downcase])
 
         if esiste
@@ -649,16 +700,22 @@ end
               [link_pulito, esiste]
             )
           end
-          if categoria_id
-            DB.execute("UPDATE items SET categoria_id = ? WHERE id = ?", [categoria_id, esiste])
+          if categoria_effettiva
+            DB.execute("UPDATE items SET categoria_id = ? WHERE id = ?", [categoria_effettiva, esiste])
+          end
+          if categoria_effettiva
+            self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_effettiva)
           end
           ids_creati << esiste
           next
         end
 
         DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url, categoria_id) VALUES (?, ?, ?, ?, ?, ?)",
-          [gruppo_id, topic_id, user_id, nome, link_pulito, categoria_id])
+          [gruppo_id, topic_id, user_id, nome, link_pulito, categoria_effettiva])
         ids_creati << DB.last_insert_row_id
+        if categoria_effettiva
+          self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_effettiva)
+        end
       end
     end
 
