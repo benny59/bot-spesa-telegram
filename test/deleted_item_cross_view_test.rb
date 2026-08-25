@@ -5,6 +5,15 @@ Dir.mktmpdir do |dir|
     require File.expand_path("../api_server", __dir__)
     require File.expand_path("../utils/keyboard_generator", __dir__)
 
+    DB.execute <<-SQL
+      CREATE TABLE IF NOT EXISTS memberships (
+        user_id INTEGER,
+        gruppo_id INTEGER,
+        last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, gruppo_id)
+      );
+    SQL
+
     deleted_item = {
       "id" => 17,
       "gruppo_id" => 4,
@@ -21,8 +30,26 @@ Dir.mktmpdir do |dir|
       "nome_topic" => ""
     }
 
-    android_item = serializza_item(deleted_item, nome_gruppo: "Omegna")
+    android_item = serializza_item(deleted_item.merge("categoria_id" => 7, "categoria_nome" => "Verdura"), nome_gruppo: "Omegna")
     raise "Android /lista/tutti perde il flag deleted" unless android_item[:deleted] == true
+    raise "Android /lista/tutti perde la categoria" unless android_item[:categoria_id] == 7 && android_item[:categoria_nome] == "Verdura"
+
+    DB.execute("INSERT OR IGNORE INTO memberships (user_id, gruppo_id, last_seen) VALUES (?, ?, CURRENT_TIMESTAMP)", [42, 4])
+    DB.execute("INSERT OR IGNORE INTO memberships (user_id, gruppo_id, last_seen) VALUES (?, ?, CURRENT_TIMESTAMP)", [42, 5])
+    DB.execute(
+      "INSERT INTO items (gruppo_id, topic_id, creato_da, nome, deleted, comprato, disponibile) VALUES (4, 0, ?, ?, 0, '', 1)",
+      [42, "Gruppo 4 attivo"]
+    )
+    DB.execute(
+      "INSERT INTO items (gruppo_id, topic_id, creato_da, nome, deleted, comprato, disponibile) VALUES (4, 0, ?, ?, 0, ?, 1)",
+      [42, "Gruppo 4 comprato", 42]
+    )
+    DB.execute(
+      "INSERT INTO items (gruppo_id, topic_id, creato_da, nome, deleted, comprato, disponibile) VALUES (5, 0, ?, ?, 0, '', 1)",
+      [42, "Gruppo 5 attivo"]
+    )
+    names = DataManager.prendi_tutto_ovunque(42).map { |item| item["nome"] }
+    raise "Vista globale non raggruppa per contesto: #{names.inspect}" unless names == ["Gruppo 4 attivo", "Gruppo 4 comprato", "Gruppo 5 attivo"]
 
     DB.execute(
       "INSERT INTO items (gruppo_id, topic_id, creato_da, nome, deleted) VALUES (0, 0, ?, ?, 0)",
@@ -93,7 +120,7 @@ Dir.mktmpdir do |dir|
       42
     )
     unavailable_label = markup.inline_keyboard.flatten.map(&:text).find { |label| label.include?("Pane fuori stagione") }
-    raise "Telegram Tutti gli articoli perde l'indicazione non disponibile" unless unavailable_label&.include?("🚫")
+    raise "Telegram Tutti gli articoli perde l'indicazione non disponibile" unless unavailable_label&.include?("❌") || unavailable_label&.include?("~~")
 
     puts "Unavailable item coerente tra Android e Telegram."
   end

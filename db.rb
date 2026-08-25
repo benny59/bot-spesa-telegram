@@ -1001,17 +1001,22 @@ end
     SELECT i.*, g.nome as nome_gruppo,
            COALESCE(t.nome, '') as nome_topic,
            u.initials AS user_initials,
-          buyer.initials AS buyer_initials,
+           buyer.initials AS buyer_initials,
+           c.id AS categoria_id,
+           c.nome AS categoria_nome,
            (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) AS ha_foto
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
     LEFT JOIN topics t ON t.chat_id = g.chat_id AND t.topic_id = i.topic_id
     LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
+    LEFT JOIN categorie c ON i.categoria_id = c.id
     WHERE i.creato_da = ? 
     AND (i.gruppo_id = 0 OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?))
     ORDER BY i.gruppo_id, i.topic_id,
-             CASE WHEN COALESCE(TRIM(i.comprato), '') = '' THEN 0 ELSE 1 END,
+             #{self.item_state_order_sql("i")},
+             CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC,
+             c.nome ASC,
              LOWER(COALESCE(u.first_name, '')), LOWER(COALESCE(u.last_name, '')),
              datetime(i.creato_il) DESC, i.id DESC
   SQL
@@ -1023,18 +1028,24 @@ end
     SELECT i.*, g.nome as nome_gruppo,
            COALESCE(t.nome, '') as nome_topic,
            u.initials AS user_initials,
-          buyer.initials AS buyer_initials,
+           buyer.initials AS buyer_initials,
+           c.id AS categoria_id,
+           c.nome AS categoria_nome,
            (SELECT COUNT(*) FROM item_images img WHERE img.item_id = i.id) AS ha_foto
     FROM items i
     LEFT JOIN gruppi g ON i.gruppo_id = g.id
     LEFT JOIN topics t ON t.chat_id = g.chat_id AND t.topic_id = i.topic_id
     LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
+    LEFT JOIN categorie c ON i.categoria_id = c.id
     WHERE i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
        OR (i.gruppo_id = 0 AND i.creato_da = ?)
-      ORDER BY #{self.item_state_order_sql("i")}, i.gruppo_id, i.topic_id,
-           LOWER(COALESCE(u.first_name, '')), LOWER(COALESCE(u.last_name, '')),
-           datetime(i.creato_il) DESC, i.id DESC
+      ORDER BY i.gruppo_id, i.topic_id,
+               #{self.item_state_order_sql("i")},
+               CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC,
+               c.nome ASC,
+               LOWER(COALESCE(u.first_name, '')), LOWER(COALESCE(u.last_name, '')),
+               datetime(i.creato_il) DESC, i.id DESC
   SQL
     DB.execute(query, [u_id, u_id])
   end

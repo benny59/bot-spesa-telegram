@@ -57,7 +57,6 @@ class SpesaAdapter(
         holder.tvNome.text = item.nome
 
         val labels = mutableListOf<String>()
-        if (item.nomeGruppo.isNotEmpty()) labels.add(item.nomeGruppo)
         val categoriaTradotta = LocalizationManager.localizedCategoryName(holder.itemView.context, item.categoriaNome)
         if (item.categoriaNome.isNotEmpty()) labels.add(categoriaTradotta)
         if (labels.isNotEmpty()) {

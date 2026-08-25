@@ -714,6 +714,8 @@ def serializza_item(i, nome_gruppo: '')
   # Combina gruppo e topic in un'unica etichetta
   t_nome = i['nome_topic'].to_s.strip
   gruppo_label = nome_gruppo.empty? ? '' : (t_nome.empty? ? nome_gruppo : "#{nome_gruppo} \u2022 #{t_nome}")
+  categoria_id = i['categoria_id']
+  categoria_nome = i['categoria_nome'].to_s.strip
   {
     id:            i['id'],
     gruppo_id:     i['gruppo_id'],
@@ -721,6 +723,8 @@ def serializza_item(i, nome_gruppo: '')
     nome_topic:    i['nome_topic'].to_s,
     nome:          i['nome'],
     link_url:      i['link_url'].to_s,
+    categoria_id:  categoria_id.nil? ? nil : categoria_id.to_i,
+    categoria_nome: categoria_nome,
     comprato:      i['comprato'].to_s.empty? ? '' : i['buyer_initials'].to_s,
     buyer_initials: i['buyer_initials'].to_s,
     creato_da:     i['creato_da'],
