@@ -124,9 +124,10 @@ Dir.mktmpdir do |dir|
 
     puts "Unavailable item coerente tra Android e Telegram."
 
-    DB.execute("DELETE FROM categorie WHERE nome IN ('Casa', 'Verdura', 'Frutta', 'frutta', 'verdura')")
-    DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (100, 'Verdura', 4, 0)")
-    DB.execute("INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, last_categoria_id, ultima_aggiunta, updated_at) VALUES (4, 0, 'Mela', 2, 100, datetime('now'), datetime('now'))")
+    DB.execute("DELETE FROM categorie WHERE LOWER(nome) IN ('casa', 'verdura', 'frutta')")
+    DB.execute("INSERT OR IGNORE INTO categorie (id, nome, gruppo_id, topic_id) VALUES (23, 'Verdura', 4, 0)")
+    DB.execute("INSERT OR IGNORE INTO categorie (id, nome, gruppo_id, topic_id) VALUES (24, 'Frutta', 4, 0)")
+    DB.execute("INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, last_categoria_id, ultima_aggiunta, updated_at) VALUES (4, 0, 'Mela', 2, 24, datetime('now'), datetime('now'))")
 
     DB.execute("INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'frutta')")
     DB.execute("INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'Frutta')")
@@ -137,7 +138,7 @@ Dir.mktmpdir do |dir|
 
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Mela", topic_id: 0, split_items: false)
     new_item = DB.get_first_row("SELECT categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Mela"])
-    raise "Fallback categoria da storico non applicato" unless new_item && new_item["categoria_id"].to_i == 100
+    raise "Fallback categoria da storico non applicato" unless new_item && new_item["categoria_id"].to_i == 24
 
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Mela & Frutta", topic_id: 0, split_items: false)
     explicit_item = DB.get_first_row("SELECT i.nome, i.categoria_id, c.nome AS categoria_nome FROM items i LEFT JOIN categorie c ON c.id = i.categoria_id WHERE i.gruppo_id = ? AND i.topic_id = ? AND LOWER(i.nome) = LOWER(?) ORDER BY i.id DESC LIMIT 1", [4, 0, "Mela"])
@@ -147,11 +148,22 @@ Dir.mktmpdir do |dir|
     parsed_item = DB.get_first_row("SELECT i.nome, i.categoria_id, c.nome AS categoria_nome FROM items i LEFT JOIN categorie c ON c.id = i.categoria_id WHERE i.gruppo_id = ? AND i.topic_id = ? AND LOWER(i.nome) = LOWER(?) ORDER BY i.id DESC LIMIT 1", [4, 0, "Insalata di riso"])
     raise "Parsing categoria temporanea non applicato" unless parsed_item && parsed_item["categoria_id"].to_i > 0 && parsed_item["categoria_nome"] == "Gastronomia"
 
+    DB.execute("INSERT OR IGNORE INTO categorie (id, nome, gruppo_id, topic_id) VALUES (23, 'Verdura', 4, 0)")
+    DB.execute("INSERT OR IGNORE INTO categorie (id, nome, gruppo_id, topic_id) VALUES (24, 'Frutta', 4, 0)")
+    DB.execute("INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, last_categoria_id, ultima_aggiunta, updated_at) VALUES (4, 0, 'Insalata', 3, 23, datetime('now'), datetime('now'))")
+    DB.execute("INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, last_categoria_id, ultima_aggiunta, updated_at) VALUES (4, 0, 'Mele', 4, 24, datetime('now'), datetime('now'))")
+    DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Insalata trevigiana", topic_id: 0, split_items: false)
+    fallback_insalata = DB.get_first_row("SELECT categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?) ORDER BY id DESC LIMIT 1", [4, 0, "Insalata trevigiana"])
+    raise "Fallback storico per nome composto non applicato: insalata trevigiana" unless fallback_insalata && fallback_insalata["categoria_id"].to_i == 23
+    DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "4 mele", topic_id: 0, split_items: false)
+    fallback_mele = DB.get_first_row("SELECT categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?) ORDER BY id DESC LIMIT 1", [4, 0, "4 mele"])
+    raise "Fallback storico per nome con prefisso numerico non applicato: 4 mele" unless fallback_mele && fallback_mele["categoria_id"].to_i == 24
+
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Latte [YUKA_LINK] https://example.com/milk", topic_id: 0, link_url: "https://example.com/milk", split_items: false)
     item_with_marker = DB.get_first_row("SELECT nome, link_url FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Latte"])
     raise "Marker [YUKA_LINK] non filtrato dal nome dell'item" unless item_with_marker && item_with_marker["nome"] == "Latte" && item_with_marker["link_url"] == "https://example.com/milk"
 
-    DB.execute("DELETE FROM categorie WHERE nome IN ('Casa', 'Verdura', 'Frutta')")
+    DB.execute("DELETE FROM categorie WHERE LOWER(nome) IN ('casa', 'verdura', 'frutta')")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (200, 'Casa', 4, 0)")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (201, 'Verdura', 4, 0)")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (202, 'Frutta', 4, 0)")

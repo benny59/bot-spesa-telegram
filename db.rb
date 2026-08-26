@@ -686,17 +686,40 @@ class DataManager
     nome_norm = nome.to_s.strip
     return nil if nome_norm.empty?
 
-    row = DB.get_first_row(
-      "SELECT last_categoria_id FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? ORDER BY ultima_aggiunta DESC, updated_at DESC LIMIT 1",
-      [gruppo_id.to_i, topic_id.to_i, nome_norm.downcase]
-    )
-    return nil unless row
+    norm = nome_norm.gsub(/[^a-zA-Z0-9\s]/, " ").gsub(/\s+/, " ").strip.downcase
+    return nil if norm.empty?
 
-    categoria_id = row["last_categoria_id"].to_i
-    return nil if categoria_id <= 0
+    candidati = []
+    candidati << norm
 
-    esiste = DB.get_first_value("SELECT 1 FROM categorie WHERE id = ?", [categoria_id])
-    esiste ? categoria_id : nil
+    senza_quantita = norm.sub(/\A\d+\s+/, "").strip
+    candidati << senza_quantita unless senza_quantita.empty? || senza_quantita == norm
+
+    parole = senza_quantita.split(/\s+/).reject(&:empty?)
+    parole.each do |parola|
+      candidati << parola
+    end
+
+    # Punti di priorità: nome esatto > nome senza quantità > token semantico significativo.
+    candidati.uniq!
+
+    candidati.each do |label|
+      next if label.to_s.strip.empty?
+
+      row = DB.get_first_row(
+        "SELECT last_categoria_id FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? ORDER BY ultima_aggiunta DESC, updated_at DESC LIMIT 1",
+        [gruppo_id.to_i, topic_id.to_i, label]
+      )
+      next unless row
+
+      categoria_id = row["last_categoria_id"].to_i
+      next if categoria_id <= 0
+
+      esiste = DB.get_first_value("SELECT 1 FROM categorie WHERE id = ?", [categoria_id])
+      return categoria_id if esiste
+    end
+
+    nil
   end
 
   def self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_id)
