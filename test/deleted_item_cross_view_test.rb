@@ -163,6 +163,9 @@ Dir.mktmpdir do |dir|
     item_with_marker = DB.get_first_row("SELECT nome, link_url FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Latte"])
     raise "Marker [YUKA_LINK] non filtrato dal nome dell'item" unless item_with_marker && item_with_marker["nome"] == "Latte" && item_with_marker["link_url"] == "https://example.com/milk"
 
+    parsed_manual = DataManager.parse_nome_categoria("viti & ferramenta", nil, nil, 4, 0)
+    raise "Categoria esplicita in modifica item non valutata" unless parsed_manual[:nome] == "viti" && parsed_manual[:categoria_id].to_i > 0
+
     DB.execute("DELETE FROM categorie WHERE LOWER(nome) IN ('casa', 'verdura', 'frutta')")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (200, 'Casa', 4, 0)")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (201, 'Verdura', 4, 0)")

@@ -287,35 +287,37 @@ patch '/lista/:id' do
   item_id = params[:id].to_i
   body = json_body
   user_id = body['user_id']&.to_i || 0
-  nome = body['nome'].to_s.strip
+  nome_in = body['nome'].to_s.strip
   categoria_id = body['categoria_id']
-  halt 400, { error: 'nome mancante' }.to_json if nome.empty?
+  halt 400, { error: 'nome mancante' }.to_json if nome_in.empty?
 
   item = item_accessibile!(item_id, user_id)
-  halt 404, { error: 'item non trovato' }.to_json unless Lista.modifica_nome(item_id, nome)
+  parsed = DataManager.parse_nome_categoria(nome_in, categoria_id, item['categoria_id'], item['gruppo_id'], item['topic_id'])
+  nome_finale = parsed[:nome].to_s.strip
+  categoria_finale = parsed[:categoria_id]
 
-  if categoria_id
-    categoria_id_i = categoria_id.to_i
-    if categoria_id_i > 0
-      categoria = DB.get_first_row("SELECT id FROM categorie WHERE id = ?", [categoria_id_i])
-      Lista.aggiorna_categoria(item_id, categoria_id_i) if categoria
-    else
-      Lista.aggiorna_categoria(item_id, nil)
-    end
+  halt 400, { error: 'nome mancante dopo parsing' }.to_json if nome_finale.empty?
+  halt 404, { error: 'item non trovato' }.to_json unless Lista.modifica_nome(item_id, nome_finale)
+
+  if categoria_finale
+    categoria = DB.get_first_row("SELECT id FROM categorie WHERE id = ?", [categoria_finale.to_i])
+    Lista.aggiorna_categoria(item_id, categoria_finale.to_i) if categoria
+  else
+    Lista.aggiorna_categoria(item_id, nil)
   end
 
   if item['gruppo_id'].to_i != 0
     utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
     vecchia_categoria = item['categoria_id'] ? DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [item['categoria_id']]) : nil
-    nuova_categoria = categoria_id_i && categoria_id_i > 0 ? DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_id_i]) : nil
+    nuova_categoria = categoria_finale && categoria_finale.to_i > 0 ? DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_finale.to_i]) : nil
 
     notifica_gruppo(
       item['gruppo_id'], item['topic_id'],
-      DataManager.build_item_edit_message(utente, nome, item['nome'].to_s, nome, vecchia_categoria, nuova_categoria)
+      DataManager.build_item_edit_message(utente, nome_finale, item['nome'].to_s, nome_finale, vecchia_categoria, nuova_categoria)
     )
   end
 
-  { ok: true, nome: nome }.to_json
+  { ok: true, nome: nome_finale }.to_json
 end
 
 patch '/lista/:id/topic' do
