@@ -153,6 +153,7 @@ object ApiClient {
             val nomeRaw = item["nome"] as? String ?: ""
             val linkRaw = item["link_url"] as? String ?: ""
             val decoded = decodeLinkFromNome(nomeRaw, linkRaw)
+            val parsedCategoria = parseTemporaryCategoryFromNome(decoded.first, item["categoria_nome"] as? String ?: "")
             val deletedValue = item["deleted"]
             val deleted = when (deletedValue) {
                 is Boolean -> deletedValue
@@ -169,7 +170,7 @@ object ApiClient {
             }
             SpesaItem(
                 id           = (item["id"] as Double).toInt(),
-                nome         = decoded.first,
+                nome         = parsedCategoria.first,
                 linkUrl      = decoded.second,
                 comprato     = item["comprato"] as? String ?: "",
                 userInitials = item["user_initials"] as? String ?: "",
@@ -181,11 +182,25 @@ object ApiClient {
                 nomeGruppo   = item["nome_gruppo"] as? String ?: "",
                 nomeContesto = item["nome_contesto"] as? String ?: "",
                 categoriaId  = (item["categoria_id"] as? Double)?.toInt() ?: 0,
-                categoriaNome = item["categoria_nome"] as? String ?: "",
+                categoriaNome = parsedCategoria.second,
                 deleted      = deleted,
                 disponibile  = disponibile
             )
         }
+    }
+
+    private fun parseTemporaryCategoryFromNome(nome: String, categoriaNome: String): Pair<String, String> {
+        val trimmedNome = nome.trim()
+        if (trimmedNome.isEmpty()) return Pair(trimmedNome, categoriaNome)
+
+        val raw = trimmedNome.split("&", limit = 2)
+        if (raw.size != 2) return Pair(trimmedNome, categoriaNome)
+
+        val nomePulito = raw[0].trim()
+        val categoria = raw[1].trim()
+        if (nomePulito.isEmpty() || categoria.isEmpty()) return Pair(trimmedNome, categoriaNome)
+
+        return Pair(nomePulito, categoria)
     }
 
     private fun decodeLinkFromNome(nomeRaw: String, linkRaw: String): Pair<String, String> {

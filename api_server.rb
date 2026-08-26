@@ -200,14 +200,20 @@ get '/lista' do
   end
 
   items.map do |i|
+    parsed = DataManager.parse_nome_categoria(i['nome'].to_s, i['categoria_id'], i['categoria_id'], i['gruppo_id'], i['topic_id'])
+    nome_ritornato = parsed[:nome].to_s.strip
+    nome_ritornato = i['nome'].to_s.strip if nome_ritornato.empty?
+    categoria_ritornata = parsed[:categoria_nome].to_s.strip
+    categoria_ritornata = i['categoria_nome'].to_s.strip if categoria_ritornata.empty?
+
     {
       id:            i['id'],
       gruppo_id:     i['gruppo_id'],
       topic_id:      i['topic_id'],
-      nome:          i['nome'],
+      nome:          nome_ritornato,
       link_url:      i['link_url'].to_s,
       categoria_id:  i['categoria_id']&.to_i,
-      categoria_nome: i['categoria_nome'].to_s,
+      categoria_nome: categoria_ritornata,
       comprato:      i['comprato'].to_s.empty? ? '' : i['buyer_initials'].to_s,
       buyer_initials: i['buyer_initials'].to_s,
       creato_da:     i['creato_da'],
