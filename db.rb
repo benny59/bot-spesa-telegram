@@ -523,45 +523,25 @@ class DataManager
       params
     )
 
-    merged = {}
+    canonical_by_key = {}
     rows.each do |row|
       raw_nome = row["nome"].to_s.strip
       next if raw_nome.empty?
 
-      chiave = raw_nome.downcase
+      key = raw_nome.downcase
       canonica = self.categoria_nome_canonica(raw_nome)
-      candidate = {
-        "id" => row["id"].to_i,
-        "nome" => raw_nome,
-        "nome_display" => (raw_nome == canonica ? canonica : raw_nome.downcase),
-        "effimera" => raw_nome != canonica
-      }
+      next unless raw_nome == canonica
 
-      current = merged[chiave]
-      if current.nil?
-        merged[chiave] = candidate
-        next
-      end
-
-      current_is_canonica = current["nome"].to_s == self.categoria_nome_canonica(current["nome"].to_s)
-      candidate_is_canonica = candidate["nome"].to_s == self.categoria_nome_canonica(candidate["nome"].to_s)
-
-      if current_is_canonica == candidate_is_canonica
-        current_id = current["id"].to_i
-        candidate_id = candidate["id"].to_i
-        merged[chiave] = candidate if candidate_id > current_id && !current_is_canonica
-        merged[chiave] = current if candidate_id <= current_id
-      elsif candidate_is_canonica
-        merged[chiave] = candidate
-      end
+      canonical_by_key[key] ||= row
     end
 
-    merged.values.sort_by { |row| row["nome"].to_s.downcase }
+    canonical_by_key.values
+      .sort_by { |row| row["nome"].to_s.downcase }
       .map do |row|
         {
           id: row["id"].to_i,
-          nome: row["nome_display"],
-          effimera: row["effimera"]
+          nome: row["nome"].to_s.strip,
+          effimera: false
         }
       end
   end

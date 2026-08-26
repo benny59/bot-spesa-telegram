@@ -179,7 +179,7 @@ Dir.mktmpdir do |dir|
 
     android_categories = DataManager.categorie_per_android(99, 0)
     labels = android_categories.map { |row| [row[:nome], row[:effimera]] }
-    raise "Categorie Android non deduplicate o non formattate: #{android_categories.inspect}" unless labels == [["Frutta", false], ["verdura", true]]
+    raise "Categorie Android non devono includere i record effimeri: #{android_categories.inspect}" unless labels == [["Frutta", false]]
 
     puts "Fallback categoria da storico coerente."
   end
