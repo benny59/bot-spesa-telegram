@@ -376,11 +376,14 @@ class DataManager
   # Helper DRY per UPSERT storico_articoli (consolidato da esegui_scopetta e storico_manager)
   # Parametri creato_da_id e comprato_da_id sono opzionali (usati da esegui_scopetta, nil da storico_manager)
   def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil, link_url = nil)
+    cleaned = self.pulisci_nome_e_link(nome, link_url)
+    nome = cleaned[:nome]
+    link_pulito = cleaned[:link_url]
+
     # Normalizza il nome: case-insensitive (Insalata = insalata)
     nome_normalizzato = nome.to_s.strip.downcase
     nome_formattato = nome_normalizzato.capitalize
-    link_pulito = link_url.to_s.strip
-    link_pulito = nil if link_pulito.empty?
+    link_pulito = nil if link_pulito.to_s.strip.empty?
 
     puts "  📝 [UPSERT] Elaborazione: '#{nome_formattato}' (G:#{gruppo_id}, T:#{topic_id})"
 
@@ -462,6 +465,71 @@ class DataManager
       end
       puts "  ✅ [UPSERT] INSERT completato"
     end
+  end
+
+  def self.pulisci_nome_e_link(raw_nome, link_url = nil)
+    testo = raw_nome.to_s.dup
+    link_esplicito = link_url.to_s.strip
+
+    if testo =~ /\[?YUKA_LINK\]?/i
+      parti = testo.split(/\[?YUKA_LINK\]?/i, 2)
+      testo = parti[0].to_s.strip
+      resto = parti[1].to_s.strip
+      link_dal_testo = resto[/https?:\/\/\S+/i]
+      link_esplicito = link_esplicito.empty? ? link_dal_testo.to_s : link_esplicito
+    end
+
+    url_regex = %r{https?://\S+}i
+    link_dal_testo = testo[url_regex]
+    if link_dal_testo && link_esplicito.empty?
+      link_esplicito = link_dal_testo
+      testo = testo.sub(url_regex, "").gsub(/\s+/, " ").strip
+    elsif link_dal_testo && !link_esplicito.empty?
+      testo = testo.sub(url_regex, "").gsub(/\s+/, " ").strip
+    end
+
+    testo = testo.gsub(/\[?YUKA_LINK\]?/i, " ").gsub(/\s+/, " ").strip
+    link_esplicito = link_esplicito.gsub(/\s+/, " ").strip
+    link_esplicito = nil if link_esplicito.empty?
+
+    { nome: testo, link_url: link_esplicito }
+  end
+
+  def self.normalizza_categoria_nome(nome)
+    nome.to_s.strip.gsub(/\s+/, " ")
+  end
+
+  def self.parse_nome_categoria(raw_nome, categoria_id_explicit = nil)
+    testo = raw_nome.to_s.strip
+    categoria_id_explicit = categoria_id_explicit.to_i if categoria_id_explicit
+
+    if categoria_id_explicit && categoria_id_explicit > 0
+      return { nome: testo, categoria_id: categoria_id_explicit, categoria_nome: nil, categoria_temporanea: nil }
+    end
+
+    return { nome: testo, categoria_id: nil, categoria_nome: nil, categoria_temporanea: nil } if testo.empty?
+
+    if testo.include?("&")
+      nome, categoria_label = testo.split("&", 2)
+      nome = self.normalizza_categoria_nome(nome)
+      categoria_label = self.normalizza_categoria_nome(categoria_label)
+
+      return { nome: testo, categoria_id: nil, categoria_nome: nil, categoria_temporanea: nil } if nome.empty? || categoria_label.empty?
+
+      categoria_id = DB.get_first_value(
+        "SELECT id FROM categorie WHERE LOWER(nome) = ? LIMIT 1",
+        [categoria_label.downcase]
+      )
+
+      return {
+        nome: nome,
+        categoria_id: categoria_id&.to_i,
+        categoria_nome: categoria_label,
+        categoria_temporanea: categoria_label
+      }
+    end
+
+    { nome: testo, categoria_id: nil, categoria_nome: nil, categoria_temporanea: nil }
   end
 
   def self.risolvi_categoria_default(gruppo_id, topic_id, nome, categoria_id_explicit = nil)
@@ -688,16 +756,22 @@ end
     ids_creati = []
 
     DB.transaction do
-      nomi.each do |nome|
-        categoria_effettiva = categoria_id || self.risolvi_categoria_default(gruppo_id, topic_id, nome)
+      nomi.each do |raw_nome|
+        cleaned = self.pulisci_nome_e_link(raw_nome, link_pulito)
+        parsed = self.parse_nome_categoria(cleaned[:nome], categoria_id)
+        nome = parsed[:nome]
+        item_link_pulito = cleaned[:link_url]
+        categoria_effettiva = parsed[:categoria_id] || self.risolvi_categoria_default(gruppo_id, topic_id, nome, categoria_id)
+
+        next if nome.empty?
 
         esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome.downcase])
 
         if esiste
-          if link_pulito
+          if item_link_pulito
             DB.execute(
               "UPDATE items SET link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?) WHERE id = ?",
-              [link_pulito, esiste]
+              [item_link_pulito, esiste]
             )
           end
           if categoria_effettiva
@@ -711,7 +785,7 @@ end
         end
 
         DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url, categoria_id) VALUES (?, ?, ?, ?, ?, ?)",
-          [gruppo_id, topic_id, user_id, nome, link_pulito, categoria_effettiva])
+          [gruppo_id, topic_id, user_id, nome, item_link_pulito, categoria_effettiva])
         ids_creati << DB.last_insert_row_id
         if categoria_effettiva
           self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_effettiva)

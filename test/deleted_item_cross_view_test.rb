@@ -132,6 +132,14 @@ Dir.mktmpdir do |dir|
     new_item = DB.get_first_row("SELECT categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Mela"])
     raise "Fallback categoria da storico non applicato" unless new_item && new_item["categoria_id"].to_i == 100
 
+    DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Insalata di riso & gastronomia", topic_id: 0, split_items: false)
+    parsed_item = DB.get_first_row("SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Insalata di riso"])
+    raise "Parsing categoria temporanea non applicato" unless parsed_item && parsed_item["categoria_id"].to_i == 0
+
+    DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Latte [YUKA_LINK] https://example.com/milk", topic_id: 0, link_url: "https://example.com/milk", split_items: false)
+    item_with_marker = DB.get_first_row("SELECT nome, link_url FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Latte"])
+    raise "Marker [YUKA_LINK] non filtrato dal nome dell'item" unless item_with_marker && item_with_marker["nome"] == "Latte" && item_with_marker["link_url"] == "https://example.com/milk"
+
     puts "Fallback categoria da storico coerente."
   end
 end
