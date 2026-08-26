@@ -499,10 +499,36 @@ class DataManager
     nome.to_s.strip.gsub(/\s+/, " ")
   end
 
-  def self.parse_nome_categoria(raw_nome, categoria_id_explicit = nil, categoria_attiva = nil)
+  def self.ensure_categoria_temporanea(gruppo_id, topic_id, nome)
+    label = self.normalizza_categoria_nome(nome)
+    return nil if label.empty?
+
+    gruppo_id = gruppo_id.to_i
+    topic_id = topic_id.to_i
+
+    categoria_id = DB.get_first_value(
+      "SELECT id FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
+      [gruppo_id, topic_id, label.downcase]
+    )
+    return categoria_id.to_i if categoria_id && categoria_id.to_i > 0
+
+    DB.execute(
+      "INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome, creato_da) VALUES (?, ?, ?, 0)",
+      [gruppo_id, topic_id, label]
+    )
+
+    DB.get_first_value(
+      "SELECT id FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
+      [gruppo_id, topic_id, label.downcase]
+    )&.to_i
+  end
+
+  def self.parse_nome_categoria(raw_nome, categoria_id_explicit = nil, categoria_attiva = nil, gruppo_id = nil, topic_id = 0)
     testo = raw_nome.to_s.strip
     categoria_id_explicit = categoria_id_explicit.to_i if categoria_id_explicit
     categoria_attiva = categoria_attiva.to_i if categoria_attiva
+    gruppo_id = gruppo_id.to_i if gruppo_id
+    topic_id = topic_id.to_i
 
     if categoria_id_explicit && categoria_id_explicit > 0
       return {
@@ -536,11 +562,12 @@ class DataManager
       end
 
       categoria_id = DB.get_first_value(
-        "SELECT id FROM categorie WHERE LOWER(nome) = ? LIMIT 1",
-        [categoria_label.downcase]
+        "SELECT id FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
+        [gruppo_id, topic_id, categoria_label.downcase]
       )
 
       categoria_finale = categoria_id&.to_i
+      categoria_finale = self.ensure_categoria_temporanea(gruppo_id, topic_id, categoria_label) if categoria_finale.nil?
       categoria_finale = categoria_attiva if categoria_finale.nil? && categoria_attiva && categoria_attiva > 0
 
       return {
@@ -789,10 +816,15 @@ end
       categoria_attiva = categoria_id
       nomi.each do |raw_nome|
         cleaned = self.pulisci_nome_e_link(raw_nome, link_pulito)
-        parsed = self.parse_nome_categoria(cleaned[:nome], categoria_id, categoria_attiva)
+        parsed = self.parse_nome_categoria(cleaned[:nome], categoria_id, categoria_attiva, gruppo_id, topic_id)
         nome = parsed[:nome]
         item_link_pulito = cleaned[:link_url]
-        categoria_effettiva = parsed[:categoria_id] || self.risolvi_categoria_default(gruppo_id, topic_id, nome, categoria_id)
+
+        categoria_effettiva = if parsed[:categoria_esplicita]
+          parsed[:categoria_id]
+        else
+          parsed[:categoria_id] || self.risolvi_categoria_default(gruppo_id, topic_id, nome, categoria_id)
+        end
 
         if parsed[:categoria_esplicita] && categoria_effettiva && categoria_effettiva > 0
           categoria_attiva = categoria_effettiva
