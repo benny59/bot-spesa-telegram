@@ -727,7 +727,7 @@ class DataManager
 
       if nome_base.empty? || categoria_label.empty?
         categoria_finale = categoria_attiva && categoria_attiva > 0 ? categoria_attiva : nil
-        return { nome: testo, categoria_id: categoria_finale, categoria_nome: nil, categoria_temporanea: nil, categoria_esplicita: false }
+        return { nome: testo, nome_db: testo, categoria_id: categoria_finale, categoria_nome: nil, categoria_temporanea: nil, categoria_esplicita: false }
       end
 
       categoria_row = self.categoria_preferita_db(gruppo_id, topic_id, categoria_label)
@@ -737,6 +737,7 @@ class DataManager
         categoria_nome = categoria_row["nome"].to_s.strip
         return {
           nome: nome_base,
+          nome_db: nome_base,
           categoria_id: categoria_finale,
           categoria_nome: categoria_nome,
           categoria_temporanea: nil,
@@ -746,9 +747,10 @@ class DataManager
 
       categoria_temporanea = self.categoria_nome_canonica(categoria_label)
       return {
-        nome: testo,
+        nome: nome_base,
+        nome_db: testo,
         categoria_id: nil,
-        categoria_nome: nil,
+        categoria_nome: categoria_temporanea,
         categoria_temporanea: categoria_temporanea,
         categoria_esplicita: true
       }
@@ -1018,6 +1020,7 @@ end
         cleaned = self.pulisci_nome_e_link(raw_nome, link_pulito)
         parsed = self.parse_nome_categoria(cleaned[:nome], categoria_id, nil, gruppo_id, topic_id)
         nome = parsed[:nome]
+        nome_db = parsed[:nome_db] || nome
         item_link_pulito = cleaned[:link_url]
 
         categoria_effettiva = if parsed[:categoria_esplicita]
@@ -1028,7 +1031,7 @@ end
 
         next if nome.empty?
 
-        esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome.downcase])
+        esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome_db.downcase])
 
         if esiste
           if item_link_pulito
@@ -1048,7 +1051,7 @@ end
         end
 
         DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url, categoria_id) VALUES (?, ?, ?, ?, ?, ?)",
-          [gruppo_id, topic_id, user_id, nome, item_link_pulito, categoria_effettiva])
+          [gruppo_id, topic_id, user_id, nome_db, item_link_pulito, categoria_effettiva])
         ids_creati << DB.last_insert_row_id
         if categoria_effettiva
           self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_effettiva)

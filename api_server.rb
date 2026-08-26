@@ -293,7 +293,7 @@ patch '/lista/:id' do
 
   item = item_accessibile!(item_id, user_id)
   parsed = DataManager.parse_nome_categoria(nome_in, categoria_id, item['categoria_id'], item['gruppo_id'], item['topic_id'])
-  nome_finale = parsed[:nome].to_s.strip
+  nome_finale = parsed[:nome_db] || parsed[:nome].to_s.strip
   categoria_finale = parsed[:categoria_id]
 
   halt 400, { error: 'nome mancante dopo parsing' }.to_json if nome_finale.empty?
@@ -724,13 +724,17 @@ def serializza_item(i, nome_gruppo: '')
   t_nome = i['nome_topic'].to_s.strip
   gruppo_label = nome_gruppo.empty? ? '' : (t_nome.empty? ? nome_gruppo : "#{nome_gruppo} \u2022 #{t_nome}")
   categoria_id = i['categoria_id']
-  categoria_nome = i['categoria_nome'].to_s.strip
+  parsed = DataManager.parse_nome_categoria(i['nome'].to_s, categoria_id, categoria_id, i['gruppo_id'], i['topic_id'])
+  categoria_nome = parsed[:categoria_nome].to_s.strip
+  categoria_nome = i['categoria_nome'].to_s.strip if categoria_nome.empty?
+  nome_ritornato = parsed[:nome].to_s.strip
+  nome_ritornato = i['nome'].to_s.strip if nome_ritornato.empty?
   {
     id:            i['id'],
     gruppo_id:     i['gruppo_id'],
     topic_id:      i['topic_id'],
     nome_topic:    i['nome_topic'].to_s,
-    nome:          i['nome'],
+    nome:          nome_ritornato,
     link_url:      i['link_url'].to_s,
     categoria_id:  categoria_id.nil? ? nil : categoria_id.to_i,
     categoria_nome: categoria_nome,
