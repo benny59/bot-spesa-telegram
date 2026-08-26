@@ -232,7 +232,7 @@ get '/categorie' do
     DataManager.categorie_per_android
   end
 
-  categorie.map { |r| { id: r[:id].to_i, nome: r[:nome].to_s } }.to_json
+  categorie.map { |r| { id: r[:id].to_i, nome: r[:nome].to_s, effimera: !!r[:effimera] } }.to_json
 end
 
 post '/lista' do

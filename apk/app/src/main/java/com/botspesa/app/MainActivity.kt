@@ -918,7 +918,8 @@ class MainActivity : AppCompatActivity() {
             val categorieOrdinate = categorie.sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
             val opzioni = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
             opzioni.addAll(categorieOrdinate.map { categoria ->
-                categoria.id to LocalizationManager.localizedCategoryName(this@MainActivity, categoria.nome)
+                val displayName = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome
+                categoria.id to LocalizationManager.localizedCategoryName(this@MainActivity, displayName)
             })
             val input = EditText(this@MainActivity).apply {
                 setText(item.nome)
@@ -1338,7 +1339,8 @@ class MainActivity : AppCompatActivity() {
             val categorieOrdinate = categorieBase.sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
             val opzioniCategoria = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
             opzioniCategoria.addAll(categorieOrdinate.map { categoria ->
-                categoria.id to LocalizationManager.localizedCategoryName(this@MainActivity, categoria.nome)
+                val displayName = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome
+                categoria.id to LocalizationManager.localizedCategoryName(this@MainActivity, displayName)
             })
             categoriaSpinner.adapter = ArrayAdapter(
                 this@MainActivity,

@@ -331,6 +331,22 @@ class DataManager
     { nome: g_nome, topic: t_nome || (t_id == 0 ? "Generale" : t_id.to_s) }
   end
 
+  def self.cleanup_categoria_temporanea_se_orfana(categoria_id)
+    categoria_id = categoria_id.to_i
+    return false if categoria_id <= 0
+
+    categoria = DB.get_first_row("SELECT id, nome FROM categorie WHERE id = ?", [categoria_id])
+    return false unless categoria
+
+    nome = categoria["nome"].to_s.strip
+    return false if nome.empty?
+    return false if nome == self.categoria_nome_canonica(nome)
+    return false if DB.get_first_value("SELECT COUNT(*) FROM items WHERE categoria_id = ?", [categoria_id]).to_i > 0
+
+    DB.execute("DELETE FROM categorie WHERE id = ?", [categoria_id])
+    true
+  end
+
   def self.soft_delete_item(item_id)
     item_id = item_id.to_i
     return false if item_id <= 0
@@ -353,8 +369,10 @@ class DataManager
     item_id = item_id.to_i
     return false if item_id <= 0
 
+    item = DB.get_first_row("SELECT categoria_id FROM items WHERE id = ?", [item_id])
     DB.execute("DELETE FROM item_images WHERE item_id = ?", [item_id])
     DB.execute("DELETE FROM items WHERE id = ?", [item_id])
+    cleanup_categoria_temporanea_se_orfana(item["categoria_id"]) if item && item["categoria_id"]
     DB.changes > 0
   end
 
@@ -509,23 +527,38 @@ class DataManager
     )
 
     canonical_by_key = {}
+    effimera_by_key = {}
+
     rows.each do |row|
       raw_nome = row["nome"].to_s.strip
       next if raw_nome.empty?
 
-      canonica = self.categoria_nome_canonica(raw_nome)
-      next unless raw_nome == canonica
-
       key = raw_nome.downcase
-      canonical_by_key[key] ||= row
+      canonica = self.categoria_nome_canonica(raw_nome)
+
+      if raw_nome == canonica
+        canonical_by_key[key] ||= {
+          id: row["id"].to_i,
+          nome: raw_nome,
+          effimera: false
+        }
+      else
+        next if canonical_by_key.key?(key)
+        effimera_by_key[key] ||= {
+          id: row["id"].to_i,
+          nome: raw_nome,
+          effimera: true
+        }
+      end
     end
 
-    canonical_by_key.values
-      .sort_by { |row| row["nome"].to_s.downcase }
+    (canonical_by_key.values + effimera_by_key.values)
+      .sort_by { |row| row[:nome].to_s.downcase }
       .map do |row|
         {
-          id: row["id"].to_i,
-          nome: row["nome"].to_s.strip
+          id: row[:id].to_i,
+          nome: row[:nome].to_s.strip,
+          effimera: !!row[:effimera]
         }
       end
   end
@@ -902,7 +935,10 @@ end
 
 # Rimuove l'articolo attivo (per la deselezione dalla checklist)
 def self.rimuovi_da_lista(item_id)
+  item = DB.get_first_row("SELECT categoria_id FROM items WHERE id = ?", [item_id])
   DB.execute("DELETE FROM items WHERE id = ?", [item_id])
+  cleanup_categoria_temporanea_se_orfana(item["categoria_id"]) if item && item["categoria_id"]
+  DB.changes > 0
 end
 
 # Ripristino DRY unificato per inserimento da storico (usato dalla checklist)

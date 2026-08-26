@@ -68,7 +68,8 @@ object ApiClient {
         return raw.map { item ->
             CategoriaItem(
                 id = (item["id"] as? Double)?.toInt() ?: 0,
-                nome = item["nome"] as? String ?: ""
+                nome = item["nome"] as? String ?: "",
+                effimera = item["effimera"] as? Boolean ?: false
             )
         }
     }
@@ -85,7 +86,7 @@ object ApiClient {
 
     data class ConteggiListe(val tutti: Int, val miei: Int)
 
-    data class CategoriaItem(val id: Int, val nome: String)
+    data class CategoriaItem(val id: Int, val nome: String, val effimera: Boolean = false)
 
     data class ProductPreview(
         val barcode: String,

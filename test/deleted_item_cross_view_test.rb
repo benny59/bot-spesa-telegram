@@ -179,10 +179,20 @@ Dir.mktmpdir do |dir|
     DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (99, 0, 'Frutta')")
     DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (99, 0, 'frutta')")
     DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (42, 0, 'verdura')")
+    DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (42, 0, 'ferramenta')")
 
     android_categories = DataManager.categorie_per_android(99, 0)
-    labels = android_categories.map { |row| row[:nome] }
-    raise "Catalogo categorie Android deve essere globale e canonico: #{android_categories.inspect}" unless labels == ["Frutta"]
+    labels = android_categories.map { |row| [row[:nome], row[:effimera]] }
+    canonical_ok = labels.any? { |nome, effimera| nome == "Frutta" && effimera == false }
+    effimera_ok = labels.any? { |nome, effimera| nome == "ferramenta" && effimera == true }
+    raise "Catalogo categorie Android deve distinguere canoniche da effimere: #{android_categories.inspect}" unless canonical_ok && effimera_ok
+
+    DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'gastronomia')")
+    categoria_temp_id = DB.get_first_value("SELECT id FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1", [4, 0, 'gastronomia'])
+    DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, categoria_id, deleted, comprato, disponibile) VALUES (4, 0, 42, 'Pasta gourmet', ?, 0, '', 1)", [categoria_temp_id])
+    item_id = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1", [4, 0, 'pasta gourmet'])
+    DataManager.rimuovi_da_lista(item_id)
+    raise "La categoria temporanea deve sparire dopo la cancellazione definitiva dell'ultimo item: #{DB.execute('SELECT id, nome FROM categorie WHERE gruppo_id = 4 AND topic_id = 0').inspect}" unless DB.get_first_value("SELECT COUNT(*) FROM categorie WHERE id = ?", [categoria_temp_id]).to_i == 0
 
     puts "Fallback categoria da storico coerente."
   end
