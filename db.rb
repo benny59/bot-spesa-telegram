@@ -721,25 +721,35 @@ class DataManager
     end
 
     if testo.include?("&")
-      nome, categoria_label = testo.split("&", 2)
-      nome = self.normalizza_categoria_nome(nome)
+      nome_base, categoria_label = testo.split("&", 2)
+      nome_base = self.normalizza_categoria_nome(nome_base)
       categoria_label = self.normalizza_categoria_nome(categoria_label)
 
-      if nome.empty? || categoria_label.empty?
+      if nome_base.empty? || categoria_label.empty?
         categoria_finale = categoria_attiva && categoria_attiva > 0 ? categoria_attiva : nil
         return { nome: testo, categoria_id: categoria_finale, categoria_nome: nil, categoria_temporanea: nil, categoria_esplicita: false }
       end
 
       categoria_row = self.categoria_preferita_db(gruppo_id, topic_id, categoria_label)
-      categoria_finale = categoria_row && categoria_row["id"] ? categoria_row["id"].to_i : nil
-      categoria_finale = categoria_attiva if categoria_finale.nil? && categoria_attiva && categoria_attiva > 0
-      categoria_nome = categoria_row && categoria_row["nome"].to_s.strip != "" ? categoria_row["nome"].to_s.strip : self.categoria_nome_canonica(categoria_label)
+      if categoria_row && categoria_row["id"]
+        categoria_finale = categoria_row["id"].to_i
+        categoria_finale = categoria_attiva if categoria_attiva && categoria_attiva > 0 && categoria_finale.nil?
+        categoria_nome = categoria_row["nome"].to_s.strip
+        return {
+          nome: nome_base,
+          categoria_id: categoria_finale,
+          categoria_nome: categoria_nome,
+          categoria_temporanea: nil,
+          categoria_esplicita: true
+        }
+      end
 
+      categoria_temporanea = self.categoria_nome_canonica(categoria_label)
       return {
-        nome: nome,
-        categoria_id: categoria_finale,
-        categoria_nome: categoria_nome,
-        categoria_temporanea: categoria_finale.nil? ? categoria_nome : nil,
+        nome: testo,
+        categoria_id: nil,
+        categoria_nome: nil,
+        categoria_temporanea: categoria_temporanea,
         categoria_esplicita: true
       }
     end

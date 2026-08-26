@@ -145,8 +145,10 @@ Dir.mktmpdir do |dir|
     raise "Categoria esplicita temporanea non deve essere sovrascritta dal default storico" unless explicit_item && explicit_item["categoria_nome"] == "Frutta" && explicit_item["categoria_id"].to_i > 0
 
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Insalata di riso & gastronomia", topic_id: 0, split_items: false)
-    parsed = DataManager.parse_nome_categoria("Insalata di riso & gastronomia", nil, nil, 4, 0)
-    raise "Parsing categoria temporanea non applicato" unless parsed[:nome] == "Insalata di riso" && parsed[:categoria_id].nil? && parsed[:categoria_temporanea] == "Gastronomia"
+    item_temp = DB.get_first_row("SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?) ORDER BY id DESC LIMIT 1", [4, 0, "Insalata di riso & gastronomia"])
+    raise "Categoria temporanea non deve essere scritta nel nome item" unless item_temp && item_temp["nome"] == "Insalata di riso & gastronomia" && item_temp["categoria_id"].to_i == 0
+    parsed = DataManager.parse_nome_categoria(item_temp["nome"], nil, nil, 4, 0)
+    raise "Parsing categoria temporanea non applicato" unless parsed[:nome] == "Insalata di riso & gastronomia" && parsed[:categoria_id].nil? && parsed[:categoria_temporanea] == "Gastronomia"
     raise "Categoria temporanea non deve essere persistita nel catalogo" unless DB.get_first_value("SELECT COUNT(*) FROM categorie WHERE LOWER(nome) = LOWER(?)", ["Gastronomia"]).to_i == 0
 
     DB.execute("INSERT OR IGNORE INTO categorie (id, nome, gruppo_id, topic_id) VALUES (23, 'Verdura', 4, 0)")
@@ -165,9 +167,7 @@ Dir.mktmpdir do |dir|
     raise "Marker [YUKA_LINK] non filtrato dal nome dell'item" unless item_with_marker && item_with_marker["nome"] == "Latte" && item_with_marker["link_url"] == "https://example.com/milk"
 
     parsed_manual = DataManager.parse_nome_categoria("viti & ferramenta", nil, nil, 4, 0)
-    raise "Categoria esplicita in modifica item non valutata" unless parsed_manual[:nome] == "viti" && (
-      parsed_manual[:categoria_id].to_i > 0 || parsed_manual[:categoria_temporanea].to_s == "Ferramenta"
-    )
+    raise "Categoria effimera nel nome item non valutata" unless parsed_manual[:nome] == "viti & ferramenta" && parsed_manual[:categoria_id].nil? && parsed_manual[:categoria_temporanea] == "Ferramenta"
 
     DB.execute("DELETE FROM categorie WHERE LOWER(nome) IN ('casa', 'verdura', 'frutta')")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (200, 'Casa', 4, 0)")
