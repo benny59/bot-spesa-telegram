@@ -138,7 +138,7 @@ Dir.mktmpdir do |dir|
 
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Insalata di riso & gastronomia", topic_id: 0, split_items: false)
     parsed_item = DB.get_first_row("SELECT i.nome, i.categoria_id, c.nome AS categoria_nome FROM items i LEFT JOIN categorie c ON c.id = i.categoria_id WHERE i.gruppo_id = ? AND i.topic_id = ? AND LOWER(i.nome) = LOWER(?) ORDER BY i.id DESC LIMIT 1", [4, 0, "Insalata di riso"])
-    raise "Parsing categoria temporanea non applicato" unless parsed_item && parsed_item["categoria_id"].to_i > 0 && parsed_item["categoria_nome"] == "gastronomia"
+    raise "Parsing categoria temporanea non applicato" unless parsed_item && parsed_item["categoria_id"].to_i > 0 && parsed_item["categoria_nome"] == "Gastronomia"
 
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Latte [YUKA_LINK] https://example.com/milk", topic_id: 0, link_url: "https://example.com/milk", split_items: false)
     item_with_marker = DB.get_first_row("SELECT nome, link_url FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Latte"])
@@ -148,9 +148,10 @@ Dir.mktmpdir do |dir|
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (200, 'Casa', 4, 0)")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (201, 'Verdura', 4, 0)")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (202, 'Frutta', 4, 0)")
+    DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'frutta')")
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "rotolone & casa, insalata, pomodorini & verdura, mele, arance & frutta", topic_id: 0, split_items: true)
     item_map = DB.execute("SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND nome IN ('rotolone','insalata','pomodorini','mele','arance') ORDER BY id", [4, 0]).each_with_object({}) { |row, h| h[row["nome"]] = row["categoria_id"].to_i }
-    raise "Categoria associativa non applicata" unless item_map == { "rotolone" => 200, "insalata" => nil, "pomodorini" => 201, "mele" => nil, "arance" => 202 }
+    raise "Categoria associativa non applicata" unless item_map == { "rotolone" => 200, "insalata" => 0, "pomodorini" => 201, "mele" => 0, "arance" => 202 }
 
     puts "Fallback categoria da storico coerente."
   end

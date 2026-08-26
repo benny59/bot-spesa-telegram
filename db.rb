@@ -499,6 +499,23 @@ class DataManager
     nome.to_s.strip.gsub(/\s+/, " ")
   end
 
+  def self.categoria_canonica(gruppo_id, topic_id, nome)
+    label = self.normalizza_categoria_nome(nome)
+    return nil if label.empty?
+
+    gruppo_id = gruppo_id.to_i
+    topic_id = topic_id.to_i
+
+    row = DB.get_first_row(
+      "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
+      [gruppo_id, topic_id, label.downcase]
+    )
+    return row if row && row["id"]
+
+    label_canonica = label.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
+    { "id" => nil, "nome" => label_canonica }
+  end
+
   def self.ensure_categoria_temporanea(gruppo_id, topic_id, nome)
     label = self.normalizza_categoria_nome(nome)
     return nil if label.empty?
@@ -506,21 +523,45 @@ class DataManager
     gruppo_id = gruppo_id.to_i
     topic_id = topic_id.to_i
 
-    categoria_id = DB.get_first_value(
-      "SELECT id FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
-      [gruppo_id, topic_id, label.downcase]
-    )
-    return categoria_id.to_i if categoria_id && categoria_id.to_i > 0
+    row = self.categoria_canonica(gruppo_id, topic_id, label)
+    if row && row["id"]
+      return row["id"].to_i
+    end
+
+    label_canonica = row && row["nome"].to_s.strip.empty? ? label : row["nome"].to_s.strip
+    label_canonica = label_canonica.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
 
     DB.execute(
       "INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (?, ?, ?)",
-      [gruppo_id, topic_id, label]
+      [gruppo_id, topic_id, label_canonica]
     )
 
-    DB.get_first_value(
-      "SELECT id FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
+    canonical = DB.get_first_row(
+      "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
       [gruppo_id, topic_id, label.downcase]
-    )&.to_i
+    )
+    canonical && canonical["id"] ? canonical["id"].to_i : nil
+  end
+
+  def self.categoria_preferita_db(gruppo_id, topic_id, nome)
+    label = self.normalizza_categoria_nome(nome)
+    return nil if label.empty?
+
+    gruppo_id = gruppo_id.to_i
+    topic_id = topic_id.to_i
+    label_canonica = label.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
+
+    row = DB.get_first_row(
+      "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND nome = ? LIMIT 1",
+      [gruppo_id, topic_id, label.downcase, label_canonica]
+    )
+    return row if row && row["id"]
+
+    row = DB.get_first_row(
+      "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? ORDER BY CASE WHEN nome = ? THEN 0 ELSE 1 END, id ASC LIMIT 1",
+      [gruppo_id, topic_id, label.downcase, label_canonica]
+    )
+    row && row["id"] ? row : nil
   end
 
   def self.parse_nome_categoria(raw_nome, categoria_id_explicit = nil, categoria_attiva = nil, gruppo_id = nil, topic_id = 0)
@@ -561,20 +602,20 @@ class DataManager
         return { nome: testo, categoria_id: categoria_finale, categoria_nome: nil, categoria_temporanea: nil, categoria_esplicita: false }
       end
 
-      categoria_id = DB.get_first_value(
-        "SELECT id FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
-        [gruppo_id, topic_id, categoria_label.downcase]
-      )
-
-      categoria_finale = categoria_id&.to_i
-      categoria_finale = self.ensure_categoria_temporanea(gruppo_id, topic_id, categoria_label) if categoria_finale.nil?
+      categoria_row = self.categoria_preferita_db(gruppo_id, topic_id, categoria_label)
+      if categoria_row && categoria_row["id"]
+        categoria_finale = categoria_row["id"].to_i
+      else
+        categoria_finale = self.ensure_categoria_temporanea(gruppo_id, topic_id, categoria_label)
+      end
       categoria_finale = categoria_attiva if categoria_finale.nil? && categoria_attiva && categoria_attiva > 0
+      categoria_nome_canonica = categoria_row && categoria_row["nome"].to_s.strip != "" ? categoria_row["nome"].to_s.strip : (categoria_finale && categoria_finale > 0 ? DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_finale]) : categoria_label)
 
       return {
         nome: nome,
         categoria_id: categoria_finale,
-        categoria_nome: categoria_label,
-        categoria_temporanea: categoria_label,
+        categoria_nome: categoria_nome_canonica,
+        categoria_temporanea: categoria_nome_canonica,
         categoria_esplicita: true
       }
     end
