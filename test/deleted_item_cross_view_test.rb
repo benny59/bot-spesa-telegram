@@ -124,9 +124,16 @@ Dir.mktmpdir do |dir|
 
     puts "Unavailable item coerente tra Android e Telegram."
 
-    DB.execute("DELETE FROM categorie WHERE nome = 'Verdura' OR nome = 'Frutta'")
+    DB.execute("DELETE FROM categorie WHERE nome IN ('Casa', 'Verdura', 'Frutta', 'frutta', 'verdura')")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (100, 'Verdura', 4, 0)")
     DB.execute("INSERT INTO storico_articoli (gruppo_id, topic_id, nome, conteggio, last_categoria_id, ultima_aggiunta, updated_at) VALUES (4, 0, 'Mela', 2, 100, datetime('now'), datetime('now'))")
+
+    DB.execute("INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'frutta')")
+    DB.execute("INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'Frutta')")
+    canonical_frutta = DataManager.categoria_canonica(4, 0, 'frutta')
+    raise "La categoria canonica in DB sporco non è coerente: #{canonical_frutta.inspect}" unless canonical_frutta && canonical_frutta["nome"] == "Frutta"
+    canonical_verdura = DataManager.categoria_preferita_db(4, 0, 'verdura')
+    raise "La categoria preferita in DB sporco non è coerente: #{canonical_verdura.inspect}" unless canonical_verdura && canonical_verdura["nome"] == "Verdura"
 
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "Mela", topic_id: 0, split_items: false)
     new_item = DB.get_first_row("SELECT categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = LOWER(?)", [4, 0, "Mela"])
@@ -148,7 +155,7 @@ Dir.mktmpdir do |dir|
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (200, 'Casa', 4, 0)")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (201, 'Verdura', 4, 0)")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (202, 'Frutta', 4, 0)")
-    DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'frutta')")
+    DB.execute("INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'frutta')")
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "rotolone & casa, insalata, pomodorini & verdura, mele, arance & frutta", topic_id: 0, split_items: true)
     item_map = DB.execute("SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND nome IN ('rotolone','insalata','pomodorini','mele','arance') ORDER BY id", [4, 0]).each_with_object({}) { |row, h| h[row["nome"]] = row["categoria_id"].to_i }
     raise "Categoria associativa non applicata" unless item_map == { "rotolone" => 200, "insalata" => 0, "pomodorini" => 201, "mele" => 0, "arance" => 202 }

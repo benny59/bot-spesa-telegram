@@ -499,21 +499,49 @@ class DataManager
     nome.to_s.strip.gsub(/\s+/, " ")
   end
 
+  def self.categoria_nome_canonica(nome)
+    nome.to_s.strip.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
+  end
+
   def self.categoria_canonica(gruppo_id, topic_id, nome)
     label = self.normalizza_categoria_nome(nome)
     return nil if label.empty?
 
     gruppo_id = gruppo_id.to_i
     topic_id = topic_id.to_i
+    label_canonica = self.categoria_nome_canonica(label)
 
     row = DB.get_first_row(
       "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
       [gruppo_id, topic_id, label.downcase]
     )
-    return row if row && row["id"]
+    return { "id" => nil, "nome" => label_canonica } unless row && row["id"]
 
-    label_canonica = label.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
-    { "id" => nil, "nome" => label_canonica }
+    exact_row = DB.get_first_row(
+      "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND nome = ? LIMIT 1",
+      [gruppo_id, topic_id, label.downcase, label_canonica]
+    )
+    row = exact_row || row
+
+    if row["nome"].to_s.strip != label_canonica
+      duplicate_canonico = DB.get_first_value(
+        "SELECT 1 FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND nome = ? LIMIT 1",
+        [gruppo_id, topic_id, label.downcase, label_canonica]
+      )
+      unless duplicate_canonico
+        DB.execute(
+          "UPDATE categorie SET nome = ? WHERE id = ? AND LOWER(nome) = ? AND nome <> ?",
+          [label_canonica, row["id"].to_i, label.downcase, label_canonica]
+        )
+      end
+    end
+
+    canonical = DB.get_first_row(
+      "SELECT id, nome FROM categorie WHERE id = ? LIMIT 1",
+      [row["id"].to_i]
+    ) || row
+    canonical["nome"] = label_canonica if canonical["nome"].to_s.strip != label_canonica
+    canonical
   end
 
   def self.ensure_categoria_temporanea(gruppo_id, topic_id, nome)
@@ -524,13 +552,9 @@ class DataManager
     topic_id = topic_id.to_i
 
     row = self.categoria_canonica(gruppo_id, topic_id, label)
-    if row && row["id"]
-      return row["id"].to_i
-    end
+    return row["id"].to_i if row && row["id"]
 
-    label_canonica = row && row["nome"].to_s.strip.empty? ? label : row["nome"].to_s.strip
-    label_canonica = label_canonica.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
-
+    label_canonica = self.categoria_nome_canonica(label)
     DB.execute(
       "INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (?, ?, ?)",
       [gruppo_id, topic_id, label_canonica]
@@ -549,19 +573,43 @@ class DataManager
 
     gruppo_id = gruppo_id.to_i
     topic_id = topic_id.to_i
-    label_canonica = label.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
+    label_canonica = self.categoria_nome_canonica(label)
 
     row = DB.get_first_row(
       "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND nome = ? LIMIT 1",
       [gruppo_id, topic_id, label.downcase, label_canonica]
     )
-    return row if row && row["id"]
+    if row && row["id"]
+      row = row.dup
+      row["nome"] = label_canonica
+      return row
+    end
 
     row = DB.get_first_row(
       "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? ORDER BY CASE WHEN nome = ? THEN 0 ELSE 1 END, id ASC LIMIT 1",
       [gruppo_id, topic_id, label.downcase, label_canonica]
     )
-    row && row["id"] ? row : nil
+    return nil unless row && row["id"]
+
+    if row["nome"].to_s.strip != label_canonica
+      already_canonical = DB.get_first_value(
+        "SELECT 1 FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND nome = ? LIMIT 1",
+        [gruppo_id, topic_id, label.downcase, label_canonica]
+      )
+      unless already_canonical
+        DB.execute(
+          "UPDATE categorie SET nome = ? WHERE id = ? AND LOWER(nome) = ? AND nome <> ?",
+          [label_canonica, row["id"].to_i, label.downcase, label_canonica]
+        )
+      end
+    end
+
+    canonical = DB.get_first_row(
+      "SELECT id, nome FROM categorie WHERE id = ? LIMIT 1",
+      [row["id"].to_i]
+    ) || row
+    canonical["nome"] = label_canonica if canonical["nome"].to_s.strip != label_canonica
+    canonical
   end
 
   def self.parse_nome_categoria(raw_nome, categoria_id_explicit = nil, categoria_attiva = nil, gruppo_id = nil, topic_id = 0)
