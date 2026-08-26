@@ -528,10 +528,10 @@ class DataManager
       raw_nome = row["nome"].to_s.strip
       next if raw_nome.empty?
 
-      key = raw_nome.downcase
       canonica = self.categoria_nome_canonica(raw_nome)
       next unless raw_nome == canonica
 
+      key = raw_nome.downcase
       canonical_by_key[key] ||= row
     end
 
@@ -540,8 +540,7 @@ class DataManager
       .map do |row|
         {
           id: row["id"].to_i,
-          nome: row["nome"].to_s.strip,
-          effimera: false
+          nome: row["nome"].to_s.strip
         }
       end
   end

@@ -178,8 +178,8 @@ Dir.mktmpdir do |dir|
     DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (99, 0, 'verdura')")
 
     android_categories = DataManager.categorie_per_android(99, 0)
-    labels = android_categories.map { |row| [row[:nome], row[:effimera]] }
-    raise "Categorie Android non devono includere i record effimeri: #{android_categories.inspect}" unless labels == [["Frutta", false]]
+    labels = android_categories.map { |row| row[:nome] }
+    raise "Categorie Android non devono includere i record effimeri: #{android_categories.inspect}" unless labels == ["Frutta"]
 
     puts "Fallback categoria da storico coerente."
   end
