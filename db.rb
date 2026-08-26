@@ -552,6 +552,28 @@ class DataManager
       end
     end
 
+    item_rows = DB.execute(
+      "SELECT nome FROM items WHERE nome LIKE '%&%' ORDER BY nome ASC"
+    )
+    item_rows.each do |row|
+      raw = row["nome"].to_s.strip
+      next if raw.empty?
+
+      _item_nome, categoria = raw.split("&", 2)
+      categoria_label = self.normalizza_categoria_nome(categoria)
+      next if categoria_label.empty?
+
+      key = categoria_label.downcase
+      next if canonical_by_key.key?(key)
+      next if effimera_by_key.key?(key)
+
+      effimera_by_key[key] ||= {
+        id: 0,
+        nome: self.categoria_nome_canonica(categoria_label),
+        effimera: true
+      }
+    end
+
     (canonical_by_key.values + effimera_by_key.values)
       .sort_by { |row| row[:nome].to_s.downcase }
       .map do |row|
@@ -575,18 +597,24 @@ class DataManager
       "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
       [gruppo_id, topic_id, label.downcase]
     )
+    unless row && row["id"]
+      row = DB.get_first_row(
+        "SELECT id, nome FROM categorie WHERE LOWER(nome) = ? ORDER BY CASE WHEN nome = ? THEN 0 ELSE 1 END, id ASC LIMIT 1",
+        [label.downcase, label_canonica]
+      )
+    end
     return { "id" => nil, "nome" => label_canonica } unless row && row["id"]
 
     exact_row = DB.get_first_row(
-      "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND nome = ? LIMIT 1",
+      "SELECT id, nome FROM categorie WHERE ((gruppo_id = ? AND topic_id = ?) OR (gruppo_id IS NOT NULL)) AND LOWER(nome) = ? AND nome = ? LIMIT 1",
       [gruppo_id, topic_id, label.downcase, label_canonica]
     )
     row = exact_row || row
 
     if row["nome"].to_s.strip != label_canonica
       duplicate_canonico = DB.get_first_value(
-        "SELECT 1 FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND nome = ? LIMIT 1",
-        [gruppo_id, topic_id, label.downcase, label_canonica]
+        "SELECT 1 FROM categorie WHERE LOWER(nome) = ? AND nome = ? LIMIT 1",
+        [label.downcase, label_canonica]
       )
       unless duplicate_canonico
         DB.execute(
@@ -608,23 +636,9 @@ class DataManager
     label = self.normalizza_categoria_nome(nome)
     return nil if label.empty?
 
-    gruppo_id = gruppo_id.to_i
-    topic_id = topic_id.to_i
-
-    row = self.categoria_canonica(gruppo_id, topic_id, label)
-    return row["id"].to_i if row && row["id"]
-
-    label_canonica = self.categoria_nome_canonica(label)
-    DB.execute(
-      "INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (?, ?, ?)",
-      [gruppo_id, topic_id, label_canonica]
-    )
-
-    canonical = DB.get_first_row(
-      "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1",
-      [gruppo_id, topic_id, label.downcase]
-    )
-    canonical && canonical["id"] ? canonical["id"].to_i : nil
+    # La categoria effimera non viene mai inserita nel catalogo persistente.
+    # Viene trattata come metadato derivato dal parsing del nome dell'item.
+    nil
   end
 
   def self.categoria_preferita_db(gruppo_id, topic_id, nome)
@@ -649,12 +663,18 @@ class DataManager
       "SELECT id, nome FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? ORDER BY CASE WHEN nome = ? THEN 0 ELSE 1 END, id ASC LIMIT 1",
       [gruppo_id, topic_id, label.downcase, label_canonica]
     )
+    unless row && row["id"]
+      row = DB.get_first_row(
+        "SELECT id, nome FROM categorie WHERE LOWER(nome) = ? ORDER BY CASE WHEN nome = ? THEN 0 ELSE 1 END, id ASC LIMIT 1",
+        [label.downcase, label_canonica]
+      )
+    end
     return nil unless row && row["id"]
 
     if row["nome"].to_s.strip != label_canonica
       already_canonical = DB.get_first_value(
-        "SELECT 1 FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND nome = ? LIMIT 1",
-        [gruppo_id, topic_id, label.downcase, label_canonica]
+        "SELECT 1 FROM categorie WHERE LOWER(nome) = ? AND nome = ? LIMIT 1",
+        [label.downcase, label_canonica]
       )
       unless already_canonical
         DB.execute(
@@ -711,19 +731,15 @@ class DataManager
       end
 
       categoria_row = self.categoria_preferita_db(gruppo_id, topic_id, categoria_label)
-      if categoria_row && categoria_row["id"]
-        categoria_finale = categoria_row["id"].to_i
-      else
-        categoria_finale = self.ensure_categoria_temporanea(gruppo_id, topic_id, categoria_label)
-      end
+      categoria_finale = categoria_row && categoria_row["id"] ? categoria_row["id"].to_i : nil
       categoria_finale = categoria_attiva if categoria_finale.nil? && categoria_attiva && categoria_attiva > 0
-      categoria_nome_canonica = categoria_row && categoria_row["nome"].to_s.strip != "" ? categoria_row["nome"].to_s.strip : (categoria_finale && categoria_finale > 0 ? DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_finale]) : categoria_label)
+      categoria_nome = categoria_row && categoria_row["nome"].to_s.strip != "" ? categoria_row["nome"].to_s.strip : self.categoria_nome_canonica(categoria_label)
 
       return {
         nome: nome,
         categoria_id: categoria_finale,
-        categoria_nome: categoria_nome_canonica,
-        categoria_temporanea: categoria_nome_canonica,
+        categoria_nome: categoria_nome,
+        categoria_temporanea: categoria_finale.nil? ? categoria_nome : nil,
         categoria_esplicita: true
       }
     end
