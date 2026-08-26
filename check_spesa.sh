@@ -20,6 +20,21 @@ PID_FILE="$BOT_DIR/bot_spesa.pid"
 API_PID_FILE="$BOT_DIR/api_server.pid"
 API_LOG_FILE="$BOT_DIR/api_server.log"
 
+# Possibili argomenti: nessuno, oppure "restart" per forzare la chiusura dei processi attuali prima del riavvio.
+ACTION="${1:-}"
+
+kill_existing_processes() {
+    [ -n "$PKILL_BIN" ] || return 0
+
+    "$PKILL_BIN" -f "ruby.*bot_spesa.rb" >/dev/null 2>&1 || true
+    "$PKILL_BIN" -f "ruby.*api_server.rb" >/dev/null 2>&1 || true
+    "$PKILL_BIN" -f "api_server.rb" >/dev/null 2>&1 || true
+    "$PKILL_BIN" -f "bot_spesa.rb" >/dev/null 2>&1 || true
+
+    [ -f "$PID_FILE" ] && rm -f "$PID_FILE"
+    [ -f "$API_PID_FILE" ] && rm -f "$API_PID_FILE"
+}
+
 # Verifica che il PID sia vivo E sia realmente il bot Ruby atteso.
 is_bot_running() {
     [ -f "$PID_FILE" ] || return 1
@@ -56,6 +71,11 @@ is_api_running() {
 
     return 0
 }
+
+if [ "$ACTION" = "restart" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - restart richiesto: chiusura processi esistenti..." >> "$LOG_FILE"
+    kill_existing_processes
+fi
 
 # 1. Controlla se il processo è realmente vivo usando il PID salvato
 if is_bot_running; then
