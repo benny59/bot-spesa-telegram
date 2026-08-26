@@ -363,10 +363,11 @@ def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = ni
     end
   end
 
-  # Conferma in privato con nome lista
+  # Conferma nel thread corretto: nel gruppo/tema corrente, non nel generale
   bot.api.send_message(
-    chat_id: context.chat_id, 
-    text: "✅ <b>#{testo_pulito}</b> aggiunto alla lista <b>#{nome_lista}</b>.", 
+    chat_id: context.chat_id,
+    message_thread_id: (t_id > 0 ? t_id : nil),
+    text: "✅ <b>#{testo_pulito}</b> aggiunto alla lista <b>#{nome_lista}</b>.",
     parse_mode: "HTML"
   )
 end
