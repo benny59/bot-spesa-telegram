@@ -504,23 +504,8 @@ class DataManager
   end
 
   def self.categorie_per_android(gruppo_id = nil, topic_id = nil)
-    params = []
-    where_sql = []
-
-    if gruppo_id && gruppo_id.to_i != 0
-      where_sql << "gruppo_id = ?"
-      params << gruppo_id.to_i
-    end
-
-    if topic_id && topic_id.to_i != 0
-      where_sql << "topic_id = ?"
-      params << topic_id.to_i
-    end
-
-    where_clause = where_sql.any? ? "WHERE #{where_sql.join(' AND ')}" : ""
     rows = DB.execute(
-      "SELECT id, nome FROM categorie #{where_clause} ORDER BY LOWER(nome), nome ASC",
-      params
+      "SELECT id, nome FROM categorie ORDER BY LOWER(nome), nome ASC"
     )
 
     canonical_by_key = {}
