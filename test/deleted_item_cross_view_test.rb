@@ -150,7 +150,7 @@ Dir.mktmpdir do |dir|
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (202, 'Frutta', 4, 0)")
     DataManager.aggiungi_articoli(gruppo_id: 4, user_id: 42, items_text: "rotolone & casa, insalata, pomodorini & verdura, mele, arance & frutta", topic_id: 0, split_items: true)
     item_map = DB.execute("SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND nome IN ('rotolone','insalata','pomodorini','mele','arance') ORDER BY id", [4, 0]).each_with_object({}) { |row, h| h[row["nome"]] = row["categoria_id"].to_i }
-    raise "Categoria associativa non applicata" unless item_map == { "rotolone" => 200, "insalata" => 200, "pomodorini" => 201, "mele" => 201, "arance" => 202 }
+    raise "Categoria associativa non applicata" unless item_map == { "rotolone" => 200, "insalata" => nil, "pomodorini" => 201, "mele" => nil, "arance" => 202 }
 
     puts "Fallback categoria da storico coerente."
   end

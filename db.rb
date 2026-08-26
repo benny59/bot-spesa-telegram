@@ -813,10 +813,9 @@ end
     ids_creati = []
 
     DB.transaction do
-      categoria_attiva = categoria_id
       nomi.each do |raw_nome|
         cleaned = self.pulisci_nome_e_link(raw_nome, link_pulito)
-        parsed = self.parse_nome_categoria(cleaned[:nome], categoria_id, categoria_attiva, gruppo_id, topic_id)
+        parsed = self.parse_nome_categoria(cleaned[:nome], categoria_id, nil, gruppo_id, topic_id)
         nome = parsed[:nome]
         item_link_pulito = cleaned[:link_url]
 
@@ -824,14 +823,6 @@ end
           parsed[:categoria_id]
         else
           parsed[:categoria_id] || self.risolvi_categoria_default(gruppo_id, topic_id, nome, categoria_id)
-        end
-
-        if parsed[:categoria_esplicita] && categoria_effettiva && categoria_effettiva > 0
-          categoria_attiva = categoria_effettiva
-        elsif categoria_id && categoria_id > 0
-          categoria_attiva = categoria_id
-        elsif categoria_effettiva && categoria_effettiva > 0
-          categoria_attiva = categoria_effettiva
         end
 
         next if nome.empty?
