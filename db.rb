@@ -503,6 +503,69 @@ class DataManager
     nome.to_s.strip.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
   end
 
+  def self.categorie_per_android(gruppo_id = nil, topic_id = nil)
+    params = []
+    where_sql = []
+
+    if gruppo_id && gruppo_id.to_i != 0
+      where_sql << "gruppo_id = ?"
+      params << gruppo_id.to_i
+    end
+
+    if topic_id && topic_id.to_i != 0
+      where_sql << "topic_id = ?"
+      params << topic_id.to_i
+    end
+
+    where_clause = where_sql.any? ? "WHERE #{where_sql.join(' AND ')}" : ""
+    rows = DB.execute(
+      "SELECT id, nome FROM categorie #{where_clause} ORDER BY LOWER(nome), nome ASC",
+      params
+    )
+
+    merged = {}
+    rows.each do |row|
+      raw_nome = row["nome"].to_s.strip
+      next if raw_nome.empty?
+
+      chiave = raw_nome.downcase
+      canonica = self.categoria_nome_canonica(raw_nome)
+      candidate = {
+        "id" => row["id"].to_i,
+        "nome" => raw_nome,
+        "nome_display" => (raw_nome == canonica ? canonica : raw_nome.downcase),
+        "effimera" => raw_nome != canonica
+      }
+
+      current = merged[chiave]
+      if current.nil?
+        merged[chiave] = candidate
+        next
+      end
+
+      current_is_canonica = current["nome"].to_s == self.categoria_nome_canonica(current["nome"].to_s)
+      candidate_is_canonica = candidate["nome"].to_s == self.categoria_nome_canonica(candidate["nome"].to_s)
+
+      if current_is_canonica == candidate_is_canonica
+        current_id = current["id"].to_i
+        candidate_id = candidate["id"].to_i
+        merged[chiave] = candidate if candidate_id > current_id && !current_is_canonica
+        merged[chiave] = current if candidate_id <= current_id
+      elsif candidate_is_canonica
+        merged[chiave] = candidate
+      end
+    end
+
+    merged.values.sort_by { |row| row["nome"].to_s.downcase }
+      .map do |row|
+        {
+          id: row["id"].to_i,
+          nome: row["nome_display"],
+          effimera: row["effimera"]
+        }
+      end
+  end
+
   def self.categoria_canonica(gruppo_id, topic_id, nome)
     label = self.normalizza_categoria_nome(nome)
     return nil if label.empty?

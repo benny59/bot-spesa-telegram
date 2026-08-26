@@ -915,8 +915,12 @@ class MainActivity : AppCompatActivity() {
             val categorie = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getCategorie(item.gruppoId, item.topicId) }.getOrDefault(emptyList())
             }
+            val categorieOrdinate = categorie.sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
             val opzioni = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
-            opzioni.addAll(categorie.map { it.id to LocalizationManager.localizedCategoryName(this@MainActivity, it.nome) })
+            opzioni.addAll(categorieOrdinate.map { categoria ->
+                val label = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome
+                categoria.id to LocalizationManager.localizedCategoryName(this@MainActivity, label)
+            })
             val input = EditText(this@MainActivity).apply {
                 setText(item.nome)
                 setSelection(text.length)
@@ -1332,8 +1336,12 @@ class MainActivity : AppCompatActivity() {
             val categorieBase = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getCategorie(gruppoId, topicId) }.getOrDefault(emptyList())
             }
+            val categorieOrdinate = categorieBase.sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
             val opzioniCategoria = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
-            opzioniCategoria.addAll(categorieBase.map { it.id to LocalizationManager.localizedCategoryName(this@MainActivity, it.nome) })
+            opzioniCategoria.addAll(categorieOrdinate.map { categoria ->
+                val label = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome
+                categoria.id to LocalizationManager.localizedCategoryName(this@MainActivity, label)
+            })
             categoriaSpinner.adapter = ArrayAdapter(
                 this@MainActivity,
                 android.R.layout.simple_spinner_item,

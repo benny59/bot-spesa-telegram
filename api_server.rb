@@ -221,11 +221,18 @@ get '/lista' do
 end
 
 get '/categorie' do
-  categorie = DB.execute(
-    "SELECT id, nome FROM categorie ORDER BY nome ASC"
-  )
+  gruppo_id = params[:gruppo_id]&.to_i
+  topic_id  = params[:topic_id]&.to_i || 0
 
-  categorie.map { |r| { id: r['id'].to_i, nome: r['nome'] } }.to_json
+  categorie = if gruppo_id && gruppo_id != 0
+    DataManager.categorie_per_android(gruppo_id, topic_id)
+  elsif topic_id && topic_id != 0
+    DataManager.categorie_per_android(nil, topic_id)
+  else
+    DataManager.categorie_per_android
+  end
+
+  categorie.to_json
 end
 
 post '/lista' do

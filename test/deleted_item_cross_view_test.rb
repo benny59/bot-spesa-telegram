@@ -172,6 +172,15 @@ Dir.mktmpdir do |dir|
     item_map = DB.execute("SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND nome IN ('rotolone','insalata','pomodorini','mele','arance') ORDER BY id", [4, 0]).each_with_object({}) { |row, h| h[row["nome"]] = row["categoria_id"].to_i }
     raise "Categoria associativa non applicata" unless item_map == { "rotolone" => 200, "insalata" => 0, "pomodorini" => 201, "mele" => 0, "arance" => 202 }
 
+    DB.execute("DELETE FROM categorie WHERE gruppo_id = 99 AND topic_id = 0")
+    DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (99, 0, 'Frutta')")
+    DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (99, 0, 'frutta')")
+    DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (99, 0, 'verdura')")
+
+    android_categories = DataManager.categorie_per_android(99, 0)
+    labels = android_categories.map { |row| [row[:nome], row[:effimera]] }
+    raise "Categorie Android non deduplicate o non formattate: #{android_categories.inspect}" unless labels == [["Frutta", false], ["verdura", true]]
+
     puts "Fallback categoria da storico coerente."
   end
 end
