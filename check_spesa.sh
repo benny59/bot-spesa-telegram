@@ -23,13 +23,34 @@ API_LOG_FILE="$BOT_DIR/api_server.log"
 # Possibili argomenti: nessuno, oppure "restart" per forzare la chiusura dei processi attuali prima del riavvio.
 ACTION="${1:-}"
 
-kill_existing_processes() {
-    [ -n "$PKILL_BIN" ] || return 0
+print_pid_snapshot() {
+    label="${1:-prima}"
+    BOT_PID="$(cat "$PID_FILE" 2>/dev/null || echo "")"
+    API_PID="$(cat "$API_PID_FILE" 2>/dev/null || echo "")"
+    echo "[check_spesa] PID ${label}: bot=${BOT_PID:-none} api=${API_PID:-none}"
+}
 
-    "$PKILL_BIN" -f "ruby.*bot_spesa.rb" >/dev/null 2>&1 || true
-    "$PKILL_BIN" -f "ruby.*api_server.rb" >/dev/null 2>&1 || true
-    "$PKILL_BIN" -f "api_server.rb" >/dev/null 2>&1 || true
-    "$PKILL_BIN" -f "bot_spesa.rb" >/dev/null 2>&1 || true
+list_matching_pids() {
+    ps -eo pid,args 2>/dev/null | grep -E "$1" | grep -v grep | awk '{print $1}' | sort -u
+}
+
+kill_existing_processes() {
+    BOT_PIDS=$(list_matching_pids "ruby .*bot_spesa\.rb|bot_spesa\.rb")
+    API_PIDS=$(list_matching_pids "ruby .*api_server\.rb|puma .*4568|puma .*\[spesa\]")
+
+    if [ -n "$BOT_PIDS" ]; then
+        echo "$BOT_PIDS" | while IFS= read -r pid; do
+            [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+        done
+    fi
+
+    if [ -n "$API_PIDS" ]; then
+        echo "$API_PIDS" | while IFS= read -r pid; do
+            [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+        done
+    fi
+
+    sleep 1
 
     [ -f "$PID_FILE" ] && rm -f "$PID_FILE"
     [ -f "$API_PID_FILE" ] && rm -f "$API_PID_FILE"
@@ -74,6 +95,7 @@ is_api_running() {
 
 if [ "$ACTION" = "restart" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - restart richiesto: chiusura processi esistenti..." >> "$LOG_FILE"
+    print_pid_snapshot "prima"
     kill_existing_processes
 fi
 
@@ -92,6 +114,7 @@ else
     cd "$BOT_DIR"
     if [ -n "$RUBY_BIN" ]; then
         nohup "$RUBY_BIN" bot_spesa.rb >> "$LOG_FILE" 2>&1 < /dev/null &
+        echo $! > "$PID_FILE"
     else
         echo "$(date '+%Y-%m-%d %H:%M:%S') - ERRORE: ruby non trovato nel PATH" >> "$LOG_FILE"
         exit 1
@@ -100,6 +123,7 @@ fi
 
 # --- Controlla e riavvia il daemon HTTP api_server ---
 if is_api_running; then
+    print_pid_snapshot "dopo"
     exit 0
 fi
 
@@ -114,3 +138,5 @@ if [ -n "$BUNDLE_BIN" ]; then
 else
     echo "$(date '+%Y-%m-%d %H:%M:%S') - ERRORE: bundle non trovato nel PATH" >> "$API_LOG_FILE"
 fi
+
+echo "[check_spesa] PID dopo: bot=$(cat "$PID_FILE" 2>/dev/null || echo none) api=$(cat "$API_PID_FILE" 2>/dev/null || echo none)"
