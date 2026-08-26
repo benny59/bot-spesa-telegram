@@ -521,6 +521,10 @@ class DataManager
     nome.to_s.strip.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
   end
 
+  def self.categorie_assegnabili(gruppo_id = nil, topic_id = nil)
+    self.categorie_per_android(gruppo_id, topic_id).reject { |row| !!row[:effimera] }
+  end
+
   def self.categorie_per_android(gruppo_id = nil, topic_id = nil)
     rows = DB.execute(
       "SELECT id, nome FROM categorie ORDER BY LOWER(nome), nome ASC"

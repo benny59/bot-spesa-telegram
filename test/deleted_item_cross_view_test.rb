@@ -192,6 +192,9 @@ Dir.mktmpdir do |dir|
     effimera_ok = labels.any? { |nome, effimera| nome == "ferramenta" && effimera == true }
     raise "Catalogo categorie Android deve distinguere canoniche da effimere: #{android_categories.inspect}" unless canonical_ok && effimera_ok
 
+    assegnabili = DataManager.categorie_assegnabili(99, 0)
+    raise "Le categorie effimere non devono essere assegnabili: #{assegnabili.inspect}" unless assegnabili.all? { |row| row[:effimera] == false } && assegnabili.none? { |row| row[:nome].downcase == "ferramenta" }
+
     DB.execute("INSERT INTO categorie (gruppo_id, topic_id, nome) VALUES (4, 0, 'gastronomia')")
     categoria_temp_id = DB.get_first_value("SELECT id FROM categorie WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? LIMIT 1", [4, 0, 'gastronomia'])
     DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, categoria_id, deleted, comprato, disponibile) VALUES (4, 0, 42, 'Pasta gourmet', ?, 0, '', 1)", [categoria_temp_id])

@@ -915,7 +915,9 @@ class MainActivity : AppCompatActivity() {
             val categorie = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getCategorie(item.gruppoId, item.topicId) }.getOrDefault(emptyList())
             }
-            val categorieOrdinate = categorie.sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
+            val categorieOrdinate = categorie
+                .filter { !it.effimera }
+                .sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
             val opzioni = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
             opzioni.addAll(categorieOrdinate.map { categoria ->
                 val displayName = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome
@@ -1336,7 +1338,9 @@ class MainActivity : AppCompatActivity() {
             val categorieBase = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getCategorie(gruppoId, topicId) }.getOrDefault(emptyList())
             }
-            val categorieOrdinate = categorieBase.sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
+            val categorieOrdinate = categorieBase
+                .filter { !it.effimera }
+                .sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
             val opzioniCategoria = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
             opzioniCategoria.addAll(categorieOrdinate.map { categoria ->
                 val displayName = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome

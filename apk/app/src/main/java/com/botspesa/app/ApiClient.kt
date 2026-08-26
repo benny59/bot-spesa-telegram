@@ -65,13 +65,15 @@ object ApiClient {
         val body = http.newCall(req).execute().use { it.body!!.string() }
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
-        return raw.map { item ->
-            CategoriaItem(
-                id = (item["id"] as? Double)?.toInt() ?: 0,
-                nome = item["nome"] as? String ?: "",
-                effimera = item["effimera"] as? Boolean ?: false
-            )
-        }
+        return raw
+            .filter { !(it["effimera"] as? Boolean ?: false) }
+            .map { item ->
+                CategoriaItem(
+                    id = (item["id"] as? Double)?.toInt() ?: 0,
+                    nome = item["nome"] as? String ?: "",
+                    effimera = false
+                )
+            }
     }
 
     fun getMiei(userId: Int): List<SpesaItem> {

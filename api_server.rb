@@ -231,11 +231,11 @@ get '/categorie' do
   topic_id  = params[:topic_id]&.to_i || 0
 
   categorie = if gruppo_id && gruppo_id != 0
-    DataManager.categorie_per_android(gruppo_id, topic_id)
+    DataManager.categorie_assegnabili(gruppo_id, topic_id)
   elsif topic_id && topic_id != 0
-    DataManager.categorie_per_android(nil, topic_id)
+    DataManager.categorie_assegnabili(nil, topic_id)
   else
-    DataManager.categorie_per_android
+    DataManager.categorie_assegnabili
   end
 
   categorie.map { |r| { id: r[:id].to_i, nome: r[:nome].to_s, effimera: !!r[:effimera] } }.to_json
