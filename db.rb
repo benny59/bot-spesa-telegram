@@ -513,7 +513,7 @@ class DataManager
     return categoria_id.to_i if categoria_id && categoria_id.to_i > 0
 
     DB.execute(
-      "INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome, creato_da) VALUES (?, ?, ?, 0)",
+      "INSERT OR IGNORE INTO categorie (gruppo_id, topic_id, nome) VALUES (?, ?, ?)",
       [gruppo_id, topic_id, label]
     )
 
