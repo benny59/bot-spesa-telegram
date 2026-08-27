@@ -430,7 +430,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun condividiListaCorrente() {
-        val daComprare = items.filterNot { it.isBought }
+        val daComprare = items.filter { !it.isBought && !it.isDeleted && it.disponibile }
         if (daComprare.isEmpty()) {
             Toast.makeText(this, getString(R.string.nessun_articolo_da_condividere), Toast.LENGTH_SHORT).show()
             return
@@ -442,7 +442,9 @@ class MainActivity : AppCompatActivity() {
         val gruppiPerCategoria = linkedMapOf<String, MutableList<String>>()
 
         daComprare.forEach { item ->
-            val chiaveCategoria = item.categoriaNome.trim().ifEmpty { "Senza categoria" }
+            val marker = if (item.categoriaEffimera) "◌" else "▣"
+            val categoriaLabel = if (item.categoriaNome.isBlank()) "Senza categoria" else item.categoriaNome.trim()
+            val chiaveCategoria = if (item.categoriaEffimera) "$marker ${categoriaLabel.lowercase(Locale.ROOT)}" else "$marker $categoriaLabel"
             gruppiPerCategoria.getOrPut(chiaveCategoria) { mutableListOf() }.add(item.nome.trim())
         }
 
@@ -453,10 +455,7 @@ class MainActivity : AppCompatActivity() {
 
             gruppiPerCategoria.forEach { (categoria, nomi) ->
                 appendLine("▣ $categoria")
-                nomi.forEachIndexed { index, nome ->
-                    appendLine("• $nome")
-                    if (index < nomi.lastIndex) appendLine("— $categoria")
-                }
+                nomi.forEach { appendLine("• $it") }
                 appendLine()
             }
 

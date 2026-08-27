@@ -1679,16 +1679,19 @@ end
   def self.articoli_da_superscopetta(user_id, _show_all)
     DB.execute(
       <<-SQL,
-        SELECT i.id, i.nome, i.gruppo_id, i.topic_id
+        SELECT i.id, i.nome, i.gruppo_id, i.topic_id, i.comprato, i.deleted
         FROM items i
-        WHERE CAST(i.comprato AS INTEGER) = ?
-          AND COALESCE(i.deleted, 0) = 0
+        WHERE i.creato_da = ?
+          AND (
+            CAST(i.comprato AS INTEGER) = ?
+            OR COALESCE(i.deleted, 0) = 1
+          )
           AND (
             (i.gruppo_id = 0 AND i.creato_da = ?)
             OR i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
           )
       SQL
-      [user_id, user_id, user_id]
+      [user_id, user_id, user_id, user_id]
     )
   end
 

@@ -15,6 +15,7 @@ data class SpesaItem(
     val nomeContesto: String = "",
     val categoriaId: Int = 0,
     val categoriaNome: String = "",
+    val categoriaEffimera: Boolean = false,
     val deleted: Boolean = false,
     val disponibile: Boolean = true
 ) {

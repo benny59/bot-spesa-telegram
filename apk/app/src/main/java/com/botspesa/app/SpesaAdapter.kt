@@ -57,8 +57,10 @@ class SpesaAdapter(
         holder.tvNome.text = item.nome
 
         val labels = mutableListOf<String>()
-        val categoriaTradotta = LocalizationManager.localizedCategoryName(holder.itemView.context, item.categoriaNome)
-        if (item.categoriaNome.isNotEmpty()) labels.add(categoriaTradotta)
+        val categoriaVisualizzata = if (item.categoriaEffimera) item.categoriaNome.lowercase() else item.categoriaNome
+        val categoriaTradotta = LocalizationManager.localizedCategoryName(holder.itemView.context, categoriaVisualizzata)
+        val simboloCategoria = if (item.categoriaEffimera) "◌" else "▣"
+        if (item.categoriaNome.isNotEmpty()) labels.add("$simboloCategoria $categoriaTradotta")
         if (labels.isNotEmpty()) {
             holder.tvGruppoNome.visibility = View.VISIBLE
             holder.tvGruppoNome.text = labels.joinToString(" • ")

@@ -156,6 +156,8 @@ object ApiClient {
             val linkRaw = item["link_url"] as? String ?: ""
             val decoded = decodeLinkFromNome(nomeRaw, linkRaw)
             val parsedCategoria = parseTemporaryCategoryFromNome(decoded.first, item["categoria_nome"] as? String ?: "")
+            val categoriaId = (item["categoria_id"] as? Double)?.toInt() ?: 0
+            val categoriaEffimera = categoriaId == 0 && parsedCategoria.second.isNotBlank()
             val deletedValue = item["deleted"]
             val deleted = when (deletedValue) {
                 is Boolean -> deletedValue
@@ -183,8 +185,9 @@ object ApiClient {
                 nomeTopic    = item["nome_topic"] as? String ?: "",
                 nomeGruppo   = item["nome_gruppo"] as? String ?: "",
                 nomeContesto = item["nome_contesto"] as? String ?: "",
-                categoriaId  = (item["categoria_id"] as? Double)?.toInt() ?: 0,
+                categoriaId  = categoriaId,
                 categoriaNome = parsedCategoria.second,
+                categoriaEffimera = categoriaEffimera,
                 deleted      = deleted,
                 disponibile  = disponibile
             )
