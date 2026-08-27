@@ -167,6 +167,23 @@ SQL
 SQL
 
   db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS categoria_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gruppo_id INTEGER NOT NULL,
+      topic_id INTEGER NOT NULL DEFAULT 0,
+      categoria_id INTEGER,
+      categoria_nome TEXT,
+      tipo TEXT NOT NULL CHECK(tipo IN ('canonica', 'effimera')),
+      conteggio INTEGER NOT NULL DEFAULT 0,
+      ultima_aggiunta DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(gruppo_id, topic_id, categoria_id, tipo),
+      UNIQUE(gruppo_id, topic_id, categoria_nome, tipo)
+    );
+  SQL
+
+  db.execute <<-SQL
     UPDATE storico_articoli
     SET comprato_da = (
       SELECT MIN(u.user_id)
@@ -217,6 +234,7 @@ SQL
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_gruppo_topic ON items (gruppo_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_categoria ON items (categoria_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_categorie_gruppo_topic ON categorie (gruppo_id, topic_id, nome);"
+  db.execute "CREATE INDEX IF NOT EXISTS idx_categoria_stats_group_topic ON categoria_stats (gruppo_id, topic_id, tipo, categoria_id, categoria_nome);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_topic ON pending_actions (chat_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_gruppo_topic ON storico_articoli (gruppo_id, topic_id, conteggio DESC, ultima_aggiunta DESC);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_nome_gruppo ON storico_articoli (nome, gruppo_id, topic_id);"
@@ -482,6 +500,58 @@ class DataManager
         )
       end
       puts "  ✅ [UPSERT] INSERT completato"
+    end
+  end
+
+  def self.aggiorna_statistica_categoria(gruppo_id, topic_id, nome, categoria_id = nil)
+    gruppo_id = gruppo_id.to_i
+    topic_id = topic_id.to_i
+    nome_raw = nome.to_s.strip
+    return if nome_raw.empty?
+
+    parsed = self.parse_nome_categoria(nome_raw, categoria_id.to_i, categoria_id.to_i, gruppo_id, topic_id)
+    categoria_id_val = parsed[:categoria_id].to_i
+    categoria_nome_val = parsed[:categoria_nome].to_s.strip
+
+    if categoria_id_val > 0
+      tipo = "canonica"
+      row = DB.get_first_row(
+        "SELECT id FROM categoria_stats WHERE gruppo_id = ? AND topic_id = ? AND categoria_id = ? AND tipo = ?",
+        [gruppo_id, topic_id, categoria_id_val, tipo]
+      )
+      if row
+        DB.execute(
+          "UPDATE categoria_stats SET conteggio = conteggio + 1, ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+          [row["id"]]
+        )
+      else
+        DB.execute(
+          "INSERT INTO categoria_stats (gruppo_id, topic_id, categoria_id, categoria_nome, tipo, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, ?, NULL, ?, 1, datetime('now'), datetime('now'))",
+          [gruppo_id, topic_id, categoria_id_val, tipo]
+        )
+      end
+      return
+    end
+
+    return if categoria_nome_val.empty?
+
+    categoria_nome_stats = self.categoria_nome_canonica(categoria_nome_val)
+    return if categoria_nome_stats.empty?
+
+    row = DB.get_first_row(
+      "SELECT id FROM categoria_stats WHERE gruppo_id = ? AND topic_id = ? AND categoria_nome = ? AND tipo = ? AND categoria_id IS NULL",
+      [gruppo_id, topic_id, categoria_nome_stats, "effimera"]
+    )
+    if row
+      DB.execute(
+        "UPDATE categoria_stats SET conteggio = conteggio + 1, ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+        [row["id"]]
+      )
+    else
+      DB.execute(
+        "INSERT INTO categoria_stats (gruppo_id, topic_id, categoria_id, categoria_nome, tipo, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, NULL, ?, 'effimera', 1, datetime('now'), datetime('now'))",
+        [gruppo_id, topic_id, categoria_nome_stats]
+      )
     end
   end
 
@@ -845,7 +915,7 @@ class DataManager
     if target_ids && !target_ids.empty?
       placeholders = target_ids.map { "?" }.join(",")
       query = <<~SQL
-        SELECT id, nome, link_url, creato_da, comprato, deleted
+        SELECT id, nome, categoria_id, link_url, creato_da, comprato, deleted
         FROM items
         WHERE id IN (#{placeholders})
           AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
@@ -854,7 +924,7 @@ class DataManager
       puts "🧹 [SCOPETTA] Modalità: target_ids (#{target_ids.size} items)"
     else
       query = <<~SQL
-        SELECT id, nome, link_url, creato_da, comprato, deleted
+        SELECT id, nome, categoria_id, link_url, creato_da, comprato, deleted
         FROM items
         WHERE gruppo_id = ?
           AND topic_id = ?
@@ -880,6 +950,7 @@ class DataManager
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         if item["comprato"].to_s.strip != ""
           self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"], item["link_url"])
+          self.aggiorna_statistica_categoria(gruppo_id, topic_id, item["nome"], item["categoria_id"])
         end
       end
 
