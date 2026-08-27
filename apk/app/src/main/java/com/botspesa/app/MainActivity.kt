@@ -453,7 +453,10 @@ class MainActivity : AppCompatActivity() {
 
             gruppiPerCategoria.forEach { (categoria, nomi) ->
                 appendLine("▣ $categoria")
-                nomi.forEach { appendLine("• $it") }
+                nomi.forEachIndexed { index, nome ->
+                    appendLine("• $nome")
+                    if (index < nomi.lastIndex) appendLine("— $categoria")
+                }
                 appendLine()
             }
 
