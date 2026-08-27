@@ -209,7 +209,8 @@ class MainActivity : AppCompatActivity() {
                     R.id.nav_storico          -> {
                         val gNome = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
                         val tNome = tvTopic.text.toString().trimEnd('▾', ' ').trim()
-                        StoricoAcquistiSheet.newInstance(gruppoId, topicId, gNome, tNome)
+                        StoricoAcquistiSheet.newInstance(gruppoId, topicId, userId, gNome, tNome)
+                        .also { it.setOnItemChangedListener { aggiornaLista() } }
                         .show(supportFragmentManager, "storico_acquisti")
                     }
                 R.id.nav_lancia_yuka      -> lanciaYukaLocale()

@@ -18,8 +18,11 @@ import java.time.format.DateTimeFormatter
 
 class StoricoAcquistiSheet : BottomSheetDialogFragment() {
 
+    private var onItemChanged: (() -> Unit)? = null
+
     private val gruppoId   get() = arguments?.getInt(ARG_GRUPPO_ID) ?: 0
     private val topicId    get() = arguments?.getInt(ARG_TOPIC_ID) ?: 0
+    private val userId     get() = arguments?.getInt(ARG_USER_ID) ?: 0
     private val gruppoNome get() = arguments?.getString(ARG_GRUPPO_NOME).orEmpty()
     private val topicNome  get() = arguments?.getString(ARG_TOPIC_NOME).orEmpty()
 
@@ -38,6 +41,10 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
         val vuoto = view.findViewById<TextView>(R.id.tvStoricoVuoto)
         recycler.layoutManager = LinearLayoutManager(requireContext())
 
+        caricaStorico(recycler, vuoto)
+    }
+
+    private fun caricaStorico(recycler: RecyclerView, vuoto: TextView) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getStoricoAcquisti(gruppoId, topicId) }
@@ -45,17 +52,39 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
             result.onSuccess { acquisti ->
                 vuoto.visibility = if (acquisti.isEmpty()) View.VISIBLE else View.GONE
                 recycler.visibility = if (acquisti.isEmpty()) View.GONE else View.VISIBLE
-                recycler.adapter = StoricoAdapter(acquisti)
+                recycler.adapter = StoricoAdapter(acquisti) { acquisto -> toggleItem(acquisto, recycler, vuoto) }
             }.onFailure { errore ->
                 Toast.makeText(requireContext(), "Storico: ${errore.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    private class StoricoAdapter(private val acquisti: List<ApiClient.StoricoAcquisto>) :
+    private fun toggleItem(acquisto: ApiClient.StoricoAcquisto, recycler: RecyclerView, vuoto: TextView) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.toggleChecklistItem(gruppoId, topicId, acquisto.nome, acquisto.inLista, userId) }
+            }
+            result.onSuccess {
+                onItemChanged?.invoke()
+                caricaStorico(recycler, vuoto)
+            }.onFailure {
+                Toast.makeText(requireContext(), "Errore", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun setOnItemChangedListener(listener: () -> Unit) {
+        onItemChanged = listener
+    }
+
+    private class StoricoAdapter(
+        private val acquisti: List<ApiClient.StoricoAcquisto>,
+        private val onToggle: (ApiClient.StoricoAcquisto) -> Unit
+    ) :
         RecyclerView.Adapter<StoricoAdapter.ViewHolder>() {
 
         class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val stato: TextView = view.findViewById(R.id.tvStoricoStatus)
             val nome: TextView = view.findViewById(R.id.tvStoricoNome)
             val data: TextView = view.findViewById(R.id.tvStoricoData)
             val inseritoDa: TextView = view.findViewById(R.id.tvStoricoInseritoDa)
@@ -80,6 +109,16 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
             holder.acquistatoDa.visibility = if (acquisto.acquirente.isEmpty()) View.GONE else View.VISIBLE
             holder.acquistatoDa.text = "↗ ${acquisto.acquirente}"
             holder.conteggio.text = "${acquisto.conteggio} volte"
+
+            if (acquisto.inLista) {
+                holder.stato.text = "✓"
+                holder.stato.setBackgroundResource(R.drawable.circle_initials_green)
+            } else {
+                holder.stato.text = "+"
+                holder.stato.setBackgroundResource(R.drawable.circle_initials)
+            }
+
+            holder.itemView.setOnClickListener { onToggle(acquisto) }
         }
 
         private fun formattaData(value: String): String = runCatching {
@@ -91,14 +130,16 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
     companion object {
         private const val ARG_GRUPPO_ID = "gruppo_id"
         private const val ARG_TOPIC_ID = "topic_id"
+        private const val ARG_USER_ID = "user_id"
         private const val ARG_GRUPPO_NOME = "gruppo_nome"
         private const val ARG_TOPIC_NOME = "topic_nome"
 
-        fun newInstance(gruppoId: Int, topicId: Int, gruppoNome: String, topicNome: String) =
+        fun newInstance(gruppoId: Int, topicId: Int, userId: Int, gruppoNome: String, topicNome: String) =
             StoricoAcquistiSheet().apply {
                 arguments = Bundle().apply {
                     putInt(ARG_GRUPPO_ID, gruppoId)
                     putInt(ARG_TOPIC_ID, topicId)
+                    putInt(ARG_USER_ID, userId)
                     putString(ARG_GRUPPO_NOME, gruppoNome)
                     putString(ARG_TOPIC_NOME, topicNome)
                 }

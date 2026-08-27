@@ -207,6 +207,12 @@ SQL
   unless storico_columns.include?("last_categoria_id")
     db.execute("ALTER TABLE storico_articoli ADD COLUMN last_categoria_id INTEGER")
   end
+  unless storico_columns.include?("last_file_id")
+    db.execute("ALTER TABLE storico_articoli ADD COLUMN last_file_id TEXT")
+  end
+  unless storico_columns.include?("last_file_unique_id")
+    db.execute("ALTER TABLE storico_articoli ADD COLUMN last_file_unique_id TEXT")
+  end
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS gruppo_carte_collegamenti (
@@ -411,7 +417,7 @@ class DataManager
 
   # Helper DRY per UPSERT storico_articoli (consolidato da esegui_scopetta e storico_manager)
   # Parametri creato_da_id e comprato_da_id sono opzionali (usati da esegui_scopetta, nil da storico_manager)
-  def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil, link_url = nil)
+  def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil, link_url = nil, file_id = nil, file_unique_id = nil)
     cleaned = self.pulisci_nome_e_link(nome, link_url)
     nome = cleaned[:nome]
     link_pulito = cleaned[:link_url]
@@ -420,6 +426,8 @@ class DataManager
     nome_normalizzato = nome.to_s.strip.downcase
     nome_formattato = nome_normalizzato.capitalize
     link_pulito = nil if link_pulito.to_s.strip.empty?
+    file_id = nil if file_id.to_s.strip.empty?
+    file_unique_id = nil if file_unique_id.to_s.strip.empty?
 
     puts "  📝 [UPSERT] Elaborazione: '#{nome_formattato}' (G:#{gruppo_id}, T:#{topic_id})"
 
@@ -475,13 +483,13 @@ class DataManager
       puts "  🔄 [UPSERT] UPDATE - Record esiste (ID=#{esistente["id"]})"
       if creato_da_id && comprato_da_id
         DB.execute(
-          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), updated_at = datetime('now') WHERE id = ?",
-          [nome_formattato, topic_id, creato_da_id, comprato_da_id, link_pulito, esistente["id"]]
+          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), last_file_id = COALESCE(?, last_file_id), last_file_unique_id = COALESCE(?, last_file_unique_id), updated_at = datetime('now') WHERE id = ?",
+          [nome_formattato, topic_id, creato_da_id, comprato_da_id, link_pulito, file_id, file_unique_id, esistente["id"]]
         )
       else
         DB.execute(
-          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-          [nome_formattato, topic_id, link_pulito, esistente["id"]]
+          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), last_file_id = COALESCE(?, last_file_id), last_file_unique_id = COALESCE(?, last_file_unique_id), ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+          [nome_formattato, topic_id, link_pulito, file_id, file_unique_id, esistente["id"]]
         )
       end
       puts "  ✅ [UPSERT] UPDATE completato"
@@ -490,13 +498,13 @@ class DataManager
       puts "  ➕ [UPSERT] INSERT - Nuovo record"
       if creato_da_id && comprato_da_id
         DB.execute(
-          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, creato_da, comprato_da, ultima_aggiunta) VALUES (?, ?, ?, ?, 1, ?, ?, datetime('now'))",
-          [gruppo_id, topic_id, nome_formattato, link_pulito, creato_da_id, comprato_da_id]
+          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, creato_da, comprato_da, last_file_id, last_file_unique_id, ultima_aggiunta) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, datetime('now'))",
+          [gruppo_id, topic_id, nome_formattato, link_pulito, creato_da_id, comprato_da_id, file_id, file_unique_id]
         )
       else
         DB.execute(
-          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, ultima_aggiunta, updated_at) VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))",
-          [gruppo_id, topic_id, nome_formattato, link_pulito]
+          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, last_file_id, last_file_unique_id, ultima_aggiunta, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, datetime('now'), datetime('now'))",
+          [gruppo_id, topic_id, nome_formattato, link_pulito, file_id, file_unique_id]
         )
       end
       puts "  ✅ [UPSERT] INSERT completato"
@@ -949,7 +957,8 @@ class DataManager
       da_cancellare.each do |item|
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         if item["comprato"].to_s.strip != ""
-          self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"], item["link_url"])
+          foto = DB.get_first_row("SELECT file_id, file_unique_id FROM item_images WHERE item_id = ? ORDER BY id DESC LIMIT 1", [item["id"]])
+          self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"], item["link_url"], foto && foto["file_id"], foto && foto["file_unique_id"])
           self.aggiorna_statistica_categoria(gruppo_id, topic_id, item["nome"], item["categoria_id"])
         end
       end
@@ -1044,13 +1053,36 @@ def self.rimuovi_da_lista(item_id)
   DB.changes > 0
 end
 
-# Ripristino DRY unificato per inserimento da storico (usato dalla checklist)
-# Usa INSERT OR IGNORE per evitare doppioni se l'utente clicca due volte velocemente
+# Ripristino DRY unificato per inserimento da storico (usato da checklist e storico acquisti)
+# Instrada su aggiungi_articoli per ereditare categoria (effimera o last_categoria_id) e link,
+# poi recupera l'ultima foto nota per l'articolo se quello ripristinato non ne ha già una.
 def self.ripristina_da_checklist(g_id, t_id, nome, user_id)
-  DB.execute(
-    "INSERT OR IGNORE INTO items (gruppo_id, topic_id, nome, creato_da) VALUES (?, ?, ?, ?)",
-    [g_id, t_id, nome, user_id]
+  storico = DB.get_first_row(
+    "SELECT nome, link_url, last_file_id, last_file_unique_id FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ?",
+    [g_id, t_id, nome.to_s.strip.downcase]
   )
+
+  nome_da_inserire = storico ? storico["nome"].to_s : nome
+  link_url = storico ? storico["link_url"].to_s.strip : ""
+  link_url = nil if link_url.empty?
+
+  ids = self.aggiungi_articoli(
+    gruppo_id: g_id, user_id: user_id, items_text: nome_da_inserire, topic_id: t_id, link_url: link_url, split_items: false
+  )
+
+  file_id = storico ? storico["last_file_id"].to_s.strip : ""
+  if !file_id.empty? && ids.any?
+    item_id = ids.first
+    ha_foto = DB.get_first_value("SELECT 1 FROM item_images WHERE item_id = ? LIMIT 1", [item_id])
+    unless ha_foto
+      DB.execute(
+        "INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
+        [item_id, file_id, storico["last_file_unique_id"]]
+      )
+    end
+  end
+
+  ids
 end
 
 # Alias per retrocompatibilità (rimanda a ripristina_da_checklist)
@@ -1626,7 +1658,12 @@ end
         SELECT s.id, s.nome, s.updated_at, s.conteggio, s.creato_da, s.comprato_da,
            s.link_url,
                COALESCE(NULLIF(TRIM(creatore.first_name || ' ' || IFNULL(creatore.last_name, '')), ''), 'Utente') AS creatore,
-               COALESCE(NULLIF(TRIM(acquirente.first_name || ' ' || IFNULL(acquirente.last_name, '')), ''), 'Utente') AS acquirente
+               COALESCE(NULLIF(TRIM(acquirente.first_name || ' ' || IFNULL(acquirente.last_name, '')), ''), 'Utente') AS acquirente,
+               (SELECT 1 FROM items i
+                WHERE i.gruppo_id = s.gruppo_id
+                  AND i.topic_id = s.topic_id
+                  AND LOWER(i.nome) = LOWER(s.nome)
+                  AND (i.comprato IS NULL OR i.comprato = '')) AS in_lista
         FROM storico_articoli s
         LEFT JOIN user_names creatore ON s.creato_da = creatore.user_id
         LEFT JOIN user_names acquirente ON s.comprato_da = acquirente.user_id

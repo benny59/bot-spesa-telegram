@@ -472,7 +472,8 @@ object ApiClient {
         val creatore: String,
         val acquirente: String,
         val updatedAt: String,
-        val conteggio: Int
+        val conteggio: Int,
+        val inLista: Boolean
     )
 
     fun getStoricoAcquisti(gruppoId: Int, topicId: Int): List<StoricoAcquisto> {
@@ -492,7 +493,8 @@ object ApiClient {
                 creatore   = acquisto["creatore"] as? String ?: "",
                 acquirente = acquisto["acquirente"] as? String ?: "",
                 updatedAt  = acquisto["updated_at"] as? String ?: "",
-                conteggio  = (acquisto["conteggio"] as? Double)?.toInt() ?: 0
+                conteggio  = (acquisto["conteggio"] as? Double)?.toInt() ?: 0,
+                inLista    = acquisto["in_lista"] as? Boolean ?: false
             )
         }
     }

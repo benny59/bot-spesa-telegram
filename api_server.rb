@@ -447,7 +447,8 @@ get '/storico/acquisti' do
       creatore:     acquisto['creato_da'] ? acquisto['creatore'] : nil,
       acquirente:   acquisto['comprato_da'] ? acquisto['acquirente'] : nil,
       updated_at:   acquisto['updated_at'],
-      conteggio:    acquisto['conteggio']
+      conteggio:    acquisto['conteggio'],
+      in_lista:     !acquisto['in_lista'].nil?
     }
   }.to_json
 end
