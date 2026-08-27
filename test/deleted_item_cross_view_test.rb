@@ -171,6 +171,24 @@ Dir.mktmpdir do |dir|
     parsed_manual = DataManager.parse_nome_categoria("viti & ferramenta", nil, nil, 4, 0)
     raise "Categoria effimera nel nome item non valutata" unless parsed_manual[:nome] == "viti" && parsed_manual[:categoria_id].nil? && parsed_manual[:categoria_temporanea] == "Ferramenta"
 
+    DataManager.singleton_class.send(:define_method, :prendi_articoli_per_storico) do |g_id, t_id, user_id, show_all|
+      DataManager.articoli_attivi(g_id, t_id, user_id, show_all: show_all && g_id != 0)
+    end
+
+    DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, deleted, comprato, disponibile) VALUES (4, 0, 42, 'Insalata di riso & gastronomia', 0, '', 1)")
+    telegram_markup = KeyboardGenerator.markup_lista_globale(
+      42,
+      [{ "gruppo_id" => 4, "topic_id" => 0 }],
+      { "db_id" => 4, "topic_id" => 0 },
+      0,
+      1,
+      false,
+      42
+    )
+    telegram_labels = telegram_markup.inline_keyboard.flatten.map(&:text)
+    raise "Telegram mostra il nome grezzo con categoria effimera" if telegram_labels.any? { |label| label.include?("Insalata di riso & gastronomia") }
+    raise "Telegram non mostra il nome parsato della categoria effimera" unless telegram_labels.any? { |label| label.include?("Insalata di riso") }
+
     DB.execute("DELETE FROM categorie WHERE LOWER(nome) IN ('casa', 'verdura', 'frutta')")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (200, 'Casa', 4, 0)")
     DB.execute("INSERT INTO categorie (id, nome, gruppo_id, topic_id) VALUES (201, 'Verdura', 4, 0)")

@@ -439,12 +439,24 @@ class MainActivity : AppCompatActivity() {
         val nomeGruppo = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
         val nomeTopic = tvTopic.text.toString().trimEnd('▾', ' ').trim()
         val aggiornatoIl = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy 'alle' HH:mm"))
+        val gruppiPerCategoria = linkedMapOf<String, MutableList<String>>()
+
+        daComprare.forEach { item ->
+            val chiaveCategoria = item.categoriaNome.trim().ifEmpty { "Senza categoria" }
+            gruppiPerCategoria.getOrPut(chiaveCategoria) { mutableListOf() }.add(item.nome.trim())
+        }
+
         val testo = buildString {
             appendLine("🛒 Lista spesa: $nomeGruppo")
             if (nomeTopic.isNotEmpty()) appendLine("📍 Reparto: $nomeTopic")
             appendLine()
-            daComprare.forEach { appendLine("• ${it.nome}") }
-            appendLine()
+
+            gruppiPerCategoria.forEach { (categoria, nomi) ->
+                appendLine("▣ $categoria")
+                nomi.forEach { appendLine("• $it") }
+                appendLine()
+            }
+
             append("Aggiornata il $aggiornatoIl")
         }
 

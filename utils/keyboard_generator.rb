@@ -86,7 +86,10 @@ class KeyboardGenerator
     keyboard = []
 
     page_items.each do |item|
-      nome_pulito = safe_item_label(item["nome"])
+      parsed = DataManager.parse_nome_categoria(item["nome"].to_s, item["categoria_id"], item["categoria_id"], g_id, t_id)
+      nome_da_mostrare = parsed[:nome].to_s.strip
+      nome_da_mostrare = item["nome"].to_s.strip if nome_da_mostrare.empty?
+      nome_pulito = safe_item_label(nome_da_mostrare)
       is_comprato = item["comprato"] && !item["comprato"].to_s.empty?
       is_deleted = item["deleted"].to_i == 1
       is_unavailable = item["disponibile"].to_i == 0
@@ -231,7 +234,10 @@ class KeyboardGenerator
         tag = (show_all && g_id != 0) ? "[#{art["autore_init"] || "?"}] " : ""
         buyer_tag = status == "✅" ? " [#{art["buyer_init"] || "?"}]" : ""
         icona_foto = (art["ha_foto_reale"].to_i > 0) ? " 👁" : ""
-        nome = safe_item_label(art["nome"], 40)
+        parsed = DataManager.parse_nome_categoria(art["nome"].to_s, art["categoria_id"], art["categoria_id"], g_id, t_id)
+        nome_telegram = parsed[:nome].to_s.strip
+        nome_telegram = art["nome"].to_s.strip if nome_telegram.empty?
+        nome = safe_item_label(nome_telegram, 40)
         nome = "~~ #{nome} ~~" if is_deleted || is_unavailable
 
           row_text = "#{status} #{tag}#{icona_foto}#{nome}#{buyer_tag}"
