@@ -7,6 +7,20 @@ require_relative "../models/context"
 require_relative "../db"
 
 class CallbackHandler
+  def self.resolve_actor_name(user_id, callback_first_name = nil)
+    nome = callback_first_name.to_s.strip
+    return nome unless nome.empty?
+
+    row = DB.get_first_row("SELECT first_name, initials FROM user_names WHERE user_id = ? LIMIT 1", [user_id.to_i])
+    db_name = row && row["first_name"].to_s.strip
+    return db_name unless db_name.to_s.empty?
+
+    db_initials = row && row["initials"].to_s.strip
+    return db_initials unless db_initials.to_s.empty?
+
+    "Utente"
+  end
+
   def self.safe_answer_callback_query(bot, callback, **kwargs)
     return if callback.nil? || callback.id.to_s.empty?
 
@@ -28,7 +42,7 @@ class CallbackHandler
   def self.route(bot, callback, context)
     data = callback.data
     user_id = callback.from.id
-    user_name = callback.from.first_name
+    user_name = resolve_actor_name(user_id, callback.from.first_name)
 
     begin
       safe_answer_callback_query(bot, callback)
@@ -256,7 +270,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
       end
 
       if item && item['gruppo_id'].to_i != 0
-        nome_utente = callback.from.first_name || 'Utente'
+        nome_utente = resolve_actor_name(user_id, callback.from.first_name)
         testo = DataManager.build_item_action_message(nome_utente, item['nome'], azione)
         bot.api.send_message(
           chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
@@ -311,7 +325,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
       end
 
       if item && item['gruppo_id'].to_i != 0
-        nome_utente = callback.from.first_name || 'Utente'
+        nome_utente = resolve_actor_name(user_id, callback.from.first_name)
         testo = DataManager.build_item_action_message(nome_utente, item['nome'], azione)
         bot.api.send_message(
           chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),

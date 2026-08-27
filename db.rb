@@ -1492,7 +1492,7 @@ end
              LOWER(COALESCE(u.first_name, '')), LOWER(COALESCE(u.last_name, '')),
              datetime(i.creato_il) DESC, i.id DESC
   SQL
-    DB.execute(query, [u_id, u_id])
+    self.ordina_items_per_categoria(DB.execute(query, [u_id, u_id]))
   end
 
   def self.prendi_tutto_ovunque(u_id)
@@ -1519,7 +1519,7 @@ end
                LOWER(COALESCE(u.first_name, '')), LOWER(COALESCE(u.last_name, '')),
                datetime(i.creato_il) DESC, i.id DESC
   SQL
-    DB.execute(query, [u_id, u_id])
+    self.ordina_items_per_categoria(DB.execute(query, [u_id, u_id]))
   end
 
   def self.aggiorna_membership(u_id, telegram_chat_id)
@@ -1665,6 +1665,31 @@ end
         ELSE 0
       END ASC
     SQL
+  end
+
+  def self.item_state_rank(item)
+    return 3 if item["deleted"].to_i == 1
+    return 2 if item["disponibile"] && item["disponibile"].to_i == 0
+    return 1 if item["comprato"].to_s.strip != ""
+    0
+  end
+
+  def self.item_ha_categoria?(item)
+    return true if item["categoria_nome"].to_s.strip != ""
+
+    parsed = self.parse_nome_categoria(
+      item["nome"].to_s, item["categoria_id"], item["categoria_id"], item["gruppo_id"], item["topic_id"]
+    )
+    parsed[:categoria_nome].to_s.strip != ""
+  end
+
+  # Il JOIN su categorie non "vede" le categorie effimere (derivate dal nome, non persistite).
+  # Post-processiamo l'ordine SQL per portare gli item davvero senza categoria (né canonica né
+  # effimera) subito prima dei checked, mantenendo stabile l'ordine già calcolato dalla query.
+  def self.ordina_items_per_categoria(items)
+    items.each_with_index.sort_by do |item, idx|
+      [item["gruppo_id"].to_i, item["topic_id"].to_i, self.item_state_rank(item), self.item_ha_categoria?(item) ? 0 : 1, idx]
+    end.map(&:first)
   end
 
   def self.articoli_attivi(gruppo_id, topic_id, user_id = nil, show_all: true)

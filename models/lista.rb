@@ -3,7 +3,7 @@ require_relative "../db"
 
 class Lista
   def self.tutti(gruppo_id, topic_id)
-    DB.execute(
+    rows = DB.execute(
       "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials, c.nome AS categoria_nome
      FROM items i
      LEFT JOIN user_names u ON i.creato_da = u.user_id
@@ -14,10 +14,11 @@ class Lista
      ORDER BY #{DataManager.item_state_order_sql("i")}, CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC, c.nome ASC, i.id DESC",
       [gruppo_id, topic_id]
     )
+    DataManager.ordina_items_per_categoria(rows)
   end
 
   def self.personale(user_id)
-    DB.execute(
+    rows = DB.execute(
       "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials, c.nome AS categoria_nome
      FROM items i
      LEFT JOIN user_names u ON i.creato_da = u.user_id
@@ -27,6 +28,7 @@ class Lista
      ORDER BY #{DataManager.item_state_order_sql("i")}, CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC, c.nome ASC, i.id DESC",
       [user_id]
     )
+    DataManager.ordina_items_per_categoria(rows)
   end
   # models/lista.rb
   def self.toggle_comprato(gruppo_id, item_id, user_id)
