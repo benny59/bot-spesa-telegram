@@ -39,8 +39,8 @@ class GroupManager
 
   def self.admin_del_gruppo?(bot, chat_id, user_id)
     member = bot.api.get_chat_member(chat_id: chat_id, user_id: user_id)
-    %w[creator administrator].include?(member.status)
-  rescue Telegram::Bot::Exceptions::ResponseError => e
+    %w[creator owner administrator admin].include?(member.status.to_s)
+  rescue => e
     puts "⚠️ [GROUP] Impossibile verificare i permessi: #{e.message}"
     false
   end
