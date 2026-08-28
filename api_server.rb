@@ -46,12 +46,48 @@ rescue => e
 end
 
 # Invia notifica Telegram al gruppo dopo la scopetta
-def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: [])
-  nome = DB.get_first_value(
-    "SELECT first_name FROM user_names WHERE user_id = ?", [user_id]
-  ) || 'Utente'
+# user_id può essere 0 per i trigger automatici (cronoscopetta): in tal caso
+# il nome viene sostituito da nome_override se passato.
+def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: [], nome_override: nil)
+  nome = if nome_override && !nome_override.to_s.strip.empty?
+    nome_override.to_s
+  else
+    DB.get_first_value(
+      "SELECT first_name FROM user_names WHERE user_id = ?", [user_id]
+    ) || 'Utente'
+  end
+
   testo = StoricoManager.notifica_scopetta_html(nome, comprati: comprati, cancellati: cancellati)
   notifica_gruppo(gruppo_id, topic_id, testo)
+end
+
+# Esegue la cronoscopetta di chiusura giornata usando la logica già esistente.
+def esegui_cronoscopetta
+  righe = DB.execute(
+    "SELECT DISTINCT gruppo_id, topic_id FROM items WHERE gruppo_id != 0 AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '') ORDER BY gruppo_id, topic_id"
+  )
+
+  contati = 0
+  righe.each do |riga|
+    gruppo_id = riga['gruppo_id'].to_i
+    topic_id = riga['topic_id'].to_i
+
+    candidati = DB.execute(
+      "SELECT id, nome, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
+      [gruppo_id, topic_id]
+    )
+    next if candidati.empty?
+
+    rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id)
+    next if rimossi.to_i <= 0
+
+    comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+    cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+    notifica_scopetta(gruppo_id, topic_id, 0, comprati: comprati, cancellati: cancellati, nome_override: 'cronoscopetta')
+    contati += 1
+  end
+
+  contati
 end
 
 configure do
@@ -364,6 +400,13 @@ patch '/lista/:id/topic' do
 end
 
 # Rotta specifica PRIMA di quella parametrica per evitare conflitti
+post '/cron/cronoscopetta' do
+  halt 401, { error: 'Unauthorized' }.to_json unless request.env['HTTP_AUTHORIZATION'] == "Bearer #{api_token}"
+
+  eseguiti = esegui_cronoscopetta
+  { ok: true, eseguiti: eseguiti, trigger: 'cronoscopetta' }.to_json
+end
+
 delete '/lista/comprati' do
   gruppo_id = params[:gruppo_id]&.to_i
   topic_id  = params[:topic_id]&.to_i || 0
