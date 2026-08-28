@@ -64,13 +64,37 @@ end
 # Esegue la cronoscopetta di chiusura giornata usando la logica già esistente.
 def esegui_cronoscopetta
   righe = DB.execute(
-    "SELECT DISTINCT gruppo_id, topic_id FROM items WHERE gruppo_id != 0 AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '') ORDER BY gruppo_id, topic_id"
+    <<~SQL,
+      SELECT DISTINCT gruppo_id, topic_id, creato_da
+      FROM items
+      WHERE (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
+      ORDER BY gruppo_id, topic_id, creato_da
+    SQL
   )
 
   contati = 0
   righe.each do |riga|
     gruppo_id = riga['gruppo_id'].to_i
     topic_id = riga['topic_id'].to_i
+    creato_da = riga['creato_da'].to_i
+
+    if gruppo_id == 0
+      candidati = DB.execute(
+        "SELECT id, nome, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND creato_da = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
+        [gruppo_id, topic_id, creato_da]
+      )
+      next if candidati.empty?
+
+      ids = candidati.map { |i| i['id'] }
+      rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id, ids)
+      next if rimossi.to_i <= 0
+
+      comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+      cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+      notifica_scopetta(gruppo_id, topic_id, creato_da, comprati: comprati, cancellati: cancellati, nome_override: 'cronoscopetta')
+      contati += 1
+      next
+    end
 
     candidati = DB.execute(
       "SELECT id, nome, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
@@ -435,10 +459,17 @@ delete '/lista/comprati' do
     )
   end
 
-  cancellati = DB.execute(
-    "SELECT id, nome FROM items WHERE gruppo_id=? AND topic_id=? AND deleted = 1",
-    [gruppo_id, topic_id]
-  )
+  cancellati = if gruppo_id == 0 && user_id != 0
+    DB.execute(
+      "SELECT id, nome FROM items WHERE gruppo_id=0 AND topic_id=? AND deleted = 1 AND creato_da=?",
+      [topic_id, user_id]
+    )
+  else
+    DB.execute(
+      "SELECT id, nome FROM items WHERE gruppo_id=? AND topic_id=? AND deleted = 1",
+      [gruppo_id, topic_id]
+    )
+  end
 
   # Lista Personale: scopetta solo i propri articoli comprati
   rimossi = if gruppo_id == 0 && user_id != 0
