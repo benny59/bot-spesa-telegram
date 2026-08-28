@@ -26,20 +26,26 @@ class ChecklistAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
-        holder.tvConteggio.text = if (item.conteggio > 0) "acquistato ${item.conteggio}×" else ""
+        val frequenza = if (item.conteggio > 0) "acquistato ${item.conteggio}×" else ""
+        val categoria = if (item.categoriaNome.isNotEmpty()) {
+            val visualizzata = if (item.categoriaEffimera) item.categoriaNome.lowercase() else item.categoriaNome
+            val tradotta = LocalizationManager.localizedCategoryName(holder.itemView.context, visualizzata)
+            "${if (item.categoriaEffimera) "◌" else "▣"} $tradotta"
+        } else ""
+        holder.tvConteggio.text = listOf(categoria, frequenza).filter { it.isNotEmpty() }.joinToString(" • ")
 
         if (item.inLista) {
             holder.tvStatus.text = "✓"
             holder.tvStatus.setBackgroundResource(R.drawable.circle_initials_green)
             holder.tvNome.paintFlags = holder.tvNome.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
             holder.tvNome.alpha = 0.5f
-            holder.tvNome.text = item.nome
+            holder.tvNome.text = item.nomeDisplay
         } else {
             holder.tvStatus.text = "+"
             holder.tvStatus.setBackgroundResource(R.drawable.circle_initials)
             holder.tvNome.paintFlags = holder.tvNome.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
             holder.tvNome.alpha = 1.0f
-            holder.tvNome.text = item.nome
+            holder.tvNome.text = item.nomeDisplay
         }
 
         holder.itemView.setOnClickListener { onToggle(item) }

@@ -102,13 +102,21 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val acquisto = acquisti[position]
-            holder.nome.text = acquisto.nome
+            holder.nome.text = acquisto.nomeDisplay
             holder.data.text = formattaData(acquisto.updatedAt)
             holder.inseritoDa.visibility = if (acquisto.creatore.isEmpty()) View.GONE else View.VISIBLE
             holder.inseritoDa.text = "↳ ${acquisto.creatore}"
             holder.acquistatoDa.visibility = if (acquisto.acquirente.isEmpty()) View.GONE else View.VISIBLE
             holder.acquistatoDa.text = "↗ ${acquisto.acquirente}"
-            holder.conteggio.text = "${acquisto.conteggio} volte"
+
+            val categoria = if (acquisto.categoriaNome.isNotEmpty()) {
+                val visualizzata = if (acquisto.categoriaEffimera) acquisto.categoriaNome.lowercase() else acquisto.categoriaNome
+                val tradotta = LocalizationManager.localizedCategoryName(holder.itemView.context, visualizzata)
+                "${if (acquisto.categoriaEffimera) "◌" else "▣"} $tradotta"
+            } else ""
+            holder.conteggio.text = listOf(categoria, "${acquisto.conteggio} volte")
+                .filter { it.isNotEmpty() }
+                .joinToString(" • ")
 
             if (acquisto.inLista) {
                 holder.stato.text = "✓"

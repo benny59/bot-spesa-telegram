@@ -458,9 +458,13 @@ object ApiClient {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { i ->
+            val nome = i["nome"] as? String ?: ""
             ChecklistItem(
-                nome      = i["nome"] as? String ?: "",
+                nome      = nome,
+                nomeDisplay = (i["nome_display"] as? String)?.takeIf { it.isNotBlank() } ?: nome,
                 conteggio = (i["conteggio"] as? Double)?.toInt() ?: 0,
+                categoriaNome = i["categoria_nome"] as? String ?: "",
+                categoriaEffimera = i["categoria_effimera"] as? Boolean ?: false,
                 inLista   = i["in_lista"] as? Boolean ?: false
             )
         }
@@ -469,10 +473,13 @@ object ApiClient {
     data class StoricoAcquisto(
         val id: Int,
         val nome: String,
+        val nomeDisplay: String,
         val creatore: String,
         val acquirente: String,
         val updatedAt: String,
         val conteggio: Int,
+        val categoriaNome: String,
+        val categoriaEffimera: Boolean,
         val inLista: Boolean
     )
 
@@ -487,13 +494,17 @@ object ApiClient {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { acquisto ->
+            val nome = acquisto["nome"] as? String ?: ""
             StoricoAcquisto(
                 id         = (acquisto["id"] as? Double)?.toInt() ?: 0,
-                nome       = acquisto["nome"] as? String ?: "",
+                nome       = nome,
+                nomeDisplay = (acquisto["nome_display"] as? String)?.takeIf { it.isNotBlank() } ?: nome,
                 creatore   = acquisto["creatore"] as? String ?: "",
                 acquirente = acquisto["acquirente"] as? String ?: "",
                 updatedAt  = acquisto["updated_at"] as? String ?: "",
                 conteggio  = (acquisto["conteggio"] as? Double)?.toInt() ?: 0,
+                categoriaNome = acquisto["categoria_nome"] as? String ?: "",
+                categoriaEffimera = acquisto["categoria_effimera"] as? Boolean ?: false,
                 inLista    = acquisto["in_lista"] as? Boolean ?: false
             )
         }

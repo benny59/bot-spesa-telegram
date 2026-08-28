@@ -440,10 +440,15 @@ get '/storico/acquisti' do
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
   StoricoManager.ultimi_acquisti(gruppo_id, topic_id, limite).map { |acquisto|
+    categoria = DataManager.categoria_da_storico(acquisto, gruppo_id, topic_id)
     {
       id:           acquisto['id'],
       nome:         acquisto['nome'],
+      nome_display: categoria[:nome],
       link_url:     acquisto['link_url'],
+      categoria_id: categoria[:categoria_id],
+      categoria_nome: categoria[:categoria_nome],
+      categoria_effimera: categoria[:effimera],
       creatore:     acquisto['creato_da'] ? acquisto['creatore'] : nil,
       acquirente:   acquisto['comprato_da'] ? acquisto['acquirente'] : nil,
       updated_at:   acquisto['updated_at'],
@@ -524,7 +529,18 @@ get '/checklist' do
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
   items = StoricoManager.suggerimenti_per_checklist(gruppo_id, topic_id)
-  items.map { |i| { nome: i['nome'], conteggio: i['conteggio'].to_i, in_lista: !i['in_lista'].nil? } }.to_json
+  items.map { |i|
+    categoria = DataManager.categoria_da_storico(i, gruppo_id, topic_id)
+    {
+      nome: i['nome'],
+      nome_display: categoria[:nome],
+      conteggio: i['conteggio'].to_i,
+      categoria_id: categoria[:categoria_id],
+      categoria_nome: categoria[:categoria_nome],
+      categoria_effimera: categoria[:effimera],
+      in_lista: !i['in_lista'].nil?
+    }
+  }.to_json
 end
 
 # Checklist toggle: aggiunge o rimuove dalla lista attiva

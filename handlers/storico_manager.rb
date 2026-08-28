@@ -65,7 +65,7 @@ class StoricoManager
   # Recupera i suggerimenti marcando quelli già presenti in lista
   def self.suggerimenti_per_checklist(gruppo_id, topic_id)
     sql = <<~SQL
-      SELECT s.id, s.nome, s.link_url, s.conteggio,
+      SELECT s.id, s.nome, s.link_url, s.conteggio, s.last_categoria_id, s.metadata_json,
       (SELECT 1 FROM items i 
        WHERE i.gruppo_id = s.gruppo_id 
        AND i.topic_id = s.topic_id 

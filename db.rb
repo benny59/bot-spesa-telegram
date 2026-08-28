@@ -213,6 +213,9 @@ SQL
   unless storico_columns.include?("last_file_unique_id")
     db.execute("ALTER TABLE storico_articoli ADD COLUMN last_file_unique_id TEXT")
   end
+  unless storico_columns.include?("metadata_json")
+    db.execute("ALTER TABLE storico_articoli ADD COLUMN metadata_json TEXT")
+  end
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS gruppo_carte_collegamenti (
@@ -415,9 +418,69 @@ class DataManager
     "#{t_id}" # Torna 'sperimentale' se lo trova, altrimenti '2'
   end
 
+  def self.serializza_storico_metadata(nome, gruppo_id, topic_id, categoria_id = nil, link_url = nil, file_id = nil, file_unique_id = nil)
+    parsed = self.parse_nome_categoria(nome, nil, nil, gruppo_id, topic_id)
+    categoria_id = categoria_id.to_i if categoria_id
+    categoria_id = nil if categoria_id && categoria_id <= 0
+    categoria = if categoria_id
+      categoria_nome = DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_id]).to_s.strip
+      { "tipo" => "canonica", "id" => categoria_id, "nome" => categoria_nome }
+    elsif parsed[:categoria_nome].to_s.strip != ""
+      { "tipo" => "effimera", "id" => nil, "nome" => parsed[:categoria_nome].to_s.strip }
+    end
+
+    {
+      "nome" => parsed[:nome].to_s.strip.empty? ? nome.to_s.strip : parsed[:nome].to_s.strip,
+      "categoria" => categoria,
+      "link_url" => link_url.to_s.strip.empty? ? nil : link_url.to_s.strip,
+      "foto" => file_id.to_s.strip.empty? ? nil : {
+        "file_id" => file_id.to_s,
+        "file_unique_id" => file_unique_id.to_s.strip.empty? ? nil : file_unique_id.to_s
+      }
+    }.to_json
+  end
+
+  def self.deserializza_storico_metadata(row, gruppo_id = nil, topic_id = 0)
+    metadata = begin
+      JSON.parse(row["metadata_json"].to_s) unless row["metadata_json"].to_s.strip.empty?
+    rescue JSON::ParserError
+      nil
+    end
+    return metadata if metadata.is_a?(Hash)
+
+    nome = row["nome"].to_s
+    categoria_id = row["last_categoria_id"].to_i
+    parsed = self.parse_nome_categoria(nome, nil, nil, gruppo_id, topic_id)
+    categoria = if categoria_id > 0
+      categoria_nome = DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_id]).to_s.strip
+      { "tipo" => "canonica", "id" => categoria_id, "nome" => categoria_nome }
+    elsif parsed[:categoria_nome].to_s.strip != ""
+      { "tipo" => "effimera", "id" => nil, "nome" => parsed[:categoria_nome].to_s.strip }
+    end
+
+    {
+      "nome" => parsed[:nome].to_s.strip.empty? ? nome : parsed[:nome].to_s.strip,
+      "categoria" => categoria,
+      "link_url" => row["link_url"].to_s.strip.empty? ? nil : row["link_url"].to_s.strip,
+      "foto" => row["last_file_id"].to_s.strip.empty? ? nil : {
+        "file_id" => row["last_file_id"].to_s,
+        "file_unique_id" => row["last_file_unique_id"].to_s.strip.empty? ? nil : row["last_file_unique_id"].to_s
+      }
+    }
+  end
+
+  def self.fondi_storico_metadata(precedente, nuovo)
+    risultato = precedente.is_a?(Hash) ? precedente.dup : {}
+    risultato["nome"] = nuovo["nome"] if nuovo["nome"].to_s.strip != ""
+    risultato["categoria"] = nuovo["categoria"] if nuovo["categoria"].is_a?(Hash)
+    risultato["link_url"] = nuovo["link_url"] unless nuovo["link_url"].nil?
+    risultato["foto"] = nuovo["foto"] unless nuovo["foto"].nil?
+    risultato
+  end
+
   # Helper DRY per UPSERT storico_articoli (consolidato da esegui_scopetta e storico_manager)
   # Parametri creato_da_id e comprato_da_id sono opzionali (usati da esegui_scopetta, nil da storico_manager)
-  def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil, link_url = nil, file_id = nil, file_unique_id = nil)
+  def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil, link_url = nil, file_id = nil, file_unique_id = nil, categoria_id = nil)
     cleaned = self.pulisci_nome_e_link(nome, link_url)
     nome = cleaned[:nome]
     link_pulito = cleaned[:link_url]
@@ -428,6 +491,7 @@ class DataManager
     link_pulito = nil if link_pulito.to_s.strip.empty?
     file_id = nil if file_id.to_s.strip.empty?
     file_unique_id = nil if file_unique_id.to_s.strip.empty?
+    metadata_json = self.serializza_storico_metadata(nome, gruppo_id, topic_id, categoria_id, link_pulito, file_id, file_unique_id)
 
     puts "  📝 [UPSERT] Elaborazione: '#{nome_formattato}' (G:#{gruppo_id}, T:#{topic_id})"
 
@@ -474,22 +538,28 @@ class DataManager
 
     # ORA procedi con UPDATE o INSERT sul record (che ora è unico per nome+gruppo_id)
     esistente = DB.get_first_row(
-      "SELECT id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ?",
+      "SELECT id, metadata_json, link_url, last_file_id, last_file_unique_id, last_categoria_id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ?",
       [nome_normalizzato, gruppo_id]
     )
+
+    if esistente
+      metadata_precedente = self.deserializza_storico_metadata(esistente, gruppo_id, topic_id)
+      metadata_json = self.fondi_storico_metadata(metadata_precedente, JSON.parse(metadata_json))
+      metadata_json = metadata_json.to_json
+    end
 
     if esistente
       # Aggiorna il record consolidato
       puts "  🔄 [UPSERT] UPDATE - Record esiste (ID=#{esistente["id"]})"
       if creato_da_id && comprato_da_id
         DB.execute(
-          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), last_file_id = COALESCE(?, last_file_id), last_file_unique_id = COALESCE(?, last_file_unique_id), updated_at = datetime('now') WHERE id = ?",
-          [nome_formattato, topic_id, creato_da_id, comprato_da_id, link_pulito, file_id, file_unique_id, esistente["id"]]
+          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, creato_da = ?, comprato_da = ?, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), last_file_id = COALESCE(?, last_file_id), last_file_unique_id = COALESCE(?, last_file_unique_id), metadata_json = ?, updated_at = datetime('now') WHERE id = ?",
+          [nome_formattato, topic_id, creato_da_id, comprato_da_id, link_pulito, file_id, file_unique_id, metadata_json, esistente["id"]]
         )
       else
         DB.execute(
-          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), last_file_id = COALESCE(?, last_file_id), last_file_unique_id = COALESCE(?, last_file_unique_id), ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-          [nome_formattato, topic_id, link_pulito, file_id, file_unique_id, esistente["id"]]
+          "UPDATE storico_articoli SET nome = ?, topic_id = ?, conteggio = conteggio + 1, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?), last_file_id = COALESCE(?, last_file_id), last_file_unique_id = COALESCE(?, last_file_unique_id), metadata_json = ?, ultima_aggiunta = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+          [nome_formattato, topic_id, link_pulito, file_id, file_unique_id, metadata_json, esistente["id"]]
         )
       end
       puts "  ✅ [UPSERT] UPDATE completato"
@@ -498,13 +568,13 @@ class DataManager
       puts "  ➕ [UPSERT] INSERT - Nuovo record"
       if creato_da_id && comprato_da_id
         DB.execute(
-          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, creato_da, comprato_da, last_file_id, last_file_unique_id, ultima_aggiunta) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, datetime('now'))",
-          [gruppo_id, topic_id, nome_formattato, link_pulito, creato_da_id, comprato_da_id, file_id, file_unique_id]
+          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, creato_da, comprato_da, last_file_id, last_file_unique_id, metadata_json, ultima_aggiunta) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, datetime('now'))",
+          [gruppo_id, topic_id, nome_formattato, link_pulito, creato_da_id, comprato_da_id, file_id, file_unique_id, metadata_json]
         )
       else
         DB.execute(
-          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, last_file_id, last_file_unique_id, ultima_aggiunta, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, datetime('now'), datetime('now'))",
-          [gruppo_id, topic_id, nome_formattato, link_pulito, file_id, file_unique_id]
+          "INSERT INTO storico_articoli (gruppo_id, topic_id, nome, link_url, conteggio, last_file_id, last_file_unique_id, metadata_json, ultima_aggiunta, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, datetime('now'), datetime('now'))",
+          [gruppo_id, topic_id, nome_formattato, link_pulito, file_id, file_unique_id, metadata_json]
         )
       end
       puts "  ✅ [UPSERT] INSERT completato"
@@ -958,7 +1028,10 @@ class DataManager
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         if item["comprato"].to_s.strip != ""
           foto = DB.get_first_row("SELECT file_id, file_unique_id FROM item_images WHERE item_id = ? ORDER BY id DESC LIMIT 1", [item["id"]])
-          self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"], item["link_url"], foto && foto["file_id"], foto && foto["file_unique_id"])
+          self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"], item["link_url"], foto && foto["file_id"], foto && foto["file_unique_id"], item["categoria_id"])
+          # La categoria può essere stata assegnata dopo l'inserimento: registriamo quella effettiva.
+          nome_storico = self.pulisci_nome_e_link(item["nome"], item["link_url"])[:nome]
+          self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome_storico, item["categoria_id"])
           self.aggiorna_statistica_categoria(gruppo_id, topic_id, item["nome"], item["categoria_id"])
         end
       end
@@ -1058,26 +1131,40 @@ end
 # poi recupera l'ultima foto nota per l'articolo se quello ripristinato non ne ha già una.
 def self.ripristina_da_checklist(g_id, t_id, nome, user_id)
   storico = DB.get_first_row(
-    "SELECT nome, link_url, last_file_id, last_file_unique_id FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ?",
+    "SELECT nome, link_url, last_categoria_id, last_file_id, last_file_unique_id, metadata_json FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ?",
     [g_id, t_id, nome.to_s.strip.downcase]
   )
 
-  nome_da_inserire = storico ? storico["nome"].to_s : nome
-  link_url = storico ? storico["link_url"].to_s.strip : ""
+  metadata = storico ? self.deserializza_storico_metadata(storico, g_id, t_id) : {}
+  nome_da_inserire = metadata["nome"].to_s.strip
+  nome_da_inserire = nome if nome_da_inserire.empty?
+  categoria = metadata["categoria"]
+  nome_da_inserire = if categoria && categoria["tipo"] == "effimera" && categoria["nome"].to_s.strip != ""
+    "#{nome_da_inserire} & #{categoria["nome"]}"
+  else
+    nome_da_inserire
+  end
+  link_url = metadata["link_url"].to_s.strip
   link_url = nil if link_url.empty?
 
   ids = self.aggiungi_articoli(
-    gruppo_id: g_id, user_id: user_id, items_text: nome_da_inserire, topic_id: t_id, link_url: link_url, split_items: false
+    gruppo_id: g_id,
+    user_id: user_id,
+    items_text: nome_da_inserire,
+    topic_id: t_id,
+    link_url: link_url,
+    split_items: false,
+    categoria_id: categoria && categoria["tipo"] == "canonica" ? categoria["id"] : nil
   )
 
-  file_id = storico ? storico["last_file_id"].to_s.strip : ""
+  file_id = metadata.dig("foto", "file_id").to_s.strip
   if !file_id.empty? && ids.any?
     item_id = ids.first
     ha_foto = DB.get_first_value("SELECT 1 FROM item_images WHERE item_id = ? LIMIT 1", [item_id])
     unless ha_foto
       DB.execute(
         "INSERT INTO item_images (item_id, file_id, file_unique_id) VALUES (?, ?, ?)",
-        [item_id, file_id, storico["last_file_unique_id"]]
+        [item_id, file_id, metadata.dig("foto", "file_unique_id")]
       )
     end
   end
@@ -1656,7 +1743,7 @@ end
     DB.execute(
       <<-SQL,
         SELECT s.id, s.nome, s.updated_at, s.conteggio, s.creato_da, s.comprato_da,
-           s.link_url,
+           s.link_url, s.last_categoria_id, s.metadata_json,
                COALESCE(NULLIF(TRIM(creatore.first_name || ' ' || IFNULL(creatore.last_name, '')), ''), 'Utente') AS creatore,
                COALESCE(NULLIF(TRIM(acquirente.first_name || ' ' || IFNULL(acquirente.last_name, '')), ''), 'Utente') AS acquirente,
                (SELECT 1 FROM items i
@@ -1718,6 +1805,38 @@ end
       item["nome"].to_s, item["categoria_id"], item["categoria_id"], item["gruppo_id"], item["topic_id"]
     )
     parsed[:categoria_nome].to_s.strip != ""
+  end
+
+  # Deriva nome visualizzato e categoria da una riga di storico_articoli, condiviso da
+  # checklist (frequenza) e storico acquisti (cronologico).
+  def self.categoria_da_storico(row, gruppo_id, topic_id)
+    metadata = self.deserializza_storico_metadata(row, gruppo_id, topic_id)
+    metadata_categoria = metadata["categoria"]
+    if metadata_categoria.is_a?(Hash)
+      return {
+        nome: metadata["nome"].to_s.strip.empty? ? row["nome"].to_s.strip : metadata["nome"].to_s.strip,
+        categoria_id: metadata_categoria["id"].to_i,
+        categoria_nome: metadata_categoria["nome"].to_s.strip,
+        effimera: metadata_categoria["tipo"].to_s == "effimera"
+      }
+    end
+
+    nome_raw = row["nome"].to_s
+    categoria_id = row["last_categoria_id"].to_i
+
+    if categoria_id > 0
+      nome_pulito = self.parse_nome_categoria(nome_raw, nil, nil, gruppo_id, topic_id)[:nome].to_s.strip
+      nome_pulito = nome_raw.strip if nome_pulito.empty?
+      canonica = DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_id]).to_s.strip
+      return { nome: nome_pulito, categoria_id: categoria_id, categoria_nome: canonica, effimera: false } unless canonica.empty?
+    end
+
+    parsed = self.parse_nome_categoria(nome_raw, nil, nil, gruppo_id, topic_id)
+    categoria_nome = parsed[:categoria_nome].to_s.strip
+    nome_pulito = parsed[:nome].to_s.strip
+    nome_pulito = nome_raw.strip if nome_pulito.empty?
+
+    { nome: nome_pulito, categoria_id: 0, categoria_nome: categoria_nome, effimera: !categoria_nome.empty? }
   end
 
   # Il JOIN su categorie non "vede" le categorie effimere (derivate dal nome, non persistite).
