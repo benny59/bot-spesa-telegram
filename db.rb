@@ -183,6 +183,14 @@ SQL
     );
   SQL
 
+  storico_columns = db.execute("PRAGMA table_info(storico_articoli)").map { |row| row["name"] }
+  unless storico_columns.include?("creato_da")
+    db.execute("ALTER TABLE storico_articoli ADD COLUMN creato_da INTEGER")
+  end
+  unless storico_columns.include?("comprato_da")
+    db.execute("ALTER TABLE storico_articoli ADD COLUMN comprato_da INTEGER")
+  end
+
   db.execute <<-SQL
     UPDATE storico_articoli
     SET comprato_da = (
