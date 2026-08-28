@@ -103,15 +103,25 @@ def api_token
   DB.get_first_value("SELECT value FROM config WHERE key = 'api_token'")
 end
 
+def api_tokens_compatibili
+  valori = %w[api_token token token_dev].map do |key|
+    DB.get_first_value("SELECT value FROM config WHERE key = ?", [key]).to_s.strip
+  end
+  valori.reject(&:empty?).uniq
+end
+
 before do
   content_type :json
   next if request.path_info == '/collega'  # bootstrap: nessun token richiesto
   next if request.path_info.start_with?('/me')  # recupero nome utente
-  token = api_token
-  next if token.nil? || token.strip.empty?
+
+  tokens = api_tokens_compatibili
+  next if tokens.empty?
 
   auth = request.env['HTTP_AUTHORIZATION']
-  halt 401, { error: 'Unauthorized' }.to_json unless auth == "Bearer #{token}"
+  next if auth && tokens.any? { |token| auth == "Bearer #{token}" }
+
+  halt 401, { error: 'Unauthorized' }.to_json
 end
 
 error do
