@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "cgi"
+require_relative "group_operational_notifier"
 
 module ItemActionMessage
   module_function
@@ -65,23 +66,11 @@ module ItemActionMessage
   end
 
   def notify_group(bot, item_row, actor, action)
-    return unless bot
-    return unless item_row
-
-    gruppo_id = item_row["gruppo_id"].to_i
-    return if gruppo_id == 0
-
-    chat_id = DataManager.get_real_chat_id(gruppo_id)
-    return unless chat_id
-
-    topic_id = item_row["topic_id"].to_i
-    bot.api.send_message(
-      chat_id: chat_id,
-      text: text_for(actor, item_row["nome"], action),
-      parse_mode: "HTML",
-      message_thread_id: topic_id != 0 ? topic_id : nil
+    GroupOperationalNotifier.item_action(
+      bot: bot,
+      item: item_row,
+      actor: actor,
+      action: action
     )
-  rescue => e
-    puts "⚠️ [ITEM_ACTION] notifica fallita: #{e.class}: #{e.message}"
   end
 end

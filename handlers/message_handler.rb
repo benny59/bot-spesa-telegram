@@ -1,6 +1,8 @@
 # handlers/message_handler.rb
 require_relative "../utils/keyboard_generator"
 require_relative "../models/context"
+require_relative "../models/group_manager"
+require_relative "../models/group_operational_notifier"
 require_relative "../models/carte_fedelta"
 require_relative "../models/carte_fedelta_gruppo"
 require_relative "./storico_manager"
@@ -140,12 +142,12 @@ class MessageHandler
                 mio_item = articoli_freschi.find { |i| i["creato_da"] == u_id }
                 init = mio_item ? mio_item["autore_init"] : "??"
 
-                bot.api.send_message(
-                  chat_id: real_chat_id,
-                  message_thread_id: (t_id > 0 ? t_id : nil),
+                GroupOperationalNotifier.notify(
+                  bot: bot,
+                  gruppo_id: g_id,
+                  topic_id: t_id,
                   text: "📸 <b>#{init}</b> ha aggiunto una foto: <b>#{testo}</b>",
-                  parse_mode: "HTML",
-                  disable_notification: true,
+                  disable_notification: true
                 )
               end
             end
@@ -185,6 +187,33 @@ class MessageHandler
     DataManager.salva_config_utente(u_id, context.config)
 
     case text
+
+    when %r{^/(quiet|verbose)(?:@\w+)?$}
+      command = Regexp.last_match(1)
+      unless context.group_chat?
+        bot.api.send_message(chat_id: c_id, text: "⚠️ Questo comando funziona solo all'interno di un gruppo.")
+        return
+      end
+
+      gruppo = GroupManager.find_by_chat_id(c_id)
+      unless gruppo
+        bot.api.send_message(chat_id: c_id, text: "⚠️ Questo gruppo non è ancora registrato.")
+        return
+      end
+
+      unless GroupManager.admin_del_gruppo?(bot, c_id, u_id)
+        bot.api.send_message(chat_id: c_id, text: "⛔ Solo un amministratore del gruppo può modificare le notifiche operative.")
+        return
+      end
+
+      abilitate = command == "verbose"
+      GroupManager.imposta_notifiche_operazioni(gruppo["id"], abilitate)
+      bot.api.send_message(
+        chat_id: c_id,
+        message_thread_id: (context.config["topic_id"].to_i > 0 ? context.config["topic_id"].to_i : nil),
+        text: abilitate ? "🔔 Notifiche operative riattivate in questo gruppo." : "🔕 Notifiche operative disattivate in questo gruppo."
+      )
+      return
 
     when "/cleanup"
       puts "🔧 comando /cleanup ricevuto da #{u_id}"
@@ -351,16 +380,13 @@ def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = ni
 
   # Notifica al gruppo (Aggiunta da privata)
   if context.scope == :private && g_id != 0
-    real_chat_id = DataManager.get_real_chat_id(g_id)
-    if real_chat_id
-      bot.api.send_message(
-        chat_id: real_chat_id, 
-        message_thread_id: (t_id > 0 ? t_id : nil), 
-        text: "➕ <b>#{u_name}</b> ha aggiunto: #{testo_pulito}", # Uniformato
-        parse_mode: "HTML", 
-        disable_notification: true
-      )
-    end
+    GroupOperationalNotifier.notify(
+      bot: bot,
+      gruppo_id: g_id,
+      topic_id: t_id,
+      text: "➕ <b>#{u_name}</b> ha aggiunto: #{testo_pulito}",
+      disable_notification: true
+    )
   end
 
   # Conferma nel thread corretto: nel gruppo/tema corrente, non nel generale

@@ -23,6 +23,28 @@ class GroupManager
     DB.get_first_row("SELECT * FROM gruppi WHERE chat_id = ?", [chat_id])
   end
 
+  def self.notifiche_operazioni_abilitate?(gruppo_id)
+    DB.get_first_value(
+      "SELECT notifiche_operazioni FROM gruppi WHERE id = ?",
+      [gruppo_id]
+    ).to_i == 1
+  end
+
+  def self.imposta_notifiche_operazioni(gruppo_id, abilitate)
+    DB.execute(
+      "UPDATE gruppi SET notifiche_operazioni = ? WHERE id = ?",
+      [abilitate ? 1 : 0, gruppo_id]
+    )
+  end
+
+  def self.admin_del_gruppo?(bot, chat_id, user_id)
+    member = bot.api.get_chat_member(chat_id: chat_id, user_id: user_id)
+    %w[creator administrator].include?(member.status)
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    puts "⚠️ [GROUP] Impossibile verificare i permessi: #{e.message}"
+    false
+  end
+
   def self.crea_gruppo(bot, user_id, user_name)
     DB.execute("INSERT INTO gruppi (nome, creato_da, chat_id) VALUES (?, ?, ?)",
                ["Gruppo di #{user_name}", user_id, nil])  # ← chat_id esplicitamente NULL

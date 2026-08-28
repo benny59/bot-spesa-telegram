@@ -5,6 +5,7 @@ require_relative "../models/whitelist"
 
 require_relative "../models/context"
 require_relative "../db"
+require_relative "../models/group_operational_notifier"
 
 class CallbackHandler
   def self.resolve_actor_name(user_id, callback_first_name = nil)
@@ -271,13 +272,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
 
       if item && item['gruppo_id'].to_i != 0
         nome_utente = resolve_actor_name(user_id, callback.from.first_name)
-        testo = DataManager.build_item_action_message(nome_utente, item['nome'], azione)
-        bot.api.send_message(
-          chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
-          text: testo,
-          parse_mode: 'HTML',
-          message_thread_id: item['topic_id'].to_i != 0 ? item['topic_id'].to_i : nil
-        ) rescue nil
+        GroupOperationalNotifier.item_action(bot: bot, item: item, actor: nome_utente, action: azione)
       end
 
       # 2. Refresh Standard
@@ -326,13 +321,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
 
       if item && item['gruppo_id'].to_i != 0
         nome_utente = resolve_actor_name(user_id, callback.from.first_name)
-        testo = DataManager.build_item_action_message(nome_utente, item['nome'], azione)
-        bot.api.send_message(
-          chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
-          text: testo,
-          parse_mode: 'HTML',
-          message_thread_id: item['topic_id'].to_i != 0 ? item['topic_id'].to_i : nil
-        ) rescue nil
+        GroupOperationalNotifier.item_action(bot: bot, item: item, actor: nome_utente, action: azione)
       end
 
       # 2. Refresh GLOBALE (Cambia solo questo!)
@@ -368,14 +357,14 @@ when /^trigger_list:(-?\d*):(\d*)$/
             chat_id_dest = DataManager.get_real_chat_id(g_id)
             comprati = items.select { |i| i["comprato"].to_s.strip != "" }.map { |item| item["nome"] }
             cancellati = items.reject { |i| i["comprato"].to_s.strip != "" }.map { |item| item["nome"] }
-            msg = StoricoManager.notifica_scopetta_html(u_name, comprati: comprati, cancellati: cancellati)
-
-            bot.api.send_message(
-              chat_id: chat_id_dest,
-              message_thread_id: (t_id != 0 ? t_id : nil),
-              text: msg,
-              parse_mode: "HTML",
-            ) rescue nil
+            GroupOperationalNotifier.scopetta(
+              bot: bot,
+              gruppo_id: g_id,
+              topic_id: t_id,
+              actor: u_name,
+              comprati: comprati,
+              cancellati: cancellati
+            )
           end
         end
         # NOTA: Abbiamo rimosso il secondo answer_callback_query qui
@@ -400,19 +389,14 @@ when /^trigger_list:(-?\d*):(\d*)$/
       rimossi = DataManager.esegui_scopetta(g_id, t_id)
 
       if rimossi > 0 && g_id != 0 && callback.message.chat.type == "private"
-        target_chat = DataManager.get_real_chat_id(g_id)
         u_name = callback.from.first_name
-        testo_notifica = StoricoManager.notifica_scopetta_html(
-          u_name,
+        GroupOperationalNotifier.scopetta(
+          bot: bot,
+          gruppo_id: g_id,
+          topic_id: t_id,
+          actor: u_name,
           comprati: acquistati.map { |item| item["nome"] },
           cancellati: cancellati.map { |item| item["nome"] }
-        )
-
-        bot.api.send_message(
-          chat_id: target_chat,
-          text: testo_notifica,
-          parse_mode: "HTML",
-          message_thread_id: (t_id != 0 ? t_id : nil),
         )
       end
 
@@ -593,24 +577,14 @@ when /^add_from_hist_id:(\d+):(-?\d+):(\d+)$/
 
     # MESSAGGIO UNIFORMATO (Rimozione)
     if t_chat_id && t_chat_id != callback.message.chat.id
-      bot.api.send_message(
-        chat_id: t_chat_id,
-        text: "➖ <b>#{u_name}</b> ha rimosso: #{StoricoManager.nome_storico_per_telegram(nome)}",
-        parse_mode: "HTML",
-        message_thread_id: t_id != 0 ? t_id : nil
-      )
+      GroupOperationalNotifier.notify(bot: bot, gruppo_id: g_id, topic_id: t_id, text: "➖ <b>#{u_name}</b> ha rimosso: #{StoricoManager.nome_storico_per_telegram(nome)}")
     end
   else
     DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: user_id, items_text: nome, topic_id: t_id, link_url: link_url, split_items: false)
 
     # MESSAGGIO UNIFORMATO (Aggiunta)
     if t_chat_id && t_chat_id != callback.message.chat.id
-      bot.api.send_message(
-        chat_id: t_chat_id,
-        text: "➕ <b>#{u_name}</b> ha aggiunto: #{StoricoManager.nome_storico_per_telegram(nome)}",
-        parse_mode: "HTML",
-        message_thread_id: t_id != 0 ? t_id : nil
-      )
+      GroupOperationalNotifier.notify(bot: bot, gruppo_id: g_id, topic_id: t_id, text: "➕ <b>#{u_name}</b> ha aggiunto: #{StoricoManager.nome_storico_per_telegram(nome)}")
     end
   end
 
@@ -642,24 +616,14 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
     
     # MESSAGGIO UNIFORMATO (Rimozione)
     if t_chat_id && t_chat_id != callback.message.chat.id
-      bot.api.send_message(
-        chat_id: t_chat_id,
-        text: "➖ <b>#{u_name}</b> ha rimosso: #{StoricoManager.nome_storico_per_telegram(nome)}",
-        parse_mode: "HTML",
-        message_thread_id: t_id != 0 ? t_id : nil
-      )
+      GroupOperationalNotifier.notify(bot: bot, gruppo_id: g_id, topic_id: t_id, text: "➖ <b>#{u_name}</b> ha rimosso: #{StoricoManager.nome_storico_per_telegram(nome)}")
     end
   else
     DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: user_id, items_text: nome, topic_id: t_id, link_url: link_url, split_items: false)
     
     # MESSAGGIO UNIFORMATO (Aggiunta)
     if t_chat_id && t_chat_id != callback.message.chat.id
-      bot.api.send_message(
-        chat_id: t_chat_id,
-        text: "➕ <b>#{u_name}</b> ha aggiunto: #{StoricoManager.nome_storico_per_telegram(nome)}",
-        parse_mode: "HTML",
-        message_thread_id: t_id != 0 ? t_id : nil
-      )
+      GroupOperationalNotifier.notify(bot: bot, gruppo_id: g_id, topic_id: t_id, text: "➕ <b>#{u_name}</b> ha aggiunto: #{StoricoManager.nome_storico_per_telegram(nome)}")
     end
   end
 
@@ -684,13 +648,7 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       end
 
       if item && item['gruppo_id'].to_i != 0
-        testo = DataManager.build_item_action_message(callback.from.first_name || 'Utente', item['nome'], action)
-        bot.api.send_message(
-          chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
-          text: testo,
-          parse_mode: 'HTML',
-          message_thread_id: item['topic_id'].to_i != 0 ? item['topic_id'].to_i : nil
-        ) rescue nil
+        GroupOperationalNotifier.item_action(bot: bot, item: item, actor: callback.from.first_name || 'Utente', action: action)
       end
 
       # Refresh dell'interfaccia
@@ -703,13 +661,7 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       bot.api.answer_callback_query(callback_query_id: callback.id, text: nuovo_valore ? "✅ Disponibile" : "🚫 Non disponibile") rescue nil
 
       if item && item['gruppo_id'].to_i != 0
-        testo = DataManager.build_item_action_message(callback.from.first_name || 'Utente', item['nome'], nuovo_valore ? 'disponibile' : 'non_disponibile')
-        bot.api.send_message(
-          chat_id: DataManager.get_real_chat_id(item['gruppo_id'].to_i),
-          text: testo,
-          parse_mode: 'HTML',
-          message_thread_id: item['topic_id'].to_i != 0 ? item['topic_id'].to_i : nil
-        ) rescue nil
+        GroupOperationalNotifier.item_action(bot: bot, item: item, actor: callback.from.first_name || 'Utente', action: nuovo_valore ? 'disponibile' : 'non_disponibile')
       end
 
       self.refresh_ui(bot, callback, context, g_id, t_id, page, 0)

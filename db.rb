@@ -34,9 +34,15 @@ SQL
       nome TEXT,
       creato_da INTEGER,
       chat_id INTEGER UNIQUE,
+      notifiche_operazioni INTEGER NOT NULL DEFAULT 1,
       creato_il DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   SQL
+
+  gruppi_columns = db.execute("PRAGMA table_info(gruppi)").map { |row| row["name"] }
+  unless gruppi_columns.include?("notifiche_operazioni")
+    db.execute("ALTER TABLE gruppi ADD COLUMN notifiche_operazioni INTEGER NOT NULL DEFAULT 1")
+  end
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS topics (
