@@ -17,6 +17,7 @@ require_relative 'models/carte_fedelta'
 require_relative 'models/open_food_facts_client'
 require_relative 'handlers/storico_manager'
 require_relative 'models/item_action_message'
+require_relative 'models/group_manager'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
 def telegram_token_attivo
@@ -27,6 +28,7 @@ end
 
 def notifica_gruppo(gruppo_id, topic_id, testo)
   return if gruppo_id.to_i == 0
+  return unless GroupManager.notifiche_operazioni_abilitate?(gruppo_id.to_i)
 
   token = telegram_token_attivo
   return unless token
