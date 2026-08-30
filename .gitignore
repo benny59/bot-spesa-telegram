@@ -21,6 +21,7 @@ test/*
 !test/group_operational_notifier_test.rb
 !test/open_food_facts_client_test.rb
 !test/deleted_item_cross_view_test.rb
+!test/multi_item_shared_category_test.rb
 
 # Ruby
 .bundle/

@@ -1211,6 +1211,16 @@ end
     end
     return [] if nomi.empty?
 
+    # Proprietà associativa: "A, B, C & categoria" assegna "categoria" a TUTTI gli item,
+    # non solo all'ultimo segmento dove il parser "&" incontra il testo per primo.
+    if split_items && nomi.size > 1 && nomi.count { |n| n.include?("&") } == 1 && nomi.last.include?("&")
+      _, categoria_label = nomi.last.split("&", 2)
+      categoria_condivisa = self.normalizza_categoria_nome(categoria_label)
+      unless categoria_condivisa.empty?
+        nomi = nomi.map { |n| n.include?("&") ? n : "#{n} & #{categoria_condivisa}" }
+      end
+    end
+
     categoria_id = categoria_id.to_i if categoria_id
     categoria_id = nil if categoria_id && categoria_id <= 0
     if categoria_id
