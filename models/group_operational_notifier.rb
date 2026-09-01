@@ -19,18 +19,19 @@ module GroupOperationalNotifier
     )
   end
 
-  def scopetta(bot:, gruppo_id:, topic_id:, actor:, comprati:, cancellati:)
+  def scopetta(bot:, gruppo_id:, topic_id:, actor:, comprati:, cancellati:, force: false)
     notify(
       bot: bot,
       gruppo_id: gruppo_id,
       topic_id: topic_id,
-      text: StoricoManager.notifica_scopetta_html(actor, comprati: comprati, cancellati: cancellati)
+      text: StoricoManager.notifica_scopetta_html(actor, comprati: comprati, cancellati: cancellati),
+      force: force
     )
   end
 
-  def notify(bot:, gruppo_id:, topic_id:, text:, disable_notification: nil)
+  def notify(bot:, gruppo_id:, topic_id:, text:, disable_notification: nil, force: false)
     return if gruppo_id.to_i == 0
-    return unless GroupManager.notifiche_operazioni_abilitate?(gruppo_id)
+    return unless force || GroupManager.notifiche_operazioni_abilitate?(gruppo_id)
 
     chat_id = DataManager.get_real_chat_id(gruppo_id.to_i)
     return unless chat_id

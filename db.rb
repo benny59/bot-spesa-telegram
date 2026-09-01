@@ -1722,7 +1722,7 @@ end
 
     DB.execute(
       <<-SQL,
-        SELECT DISTINCT g.id, g.nome, g.chat_id
+        SELECT DISTINCT g.id, g.nome, g.chat_id, g.notifiche_operazioni
         FROM gruppi g
         WHERE EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = ? AND m.gruppo_id = g.id)
            OR g.creato_da = ?

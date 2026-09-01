@@ -1,3 +1,7 @@
 package com.botspesa.app
 
-data class GruppoItem(val id: Int, val nome: String)
+data class GruppoItem(
+	val id: Int,
+	val nome: String,
+	val notificheOperazioni: Boolean?
+)

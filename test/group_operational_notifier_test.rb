@@ -40,6 +40,17 @@ GroupManager.imposta_notifiche_operazioni(1, false)
 GroupOperationalNotifier.item_action(bot: bot, item: item, actor: "Marco", action: :soft_delete)
 raise "quiet deve bloccare le notifiche operative" unless bot.api.messages.size == 1
 
+GroupOperationalNotifier.scopetta(
+  bot: bot,
+  gruppo_id: 1,
+  topic_id: 8,
+  actor: "Marco",
+  comprati: ["Pane"],
+  cancellati: [],
+  force: true
+)
+raise "la scopetta attivata nel gruppo deve ignorare quiet" unless bot.api.messages.size == 2
+
 GroupManager.imposta_notifiche_operazioni(1, true)
 GroupOperationalNotifier.scopetta(
   bot: bot,
@@ -49,9 +60,9 @@ GroupOperationalNotifier.scopetta(
   comprati: ["Pane"],
   cancellati: []
 )
-raise "verbose deve riattivare le notifiche operative" unless bot.api.messages.size == 2
+raise "verbose deve riattivare le notifiche operative" unless bot.api.messages.size == 3
 
 GroupOperationalNotifier.notify(bot: bot, gruppo_id: 0, topic_id: 0, text: "Ignora")
-raise "la lista personale non deve inviare notifiche" unless bot.api.messages.size == 2
+raise "la lista personale non deve inviare notifiche" unless bot.api.messages.size == 3
 
 puts "group operational notifier ok"

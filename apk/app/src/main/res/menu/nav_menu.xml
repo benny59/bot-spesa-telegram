@@ -24,6 +24,10 @@
             android:icon="@drawable/ic_checklist"
             android:title="@string/nav_storico" />
         <item
+            android:id="@+id/nav_cambia_gruppo"
+            android:icon="@drawable/ic_nav_swap"
+            android:title="@string/nav_cambia_gruppo" />
+        <item
             android:id="@+id/nav_lancia_yuka"
             android:icon="@drawable/ic_yuka_logo"
             android:title="@string/nav_lancia_yuka" />
@@ -40,9 +44,6 @@
             <item
                 android:id="@+id/nav_gestione_carte"
                 android:title="@string/nav_gestione_carte" />
-            <item
-                android:id="@+id/nav_cambia_gruppo"
-                android:title="@string/nav_cambia_gruppo" />
         </menu>
     </item>
 

@@ -543,7 +543,19 @@ object ApiClient {
         val body = http.newCall(req).execute().use { it.body!!.string() }
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
-        return raw.map { GruppoItem(id = (it["id"] as Double).toInt(), nome = it["nome"] as? String ?: "") }
+        return raw.map {
+            val notificheOperazioni = when (val value = it["notifiche_operazioni"]) {
+                is Boolean -> value
+                is Double -> value.toInt() != 0
+                is String -> value == "1" || value.equals("true", ignoreCase = true)
+                else -> null
+            }
+            GruppoItem(
+                id = (it["id"] as Double).toInt(),
+                nome = it["nome"] as? String ?: "",
+                notificheOperazioni = notificheOperazioni
+            )
+        }
     }
 
     fun getTopics(gruppoId: Int): List<TopicItem> {

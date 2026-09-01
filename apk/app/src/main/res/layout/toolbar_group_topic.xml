@@ -29,4 +29,16 @@
         android:textSize="15sp"
         android:paddingStart="2dp" />
 
+    <ImageButton
+        android:id="@+id/btnStatoNotifiche"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="4dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/notifiche_operative_attive"
+        android:padding="8dp"
+        android:src="@drawable/ic_volume_up"
+        android:tint="@android:color/white"
+        android:visibility="gone" />
+
 </LinearLayout>

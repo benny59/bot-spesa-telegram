@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var tvGruppo: TextView
     private lateinit var tvTopic: TextView
+    private lateinit var btnStatoNotifiche: ImageView
     private val items = mutableListOf<SpesaItem>()
     private var pendingFotoItemId = 0
     private var pendingNuovoArticolo: String? = null
@@ -170,6 +171,7 @@ class MainActivity : AppCompatActivity() {
         val selectorView = layoutInflater.inflate(R.layout.toolbar_group_topic, toolbar, false)
         tvGruppo = selectorView.findViewById(R.id.tvGruppoSelector)
         tvTopic  = selectorView.findViewById(R.id.tvTopicSelector)
+        btnStatoNotifiche = selectorView.findViewById(R.id.btnStatoNotifiche)
         tvGruppo.setOnClickListener { mostraDialogCambioGruppo() }
         tvTopic.setOnClickListener  { mostraDialogCambioTopic() }
         toolbar.addView(selectorView)
@@ -1544,10 +1546,14 @@ class MainActivity : AppCompatActivity() {
                                  else gruppi.find { it.id == gId }?.nome ?: "Lista"
                     val tNome  = if (gId == 0) ""
                                  else topics.find { it.topicId == tId }?.nome ?: "Principale"
-                    Triple(gNome, tNome, gId)
+                    val notificheOperazioni = gruppi.find { it.id == gId }?.notificheOperazioni
+                    GroupToolbarInfo(gNome, tNome, gId, notificheOperazioni)
                 }
             }
-            result.onSuccess { (gNome, tNome, gId) ->
+            result.onSuccess { info ->
+                val gNome = info.nomeGruppo
+                val tNome = info.nomeTopic
+                val gId = info.gruppoId
                 when (vistaAttuale) {
                     "tutti" -> {
                         tvGruppo.text = getString(R.string.vista_tutti)
@@ -1566,12 +1572,35 @@ class MainActivity : AppCompatActivity() {
                         applicaColoreToolbar(gId, tNome)
                     }
                 }
+                aggiornaStatoNotifiche(gId, info.notificheOperazioni)
                 // aggiorna sottotitolo header drawer
                 val header = findViewById<com.google.android.material.navigation.NavigationView>(R.id.navView).getHeaderView(0)
                 header.findViewById<TextView>(R.id.tvGruppoNome).text =
                     if (gId == 0) "🔒 Lista Personale" else "$gNome${if (tNome.isNotEmpty()) " • $tNome" else ""}"
             }
         }
+    }
+
+    private data class GroupToolbarInfo(
+        val nomeGruppo: String,
+        val nomeTopic: String,
+        val gruppoId: Int,
+        val notificheOperazioni: Boolean?
+    )
+
+    private fun aggiornaStatoNotifiche(gruppoId: Int, notificheOperazioni: Boolean?) {
+        if (gruppoId == 0 || notificheOperazioni == null) {
+            btnStatoNotifiche.visibility = android.view.View.GONE
+            return
+        }
+
+        val attive = notificheOperazioni
+        btnStatoNotifiche.setImageResource(if (attive) R.drawable.ic_volume_up else R.drawable.ic_volume_off)
+        btnStatoNotifiche.contentDescription = getString(
+            if (attive) R.string.notifiche_operative_attive else R.string.notifiche_operative_disattivate
+        )
+        btnStatoNotifiche.tooltipText = btnStatoNotifiche.contentDescription
+        btnStatoNotifiche.visibility = android.view.View.VISIBLE
     }
 
     private fun mostraDialogCambioTopic() = mostraDialogSceltaDestinazione()

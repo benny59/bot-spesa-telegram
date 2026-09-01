@@ -363,7 +363,8 @@ when /^trigger_list:(-?\d*):(\d*)$/
               topic_id: t_id,
               actor: u_name,
               comprati: comprati,
-              cancellati: cancellati
+              cancellati: cancellati,
+              force: callback.message.chat.type != "private" && callback.message.chat.id == chat_id_dest
             )
           end
         end
@@ -388,15 +389,17 @@ when /^trigger_list:(-?\d*):(\d*)$/
       )
       rimossi = DataManager.esegui_scopetta(g_id, t_id)
 
-      if rimossi > 0 && g_id != 0 && callback.message.chat.type == "private"
+      if rimossi > 0 && g_id != 0
         u_name = callback.from.first_name
+        chat_id_dest = DataManager.get_real_chat_id(g_id)
         GroupOperationalNotifier.scopetta(
           bot: bot,
           gruppo_id: g_id,
           topic_id: t_id,
           actor: u_name,
           comprati: acquistati.map { |item| item["nome"] },
-          cancellati: cancellati.map { |item| item["nome"] }
+          cancellati: cancellati.map { |item| item["nome"] },
+          force: callback.message.chat.type != "private" && callback.message.chat.id == chat_id_dest
         )
       end
 

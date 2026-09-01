@@ -221,11 +221,18 @@ get '/gruppi' do
   rows = if user_id && user_id != 0
     DataManager.prendi_gruppi_accessibili(user_id)
   else
-    DB.execute("SELECT id, nome, chat_id FROM gruppi ORDER BY nome")
+    DB.execute("SELECT id, nome, chat_id, notifiche_operazioni FROM gruppi ORDER BY nome")
   end
-  result = rows.map { |r| { id: r['id'], nome: r['nome'], chat_id: r['chat_id'] } }
+  result = rows.map do |r|
+    {
+      id: r['id'],
+      nome: r['nome'],
+      chat_id: r['chat_id'],
+      notifiche_operazioni: r['notifiche_operazioni'].to_i != 0
+    }
+  end
   # Lista Personale: virtuale, per ogni utente filtra i propri articoli
-  ([{ id: 0, nome: 'Lista Personale', chat_id: nil }] + result).to_json
+  ([{ id: 0, nome: 'Lista Personale', chat_id: nil, notifiche_operazioni: nil }] + result).to_json
 end
 
 get '/topics' do
