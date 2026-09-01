@@ -16,6 +16,10 @@
             android:icon="@drawable/ic_nav_lista"
             android:title="@string/nav_miei" />
         <item
+            android:id="@+id/nav_preferiti"
+            android:icon="@drawable/ic_star_border"
+            android:title="@string/preferiti" />
+        <item
             android:id="@+id/nav_checklist"
             android:icon="@drawable/ic_checklist"
             android:title="@string/checklist" />

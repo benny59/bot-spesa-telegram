@@ -6,7 +6,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
-    <TextView
+    <LinearLayout
         android:id="@+id/tvContextSeparator"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -14,12 +14,27 @@
         android:background="?attr/selectableItemBackground"
         android:clickable="true"
         android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:paddingHorizontal="16dp"
         android:paddingVertical="10dp"
-        android:textColor="@color/colorPrimary"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvContextSeparatorText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/colorPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/ivContextNotification"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="8dp"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <androidx.cardview.widget.CardView
         android:id="@+id/itemCard"
@@ -106,6 +121,14 @@
             android:src="@drawable/ic_foto"
             android:contentDescription="@string/aggiungi_foto"
             android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/ivPreferito"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="@string/preferito"
+            android:src="@drawable/ic_star_border" />
 
         <!-- Segno di spunta se comprato -->
         <TextView

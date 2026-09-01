@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.cardview.widget.CardView
 import androidx.core.graphics.ColorUtils
@@ -16,7 +17,10 @@ class SpesaAdapter(
     private val onFoto: (SpesaItem) -> Unit,
     private val onLink: (SpesaItem) -> Unit,
     private val onContext: (SpesaItem) -> Unit,
+    private val isFavorite: (SpesaItem) -> Boolean,
+    private val onFavorite: (SpesaItem) -> Unit,
     private val contextColor: (SpesaItem) -> Int,
+    private val notificationEnabled: (Int) -> Boolean?,
     private val onLongPress: (SpesaItem, android.view.View) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<SpesaAdapter.ViewHolder>() {
 
@@ -28,7 +32,10 @@ class SpesaAdapter(
         val tvComprato: TextView      = view.findViewById(R.id.tvComprato)
         val ivLink: ImageView         = view.findViewById(R.id.ivLink)
         val ivFoto: ImageView         = view.findViewById(R.id.ivFoto)
-        val tvContextSeparator: TextView = view.findViewById(R.id.tvContextSeparator)
+        val ivPreferito: ImageView    = view.findViewById(R.id.ivPreferito)
+        val contextSeparator: LinearLayout = view.findViewById(R.id.tvContextSeparator)
+        val tvContextSeparator: TextView = view.findViewById(R.id.tvContextSeparatorText)
+        val ivContextNotification: ImageView = view.findViewById(R.id.ivContextNotification)
         val itemCard: CardView = view.findViewById(R.id.itemCard)
     }
 
@@ -43,17 +50,38 @@ class SpesaAdapter(
         val mostraContesto = item.nomeContesto.isNotEmpty() &&
             (position == 0 || items[position - 1].gruppoId != item.gruppoId ||
                 items[position - 1].topicId != item.topicId)
-        holder.tvContextSeparator.visibility = if (mostraContesto) View.VISIBLE else View.GONE
+        holder.contextSeparator.visibility = if (mostraContesto) View.VISIBLE else View.GONE
         holder.tvContextSeparator.text = "▸ ${item.nomeContesto}"
         if (mostraContesto) {
             val color = contextColor(item)
-            holder.tvContextSeparator.setBackgroundColor(color)
-            holder.tvContextSeparator.setTextColor(
-                if (ColorUtils.calculateLuminance(color) < 0.45) android.graphics.Color.WHITE
-                else android.graphics.Color.BLACK
-            )
+            val textColor = if (ColorUtils.calculateLuminance(color) < 0.45) {
+                android.graphics.Color.WHITE
+            } else {
+                android.graphics.Color.BLACK
+            }
+            holder.contextSeparator.setBackgroundColor(color)
+            holder.tvContextSeparator.setTextColor(textColor)
+
+            val notificheAttive = notificationEnabled(item.gruppoId)
+            val iconRes = when (notificheAttive) {
+                true -> R.drawable.ic_volume_up
+                false -> R.drawable.ic_volume_off
+                null -> 0
+            }
+            holder.ivContextNotification.visibility = if (iconRes == 0) View.GONE else View.VISIBLE
+            if (iconRes != 0) {
+                holder.ivContextNotification.setImageResource(iconRes)
+                holder.ivContextNotification.setColorFilter(textColor)
+            }
+            holder.contextSeparator.contentDescription = when (notificheAttive) {
+                true -> "${item.nomeContesto}. ${holder.itemView.context.getString(R.string.notifiche_operative_attive)}"
+                false -> "${item.nomeContesto}. ${holder.itemView.context.getString(R.string.notifiche_operative_disattivate)}"
+                null -> item.nomeContesto
+            }
+        } else {
+            holder.ivContextNotification.visibility = View.GONE
         }
-        holder.tvContextSeparator.setOnClickListener { onContext(item) }
+        holder.contextSeparator.setOnClickListener { onContext(item) }
         holder.tvNome.text = item.nome
 
         val labels = mutableListOf<String>()
@@ -123,6 +151,11 @@ class SpesaAdapter(
 
         holder.ivFoto.visibility = if (item.hasFoto) View.VISIBLE else View.GONE
         holder.ivFoto.setOnClickListener { onFoto(item) }
+
+        holder.ivPreferito.setImageResource(
+            if (isFavorite(item)) R.drawable.ic_star else R.drawable.ic_star_border
+        )
+        holder.ivPreferito.setOnClickListener { onFavorite(item) }
 
         holder.itemCard.setOnClickListener { onToggle(item) }
         holder.itemCard.setOnLongClickListener { v -> onLongPress(item, v); true }

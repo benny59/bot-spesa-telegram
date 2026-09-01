@@ -29,16 +29,12 @@
         android:textSize="15sp"
         android:paddingStart="2dp" />
 
-    <ImageButton
-        android:id="@+id/btnStatoNotifiche"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginStart="4dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
+    <ImageView
+        android:id="@+id/ivToolbarNotification"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="6dp"
         android:contentDescription="@string/notifiche_operative_attive"
-        android:padding="8dp"
-        android:src="@drawable/ic_volume_up"
-        android:tint="@android:color/white"
         android:visibility="gone" />
 
 </LinearLayout>

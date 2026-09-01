@@ -29,6 +29,8 @@
     <string name="nav_collega_telegram">Collega account Telegram</string>
     <string name="nav_tutti">Tutti gli articoli</string>
     <string name="nav_miei">I miei articoli</string>
+    <string name="preferiti">Preferiti</string>
+    <string name="preferito">Preferito</string>
     <string name="checklist">Checklist</string>
     <string name="nav_storico">Storico acquisti</string>
     <string name="nav_lancia_yuka">Lancia Yuka</string>
