@@ -684,7 +684,38 @@ class DataManager
   end
 
   def self.categorie_assegnabili(gruppo_id = nil, topic_id = nil)
-    self.categorie_per_android(gruppo_id, topic_id).reject { |row| !!row[:effimera] }
+    canoniche = self.categorie_per_android(gruppo_id, topic_id).reject { |row| !!row[:effimera] }
+    canonical_keys = canoniche.map { |row| row[:nome].to_s.strip.downcase }.to_h { |key| [key, true] }
+
+    where = ["deleted = 0", "nome LIKE '%&%'"]
+    params = []
+    unless gruppo_id.nil?
+      where << "gruppo_id = ?"
+      params << gruppo_id.to_i
+    end
+    unless topic_id.nil?
+      where << "topic_id = ?"
+      params << topic_id.to_i
+    end
+
+    effimere_by_key = {}
+    DB.execute("SELECT nome FROM items WHERE #{where.join(' AND ')} ORDER BY nome ASC", params).each do |row|
+      _item_nome, categoria = row["nome"].to_s.split("&", 2)
+      categoria_label = self.normalizza_categoria_nome(categoria)
+      next if categoria_label.empty?
+
+      categoria_nome = self.categoria_nome_canonica(categoria_label)
+      key = categoria_nome.downcase
+      next if canonical_keys[key]
+
+      effimere_by_key[key] ||= {
+        id: 0,
+        nome: categoria_nome,
+        effimera: true
+      }
+    end
+
+    (canoniche + effimere_by_key.values).sort_by { |row| row[:nome].to_s.downcase }
   end
 
   def self.categorie_per_android(gruppo_id = nil, topic_id = nil)

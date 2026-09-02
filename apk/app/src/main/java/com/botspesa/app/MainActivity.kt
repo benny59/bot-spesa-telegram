@@ -57,6 +57,13 @@ class MainActivity : AppCompatActivity() {
         val label: String
     )
 
+    private data class CategoriaOption(
+        val id: Int?,
+        val nome: String,
+        val effimera: Boolean,
+        val label: String
+    )
+
     private companion object {
         const val LINK_MARKER = "[YUKA_LINK]"
     }
@@ -947,14 +954,7 @@ class MainActivity : AppCompatActivity() {
             val categorie = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getCategorie(item.gruppoId, item.topicId) }.getOrDefault(emptyList())
             }
-            val categorieOrdinate = categorie
-                .filter { !it.effimera }
-                .sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
-            val opzioni = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
-            opzioni.addAll(categorieOrdinate.map { categoria ->
-                val displayName = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome
-                categoria.id to LocalizationManager.localizedCategoryName(this@MainActivity, displayName)
-            })
+            val opzioni = opzioniCategoria(categorie)
             val input = EditText(this@MainActivity).apply {
                 setText(item.nome)
                 setSelection(text.length)
@@ -964,9 +964,15 @@ class MainActivity : AppCompatActivity() {
                 adapter = ArrayAdapter(
                     this@MainActivity,
                     android.R.layout.simple_spinner_item,
-                    opzioni.map { it.second }
+                    opzioni.map { it.label }
                 ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-                setSelection(opzioni.indexOfFirst { it.first == item.categoriaId }.takeIf { it >= 0 } ?: 0)
+                setSelection(opzioni.indexOfFirst { option ->
+                    if (item.categoriaEffimera) {
+                        option.effimera && option.nome.equals(item.categoriaNome, ignoreCase = true)
+                    } else {
+                        option.id == item.categoriaId.takeIf { it > 0 }
+                    }
+                }.takeIf { it >= 0 } ?: 0)
             }
             val container = android.widget.LinearLayout(this@MainActivity).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
@@ -989,11 +995,16 @@ class MainActivity : AppCompatActivity() {
                     val nome = input.text.toString().trim()
                     if (nome.isEmpty()) input.error = getString(R.string.testo_vuoto)
                     else {
-                        val categoriaSelezionata = opzioni[spinner.selectedItemPosition].first
+                        val categoriaSelezionata = opzioni[spinner.selectedItemPosition]
+                        val nomePayload = if (categoriaSelezionata.effimera) {
+                            nomeConCategoriaEffimera(nome, categoriaSelezionata.nome)
+                        } else {
+                            nome
+                        }
                         dialog.dismiss()
                         lifecycleScope.launch {
                             val ok = withContext(Dispatchers.IO) {
-                                runCatching { ApiClient.updateItem(item.id, nome, userId, categoriaSelezionata.takeIf { it > 0 }) }.getOrDefault(false)
+                                runCatching { ApiClient.updateItem(item.id, nomePayload, userId, categoriaSelezionata.id) }.getOrDefault(false)
                             }
                             if (ok) aggiornaLista()
                             else Toast.makeText(this@MainActivity, getString(R.string.modifica_non_riuscita), Toast.LENGTH_SHORT).show()
@@ -1370,18 +1381,11 @@ class MainActivity : AppCompatActivity() {
             val categorieBase = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getCategorie(gruppoId, topicId) }.getOrDefault(emptyList())
             }
-            val categorieOrdinate = categorieBase
-                .filter { !it.effimera }
-                .sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
-            val opzioniCategoria = mutableListOf<Pair<Int, String>>(0 to getString(R.string.nessuna_categoria))
-            opzioniCategoria.addAll(categorieOrdinate.map { categoria ->
-                val displayName = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome
-                categoria.id to LocalizationManager.localizedCategoryName(this@MainActivity, displayName)
-            })
+            val opzioniCategoria = opzioniCategoria(categorieBase)
             categoriaSpinner.adapter = ArrayAdapter(
                 this@MainActivity,
                 android.R.layout.simple_spinner_item,
-                opzioniCategoria.map { it.second }
+                opzioniCategoria.map { it.label }
             ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
             val radioGroup = android.widget.RadioGroup(this@MainActivity).apply {
                 orientation = android.widget.RadioGroup.VERTICAL
@@ -1455,8 +1459,13 @@ class MainActivity : AppCompatActivity() {
                         input.error = getString(R.string.inserisci_almeno_un_articolo)
                     } else {
                         dlg.dismiss()
-                        val categoriaIdSelezionata = opzioniCategoria[categoriaSpinner.selectedItemPosition].first
-                        aggiungiItem(testo, destinazioneSelezionata(), prefilledLink, categoriaIdSelezionata.takeIf { it > 0 })
+                        val categoriaSelezionata = opzioniCategoria[categoriaSpinner.selectedItemPosition]
+                        val testoPayload = if (categoriaSelezionata.effimera) {
+                            nomeConCategoriaEffimera(testo, categoriaSelezionata.nome)
+                        } else {
+                            testo
+                        }
+                        aggiungiItem(testoPayload, destinazioneSelezionata(), prefilledLink, categoriaSelezionata.id)
                     }
                 }
                 dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -1494,6 +1503,32 @@ class MainActivity : AppCompatActivity() {
                 append(details.joinToString(" · "))
             }
         }
+    }
+
+    private fun opzioniCategoria(categorie: List<ApiClient.CategoriaItem>): List<CategoriaOption> {
+        val categorieOrdinate = categorie
+            .sortedWith(compareBy<ApiClient.CategoriaItem> { it.nome.lowercase(Locale.ROOT) }.thenBy { it.nome })
+
+        return buildList {
+            add(CategoriaOption(null, "", false, getString(R.string.nessuna_categoria)))
+            addAll(categorieOrdinate.map { categoria ->
+                val displayName = if (categoria.effimera) categoria.nome.lowercase(Locale.ROOT) else categoria.nome
+                val marker = if (categoria.effimera) "◌ " else ""
+                CategoriaOption(
+                    id = categoria.id.takeIf { !categoria.effimera && it > 0 },
+                    nome = categoria.nome,
+                    effimera = categoria.effimera,
+                    label = marker + LocalizationManager.localizedCategoryName(this@MainActivity, displayName)
+                )
+            })
+        }
+    }
+
+    private fun nomeConCategoriaEffimera(nome: String, categoriaNome: String): String {
+        val nomePulito = nome.trim()
+        val categoriaPulita = categoriaNome.trim()
+        if (nomePulito.isEmpty() || categoriaPulita.isEmpty() || nomePulito.contains("&")) return nomePulito
+        return "$nomePulito & $categoriaPulita"
     }
 
     private fun aggiungiItem(testo: String, destinazione: AddDestination, linkUrl: String? = null, categoriaId: Int? = null) {

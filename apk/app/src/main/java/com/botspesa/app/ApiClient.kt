@@ -66,12 +66,12 @@ object ApiClient {
         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw
-            .filter { !(it["effimera"] as? Boolean ?: false) }
             .map { item ->
+                val effimera = item["effimera"] as? Boolean ?: false
                 CategoriaItem(
                     id = (item["id"] as? Double)?.toInt() ?: 0,
                     nome = item["nome"] as? String ?: "",
-                    effimera = false
+                    effimera = effimera
                 )
             }
     }
