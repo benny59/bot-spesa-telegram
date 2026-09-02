@@ -555,6 +555,9 @@ class MainActivity : AppCompatActivity() {
     private fun coloreSeparatoreContesto(item: SpesaItem): Int {
         if (item.gruppoId == 0) return coloreListaPersonale()
         val topicNome = item.nomeTopic.ifEmpty {
+            if (vistaAttuale.isEmpty()) {
+                return@ifEmpty tvTopic.text.toString().trimEnd('▾', ' ').trim()
+            }
             item.nomeContesto.substringAfter(" • ", "")
         }
         return coloreTopic(item.gruppoId, item.topicId, topicNome)
