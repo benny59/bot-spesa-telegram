@@ -683,17 +683,28 @@ class DataManager
     nome.to_s.strip.split(/\s+/).map { |part| part.to_s.empty? ? part : part[0].upcase + part[1..-1].to_s.downcase }.join(" ")
   end
 
-  def self.categorie_assegnabili(gruppo_id = nil, topic_id = nil)
+  def self.categorie_assegnabili(gruppo_id = nil, topic_id = nil, user_id = nil)
     canoniche = self.categorie_per_android(gruppo_id, topic_id).reject { |row| !!row[:effimera] }
     canonical_keys = canoniche.map { |row| row[:nome].to_s.strip.downcase }.to_h { |key| [key, true] }
 
     where = ["deleted = 0", "nome LIKE '%&%'"]
     params = []
-    unless gruppo_id.nil?
+    user_id = user_id.to_i if user_id
+    if user_id && user_id > 0
+      where << <<~SQL.strip
+        (
+          gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
+          OR gruppo_id IN (SELECT id FROM gruppi WHERE creato_da = ?)
+          OR gruppo_id IN (SELECT gruppo_id FROM items WHERE creato_da = ?)
+          OR (gruppo_id = 0 AND creato_da = ?)
+        )
+      SQL
+      params.concat([user_id, user_id, user_id, user_id])
+    elsif !gruppo_id.nil?
       where << "gruppo_id = ?"
       params << gruppo_id.to_i
     end
-    unless topic_id.nil?
+    if !(user_id && user_id > 0) && !topic_id.nil?
       where << "topic_id = ?"
       params << topic_id.to_i
     end

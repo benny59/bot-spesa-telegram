@@ -57,9 +57,9 @@ object ApiClient {
         return parseItems(body)
     }
 
-    fun getCategorie(gruppoId: Int, topicId: Int): List<CategoriaItem> {
+    fun getCategorie(gruppoId: Int, topicId: Int, userId: Int = 0): List<CategoriaItem> {
         val req = Request.Builder()
-            .url("$baseUrl/categorie?gruppo_id=$gruppoId&topic_id=$topicId")
+            .url("$baseUrl/categorie?gruppo_id=$gruppoId&topic_id=$topicId&user_id=$userId")
             .auth()
             .build()
         val body = http.newCall(req).execute().use { it.body!!.string() }

@@ -322,13 +322,14 @@ end
 get '/categorie' do
   gruppo_id = params[:gruppo_id]&.to_i
   topic_id  = params[:topic_id]&.to_i || 0
+  user_id   = params[:user_id]&.to_i || 0
 
   categorie = if gruppo_id && gruppo_id != 0
-    DataManager.categorie_assegnabili(gruppo_id, topic_id)
+    DataManager.categorie_assegnabili(gruppo_id, topic_id, user_id)
   elsif topic_id && topic_id != 0
-    DataManager.categorie_assegnabili(nil, topic_id)
+    DataManager.categorie_assegnabili(nil, topic_id, user_id)
   else
-    DataManager.categorie_assegnabili
+    DataManager.categorie_assegnabili(nil, nil, user_id)
   end
 
   categorie.map { |r| { id: r[:id].to_i, nome: r[:nome].to_s, effimera: !!r[:effimera] } }.to_json

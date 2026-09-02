@@ -952,7 +952,7 @@ class MainActivity : AppCompatActivity() {
     private fun mostraDialogModificaItem(item: SpesaItem) {
         lifecycleScope.launch {
             val categorie = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getCategorie(item.gruppoId, item.topicId) }.getOrDefault(emptyList())
+                runCatching { ApiClient.getCategorie(item.gruppoId, item.topicId, userId) }.getOrDefault(emptyList())
             }
             val opzioni = opzioniCategoria(categorie)
             val input = EditText(this@MainActivity).apply {
@@ -1379,7 +1379,7 @@ class MainActivity : AppCompatActivity() {
             }
             val categoriaSpinner = android.widget.Spinner(this@MainActivity)
             val categorieBase = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getCategorie(gruppoId, topicId) }.getOrDefault(emptyList())
+                runCatching { ApiClient.getCategorie(gruppoId, topicId, userId) }.getOrDefault(emptyList())
             }
             val opzioniCategoria = opzioniCategoria(categorieBase)
             categoriaSpinner.adapter = ArrayAdapter(
