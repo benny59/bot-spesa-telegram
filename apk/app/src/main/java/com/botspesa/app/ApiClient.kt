@@ -240,7 +240,9 @@ object ApiClient {
         userId: Int,
         linkUrl: String? = null,
         splitItems: Boolean = true,
-        categoriaId: Int? = null
+        categoriaId: Int? = null,
+        telegramPhotoId: String? = null,
+        telegramPhotoFileName: String? = null
     ): List<Int> {
         val payloadMap = mutableMapOf<String, Any>(
             "gruppo_id" to gruppoId,
@@ -255,6 +257,12 @@ object ApiClient {
         }
         if (categoriaId != null && categoriaId > 0) {
             payloadMap["categoria_id"] = categoriaId
+        }
+        val photoId = telegramPhotoId?.trim().orEmpty()
+        val photoFileName = telegramPhotoFileName?.trim().orEmpty()
+        if (photoId.isNotEmpty() && photoFileName.isNotEmpty()) {
+            payloadMap["picture_id"] = photoId
+            payloadMap["picture_file_name"] = photoFileName
         }
         val payload = gson.toJson(payloadMap)
         val req = Request.Builder()

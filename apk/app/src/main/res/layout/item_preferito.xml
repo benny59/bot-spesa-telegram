@@ -46,4 +46,13 @@
         android:src="@drawable/ic_share"
         android:tint="#FF7A00"
         android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/ivPreferitoFoto"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="8dp"
+        android:contentDescription="@string/foto_allegata"
+        android:src="@drawable/ic_foto"
+        android:visibility="gone" />
 </LinearLayout>

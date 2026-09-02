@@ -46,10 +46,11 @@ class PreferitiSheet : BottomSheetDialogFragment() {
                         nome = favorite.description,
                         userId = userId,
                         linkUrl = favorite.yukaLink.ifBlank { null },
-                        splitItems = favorite.yukaLink.isBlank(),
-                        categoriaId = favorite.categoryId.takeIf { it > 0 }
+                        splitItems = false,
+                        categoriaId = favorite.categoryId.takeIf { it > 0 },
+                        telegramPhotoId = favorite.telegramPhotoId,
+                        telegramPhotoFileName = favorite.telegramPhotoFileName
                     ).also { if (it.isEmpty()) throw IllegalStateException("Articolo non creato") }
-                    // TODO: reuse telegramPhotoId when the backend accepts Telegram photo references.
                 }
             }
             result.onSuccess {
@@ -92,6 +93,7 @@ private class PreferitiAdapter(
         val description: TextView = view.findViewById(R.id.tvPreferitoDescrizione)
         val category: TextView = view.findViewById(R.id.tvPreferitoCategoria)
         val link: View = view.findViewById(R.id.ivPreferitoLink)
+        val photo: View = view.findViewById(R.id.ivPreferitoFoto)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder = ViewHolder(
@@ -112,6 +114,7 @@ private class PreferitiAdapter(
         holder.category.visibility = if (category.isEmpty()) View.GONE else View.VISIBLE
         holder.category.text = category
         holder.link.visibility = if (favorite.yukaLink.isBlank()) View.GONE else View.VISIBLE
+        holder.photo.visibility = if (favorite.telegramPhotoId.isNullOrBlank()) View.GONE else View.VISIBLE
         holder.itemView.setOnClickListener { onAdd(favorite) }
     }
 }

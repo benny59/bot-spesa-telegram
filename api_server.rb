@@ -342,6 +342,8 @@ post '/lista' do
   link_url  = body['link_url'].to_s.strip
   split_items = body.key?('split_items') ? !!body['split_items'] : true
   categoria_id = body['categoria_id']&.to_i
+  picture_id = body['picture_id'].to_s.strip
+  picture_file_name = body['picture_file_name'].to_s.strip
   user_id   = body['user_id']&.to_i || 0
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
@@ -359,6 +361,12 @@ post '/lista' do
     split_items: split_items,
     categoria_id: categoria_id
   )
+
+  if !picture_id.empty? && !picture_file_name.empty?
+    item_ids.each do |item_id|
+      DataManager.salva_foto_articolo(item_id, picture_id, picture_file_name)
+    end
+  end
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
