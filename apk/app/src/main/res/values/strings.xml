@@ -50,6 +50,9 @@
     <string name="action_disponibile">Disponibile / non disponibile</string>
     <string name="status_articolo_disponibile">Articolo disponibile</string>
     <string name="status_articolo_non_disponibile">Articolo non disponibile</string>
+    <string name="separatore_cancellati">Cancellati</string>
+    <string name="separatore_nel_carrello">Nel carrello</string>
+    <string name="separatore_non_disponibili">Non disponibili</string>
     <string name="dialog_lingua_titolo">Seleziona lingua</string>
     <string name="admin_title">⚙️ Amministrazione</string>
     <string name="admin_lingua">Lingua</string>

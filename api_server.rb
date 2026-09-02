@@ -26,9 +26,9 @@ def telegram_token_attivo
   DB.get_first_value("SELECT value FROM config WHERE key = ?", [key]) || ENV['TELEGRAM_BOT_TOKEN']
 end
 
-def notifica_gruppo(gruppo_id, topic_id, testo)
+def notifica_gruppo(gruppo_id, topic_id, testo, force: false)
   return if gruppo_id.to_i == 0
-  return unless GroupManager.notifiche_operazioni_abilitate?(gruppo_id.to_i)
+  return unless force || GroupManager.notifiche_operazioni_abilitate?(gruppo_id.to_i)
 
   token = telegram_token_attivo
   return unless token
@@ -50,7 +50,7 @@ end
 # Invia notifica Telegram al gruppo dopo la scopetta
 # user_id può essere 0 per i trigger automatici (cronoscopetta): in tal caso
 # il nome viene sostituito da nome_override se passato.
-def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: [], nome_override: nil)
+def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: [], nome_override: nil, force: false)
   nome = if nome_override && !nome_override.to_s.strip.empty?
     nome_override.to_s
   else
@@ -60,7 +60,7 @@ def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: []
   end
 
   testo = StoricoManager.notifica_scopetta_html(nome, comprati: comprati, cancellati: cancellati)
-  notifica_gruppo(gruppo_id, topic_id, testo)
+  notifica_gruppo(gruppo_id, topic_id, testo, force: force)
 end
 
 # Esegue la cronoscopetta di chiusura giornata usando la logica già esistente.
@@ -516,7 +516,8 @@ delete '/lista/comprati' do
       topic_id,
       user_id,
       comprati: acquistati.map { |item| item['nome'] },
-      cancellati: cancellati.map { |item| item['nome'] }
+      cancellati: cancellati.map { |item| item['nome'] },
+      force: gruppo_id != 0 && user_id != 0
     )
   end
 

@@ -45,6 +45,9 @@
     <string name="action_disponibile">Verfügbar / nicht verfügbar</string>
     <string name="status_articolo_disponibile">Artikel verfügbar</string>
     <string name="status_articolo_non_disponibile">Artikel nicht verfügbar</string>
+    <string name="separatore_cancellati">Gelöscht</string>
+    <string name="separatore_nel_carrello">Im Einkaufswagen</string>
+    <string name="separatore_non_disponibili">Nicht verfügbar</string>
     <string name="dialog_lingua_titolo">Sprache auswählen</string>
     <string name="admin_title">⚙️ Verwaltung</string>
     <string name="admin_lingua">Sprache</string>

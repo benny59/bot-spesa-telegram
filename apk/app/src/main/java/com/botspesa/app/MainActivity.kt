@@ -167,6 +167,7 @@ class MainActivity : AppCompatActivity() {
             onFavorite = ::toggleFavorite,
             contextColor = ::coloreSeparatoreContesto,
             notificationEnabled = { gruppoId -> notificheOperazioniPerGruppo[gruppoId] },
+            singleContextList = { vistaAttuale.isEmpty() },
             onLongPress = { item, anchor -> mostraMenuContestuale(item, anchor) }
         )
 

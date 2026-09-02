@@ -21,6 +21,7 @@ class SpesaAdapter(
     private val onFavorite: (SpesaItem) -> Unit,
     private val contextColor: (SpesaItem) -> Int,
     private val notificationEnabled: (Int) -> Boolean?,
+    private val singleContextList: () -> Boolean,
     private val onLongPress: (SpesaItem, android.view.View) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<SpesaAdapter.ViewHolder>() {
 
@@ -47,11 +48,19 @@ class SpesaAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
-        val mostraContesto = item.nomeContesto.isNotEmpty() &&
-            (position == 0 || items[position - 1].gruppoId != item.gruppoId ||
-                items[position - 1].topicId != item.topicId)
+        val listaSingola = singleContextList()
+        val categoriaVisualizzata = if (item.categoriaEffimera) item.categoriaNome.lowercase() else item.categoriaNome
+        val categoriaTradotta = LocalizationManager.localizedCategoryName(holder.itemView.context, categoriaVisualizzata)
+        val separatoreLista = sectionLabel(holder, item)
+        val mostraContesto = if (listaSingola) {
+            position == 0 || sectionLabel(holder, items[position - 1]) != separatoreLista
+        } else {
+            item.nomeContesto.isNotEmpty() &&
+                (position == 0 || items[position - 1].gruppoId != item.gruppoId ||
+                    items[position - 1].topicId != item.topicId)
+        }
         holder.contextSeparator.visibility = if (mostraContesto) View.VISIBLE else View.GONE
-        holder.tvContextSeparator.text = "▸ ${item.nomeContesto}"
+        holder.tvContextSeparator.text = if (listaSingola) separatoreLista else "▸ ${item.nomeContesto}"
         if (mostraContesto) {
             val color = contextColor(item)
             val textColor = if (ColorUtils.calculateLuminance(color) < 0.45) {
@@ -62,7 +71,7 @@ class SpesaAdapter(
             holder.contextSeparator.setBackgroundColor(color)
             holder.tvContextSeparator.setTextColor(textColor)
 
-            val notificheAttive = notificationEnabled(item.gruppoId)
+            val notificheAttive = if (listaSingola) null else notificationEnabled(item.gruppoId)
             val iconRes = when (notificheAttive) {
                 true -> R.drawable.ic_volume_up
                 false -> R.drawable.ic_volume_off
@@ -76,19 +85,19 @@ class SpesaAdapter(
             holder.contextSeparator.contentDescription = when (notificheAttive) {
                 true -> "${item.nomeContesto}. ${holder.itemView.context.getString(R.string.notifiche_operative_attive)}"
                 false -> "${item.nomeContesto}. ${holder.itemView.context.getString(R.string.notifiche_operative_disattivate)}"
-                null -> item.nomeContesto
+                null -> if (listaSingola) separatoreLista else item.nomeContesto
             }
         } else {
             holder.ivContextNotification.visibility = View.GONE
         }
-        holder.contextSeparator.setOnClickListener { onContext(item) }
+        holder.contextSeparator.isClickable = !listaSingola
+        holder.contextSeparator.isFocusable = !listaSingola
+        holder.contextSeparator.setOnClickListener(if (listaSingola) null else View.OnClickListener { onContext(item) })
         holder.tvNome.text = item.nome
 
         val labels = mutableListOf<String>()
-        val categoriaVisualizzata = if (item.categoriaEffimera) item.categoriaNome.lowercase() else item.categoriaNome
-        val categoriaTradotta = LocalizationManager.localizedCategoryName(holder.itemView.context, categoriaVisualizzata)
         val simboloCategoria = if (item.categoriaEffimera) "◌" else "▣"
-        if (item.categoriaNome.isNotEmpty()) labels.add("$simboloCategoria $categoriaTradotta")
+        if (!listaSingola && item.categoriaNome.isNotEmpty()) labels.add("$simboloCategoria $categoriaTradotta")
         if (labels.isNotEmpty()) {
             holder.tvGruppoNome.visibility = View.VISIBLE
             holder.tvGruppoNome.text = labels.joinToString(" • ")
@@ -162,4 +171,17 @@ class SpesaAdapter(
     }
 
     override fun getItemCount(): Int = items.size
+
+    private fun sectionLabel(holder: ViewHolder, item: SpesaItem): String {
+        return when {
+            item.deleted -> holder.itemView.context.getString(R.string.separatore_cancellati)
+            item.isBought -> holder.itemView.context.getString(R.string.separatore_nel_carrello)
+            item.isUnavailable -> holder.itemView.context.getString(R.string.separatore_non_disponibili)
+            item.categoriaNome.isNotEmpty() -> {
+                val categoriaVisualizzata = if (item.categoriaEffimera) item.categoriaNome.lowercase() else item.categoriaNome
+                LocalizationManager.localizedCategoryName(holder.itemView.context, categoriaVisualizzata)
+            }
+            else -> holder.itemView.context.getString(R.string.nessuna_categoria)
+        }
+    }
 }
