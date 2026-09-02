@@ -7,9 +7,9 @@ data class FavoriteItem(
     val categoryName: String,
     val categoryEphemeral: Boolean,
     val yukaLink: String,
-    // TODO: populate when the item API exposes Telegram photo metadata.
     val telegramPhotoId: String? = null,
     val telegramPhotoFileName: String? = null,
+    val telegramPhotoDate: String? = null,
     val groupId: Int? = null,
     val topicId: Int? = null
 )

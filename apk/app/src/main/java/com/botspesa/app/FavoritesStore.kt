@@ -51,7 +51,10 @@ class FavoritesStore(context: Context) {
         categoryId = categoriaId,
         categoryName = categoriaNome,
         categoryEphemeral = categoriaEffimera,
-        yukaLink = linkUrl
+        yukaLink = linkUrl,
+        telegramPhotoId = telegramPhotoId,
+        telegramPhotoFileName = telegramPhotoFileName,
+        telegramPhotoDate = telegramPhotoDate
     )
 
     private companion object {

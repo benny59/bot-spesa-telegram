@@ -268,14 +268,24 @@ get '/lista' do
     ? Lista.personale(user_id_q) \
     : Lista.tutti(gruppo_id, topic_id)
 
-  # batch check quali item hanno foto
+  # Recupera i metadati dell'ultima foto senza trasferire alcuna immagine.
   item_ids = items.map { |i| i['id'] }
-  foto_ids = if item_ids.any?
+  foto_per_item = if item_ids.any?
     ph = item_ids.map { '?' }.join(',')
-    DB.execute("SELECT DISTINCT item_id FROM item_images WHERE item_id IN (#{ph})", item_ids)
-      .map { |r| r['item_id'] }.to_set
+    DB.execute(<<~SQL, item_ids).each_with_object({}) do |foto, result|
+      SELECT immagini.item_id, immagini.file_id, immagini.file_unique_id, immagini.creato_il
+      FROM item_images immagini
+      INNER JOIN (
+        SELECT item_id, MAX(id) AS id
+        FROM item_images
+        WHERE item_id IN (#{ph})
+        GROUP BY item_id
+      ) ultima ON ultima.id = immagini.id
+    SQL
+      result[foto['item_id']] = foto
+    end
   else
-    Set.new
+    {}
   end
 
   items.map do |i|
@@ -285,6 +295,7 @@ get '/lista' do
     categoria_ritornata = parsed[:categoria_nome].to_s.strip
     categoria_ritornata = i['categoria_nome'].to_s.strip if categoria_ritornata.empty?
 
+    foto = foto_per_item[i['id']]
     {
       id:            i['id'],
       gruppo_id:     i['gruppo_id'],
@@ -300,7 +311,10 @@ get '/lista' do
       creato_il:     i['creato_il'],
       deleted:       i['deleted'].to_i == 1,
       disponibile:   i['disponibile'].to_i != 0,
-      has_foto:      foto_ids.include?(i['id'])
+      has_foto:      !foto.nil?,
+      picture_id:    foto && foto['file_id'],
+      picture_date:  foto && foto['creato_il'],
+      picture_file_name: foto && foto['file_unique_id']
     }
   end.to_json
 end
