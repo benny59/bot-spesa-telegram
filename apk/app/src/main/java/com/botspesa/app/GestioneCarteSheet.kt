@@ -33,6 +33,7 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
     private val gruppoId   get() = arguments?.getInt(ARG_GRUPPO_ID)      ?: 0
     private val userId     get() = arguments?.getInt(ARG_USER_ID)        ?: 0
     private val gruppoNome get() = arguments?.getString(ARG_GRUPPO_NOME) ?: ""
+    private val mode       get() = arguments?.getString(ARG_MODE)        ?: MODE_MIE
 
     private lateinit var rvMieCarte: RecyclerView
     private lateinit var tvNessuna:  TextView
@@ -74,17 +75,31 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
         rvMieCarte.layoutManager = GridLayoutManager(requireContext(), 3)
 
         val tvTitolo = view.findViewById<TextView>(R.id.tvTitoloGestione)
-        if (gruppoNome.isNotEmpty())
-            tvTitolo.text = "🎟️ Le mie carte  •  $gruppoNome"
+        tvTitolo.text = when {
+            mode == MODE_DISPONIBILI -> "🎟️ Carte disponibili"
+            gruppoNome.isNotEmpty() -> "🎟️ Le mie carte  •  $gruppoNome"
+            else -> "🎟️ Le mie carte"
+        }
 
-        view.findViewById<Button>(R.id.btnAggiungiCarta).setOnClickListener { mostraDialogAggiunta() }
+        val btnAggiungi = view.findViewById<Button>(R.id.btnAggiungiCarta)
+        if (mode == MODE_DISPONIBILI) {
+            btnAggiungi.visibility = View.GONE
+        } else {
+            btnAggiungi.setOnClickListener { mostraDialogAggiunta() }
+        }
+        
         caricaCarte()
     }
 
     private fun caricaCarte() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getMieCarte(userId, gruppoId) }
+                runCatching {
+                    if (mode == MODE_DISPONIBILI)
+                        ApiClient.getCarteDisponibili(userId)
+                    else
+                        ApiClient.getMieCarte(userId, gruppoId)
+                }
             }
             result.onSuccess { lista ->
                 carte.clear()
@@ -245,13 +260,17 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
         private const val ARG_GRUPPO_ID   = "gruppo_id"
         private const val ARG_USER_ID     = "user_id"
         private const val ARG_GRUPPO_NOME = "gruppo_nome"
+        private const val ARG_MODE        = "mode"
+        const val MODE_MIE           = "mie"
+        const val MODE_DISPONIBILI   = "disponibili"
 
-        fun newInstance(gruppoId: Int, userId: Int, gruppoNome: String = "") =
+        fun newInstance(gruppoId: Int, userId: Int, gruppoNome: String = "", mode: String = MODE_MIE) =
             GestioneCarteSheet().apply {
                 arguments = Bundle().apply {
                     putInt(ARG_GRUPPO_ID, gruppoId)
                     putInt(ARG_USER_ID,   userId)
                     putString(ARG_GRUPPO_NOME, gruppoNome.uppercase())
+                    putString(ARG_MODE, mode)
                 }
             }
     }

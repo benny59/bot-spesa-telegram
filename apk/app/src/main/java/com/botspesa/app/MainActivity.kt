@@ -236,6 +236,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 R.id.nav_lancia_yuka      -> lanciaYukaLocale()
                 R.id.nav_lancia_satispay  -> lanciaSatispayLocale()
+                R.id.nav_carte_disponibili -> apriCarteDisponibili()
                 R.id.nav_gestione_carte    -> apriGestioneCarte()
                 R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
                 R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
@@ -611,6 +612,11 @@ class MainActivity : AppCompatActivity() {
         val gNome = tvGruppo.text.toString().trimEnd('▾', ' ')
         GestioneCarteSheet.newInstance(gruppoId, userId, gNome)
             .show(supportFragmentManager, "gestione_carte")
+    }
+
+    private fun apriCarteDisponibili() {
+        GestioneCarteSheet.newInstance(gruppoId, userId, "", GestioneCarteSheet.MODE_DISPONIBILI)
+            .show(supportFragmentManager, "carte_disponibili")
     }
 
     private fun lanciaYukaLocale() {

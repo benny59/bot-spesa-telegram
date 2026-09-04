@@ -38,6 +38,7 @@
     <string name="notifiche_operative_attive">Notifiche operative attive</string>
     <string name="notifiche_operative_disattivate">Notifiche operative disattivate</string>
     <string name="nav_lancia_satispay">Apri Satispay</string>
+    <string name="nav_carte_disponibili">🎟️ Visualizza carte disponibili</string>
     <string name="nav_gestione_carte">Gestione mie carte</string>
     <string name="nav_config_rete">Configurazione rete</string>
     <string name="nav_lingua">Lingua</string>

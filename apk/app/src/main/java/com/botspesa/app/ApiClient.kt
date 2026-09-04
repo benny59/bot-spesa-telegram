@@ -618,6 +618,14 @@ object ApiClient {
         return parseCarte(body)
     }
 
+    fun getCarteDisponibili(userId: Int): List<CartaFedeltaItem> {
+        val req = Request.Builder()
+            .url("$baseUrl/carte/disponibili?user_id=$userId")
+            .auth().build()
+        val body = http.newCall(req).execute().use { it.body!!.string() }
+        return parseCarte(body)
+    }
+
     /** Invia immagine al server per il decode barcode. Restituisce Pair(codice, formato) o null. */
     fun scanBarcode(imageBytes: ByteArray): Pair<String, String>? {
         val body = MultipartBody.Builder()

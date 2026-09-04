@@ -1567,7 +1567,7 @@ end
     query = <<-SQL
     WITH carte_unite AS (
       -- 1. Le tue carte personali (Proprietario sei TU)
-      SELECT c.id, c.nome, c.user_id, NULL as initials,
+      SELECT c.id, c.nome, c.codice, c.formato, c.user_id, NULL as initials,
              1 as is_mia,
              CASE WHEN EXISTS (
                SELECT 1 FROM gruppo_carte_collegamenti l2 WHERE l2.carta_id = c.id
@@ -1579,7 +1579,7 @@ end
       
       -- 2. Carte condivise da ALTRI nei gruppi dove sei presente
       -- (Usa DISTINCT per evitare duplicati della stessa carta da gruppi diversi)
-      SELECT DISTINCT c.id, c.nome, c.user_id, u.initials,
+      SELECT DISTINCT c.id, c.nome, c.codice, c.formato, c.user_id, u.initials,
                       0 as is_mia,
                       1 as is_condivisa
       FROM carte_fedelta c
@@ -1590,6 +1590,8 @@ end
         AND c.user_id != ? -- Non mostrare le tue come "condivise"
     )
     SELECT id, 
+           codice,
+           formato,
            user_id,
            MAX(is_mia) as is_mia,
            MAX(is_condivisa) as is_condivisa,

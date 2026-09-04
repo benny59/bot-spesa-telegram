@@ -46,6 +46,9 @@
         android:icon="@drawable/ic_nav_carte">
         <menu>
             <item
+                android:id="@+id/nav_carte_disponibili"
+                android:title="@string/nav_carte_disponibili" />
+            <item
                 android:id="@+id/nav_gestione_carte"
                 android:title="@string/nav_gestione_carte" />
         </menu>

@@ -1052,6 +1052,20 @@ get '/carte/mie' do
   }.to_json
 end
 
+# Carte disponibili per l'utente (proprie + condivise nei gruppi)
+get '/carte/disponibili' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+
+  carte = DataManager.prendi_tutte_le_carte_accessibili(user_id)
+  
+  carte.map { |r| 
+    { id: r['id'], nome: r['nome_display'], codice: r['codice']||'', 
+      formato: r['formato']||'CODE128', mia: r['is_mia'].to_i == 1, 
+      condivisa: r['is_condivisa'].to_i == 1, owner_id: r['user_id'] }
+  }.to_json
+end
+
 # Legge il barcode da un'immagine multipart; l'immagine viene eliminata dopo la scansione
 post '/carte/scan' do
   img = params[:immagine]
