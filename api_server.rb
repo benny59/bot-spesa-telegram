@@ -177,6 +177,8 @@ def item_accessibile!(item_id, user_id)
   item
 end
 
+CONFIG_PREFERITI_NOME = Lista::CONFIG_PREFERITI_NOME
+
 # Rileva il formato barcode dal codice (stesso logic del bot, senza dipendenze barby)
 def identifica_formato_codice(codice)
   c = codice.to_s.gsub(/\s/, '')
@@ -333,6 +335,45 @@ get '/categorie' do
   end
 
   categorie.map { |r| { id: r[:id].to_i, nome: r[:nome].to_s, effimera: !!r[:effimera] } }.to_json
+end
+
+get '/utente/config/preferiti' do
+  user_id = params[:user_id]&.to_i || 0
+  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
+
+  config = DB.get_first_row(
+    "SELECT link_url FROM items WHERE gruppo_id = 0 AND topic_id = 0 AND creato_da = ? AND nome = ? AND deleted = 0 ORDER BY id DESC LIMIT 1",
+    [user_id, CONFIG_PREFERITI_NOME]
+  )
+  halt 404, { error: 'backup preferiti non trovato' }.to_json unless config
+
+  backup = JSON.parse(config['link_url'].to_s)
+  halt 422, { error: 'backup preferiti non valido' }.to_json unless backup['kind'] == 'favorites-backup'
+  backup.to_json
+rescue JSON::ParserError
+  halt 422, { error: 'backup preferiti non valido' }.to_json
+end
+
+put '/utente/config/preferiti' do
+  body = json_body
+  user_id = body['user_id']&.to_i || 0
+  backup = body['backup']
+  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
+  halt 400, { error: 'backup preferiti non valido' }.to_json unless backup.is_a?(Hash) && backup['kind'] == 'favorites-backup' && backup['schemaVersion'].to_i == 1 && backup['favorites'].is_a?(Array)
+  halt 403, { error: 'backup non associato all utente' }.to_json unless backup['userId'].to_i == user_id
+
+  payload = JSON.generate(backup)
+  existing = DB.get_first_row(
+    "SELECT id FROM items WHERE gruppo_id = 0 AND topic_id = 0 AND creato_da = ? AND nome = ? ORDER BY id DESC LIMIT 1",
+    [user_id, CONFIG_PREFERITI_NOME]
+  )
+  if existing
+    DB.execute("UPDATE items SET link_url = ?, deleted = 0, comprato = '', disponibile = 1 WHERE id = ?", [payload, existing['id']])
+  else
+    DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url) VALUES (0, 0, ?, ?, ?)", [user_id, CONFIG_PREFERITI_NOME, payload])
+  end
+
+  { ok: true, last_backup_at: backup['lastBackupAt'] }.to_json
 end
 
 post '/lista' do
@@ -896,17 +937,19 @@ get '/lista/conteggi' do
   user_id = params[:user_id]&.to_i
   halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
 
-  miei = DB.get_first_value(<<~SQL, [user_id, user_id]).to_i
+  tutti = DB.get_first_value(<<~SQL, [user_id, user_id, CONFIG_PREFERITI_NOME]).to_i
+    SELECT COUNT(*) FROM items i
+    WHERE (i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
+       OR (i.gruppo_id = 0 AND i.creato_da = ?)
+    ) AND i.nome != ?
+  SQL
+  miei = DB.get_first_value(<<~SQL, [user_id, CONFIG_PREFERITI_NOME, user_id]).to_i
     SELECT COUNT(*) FROM items i
     WHERE i.creato_da = ?
+      AND i.nome != ?
       AND (i.gruppo_id = 0 OR i.gruppo_id IN (
         SELECT gruppo_id FROM memberships WHERE user_id = ?
       ))
-  SQL
-  tutti = DB.get_first_value(<<~SQL, [user_id, user_id]).to_i
-    SELECT COUNT(*) FROM items i
-    WHERE i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
-       OR (i.gruppo_id = 0 AND i.creato_da = ?)
   SQL
 
   { tutti: tutti, miei: miei }.to_json
@@ -916,7 +959,7 @@ end
 get '/lista/tutti' do
   user_id = params[:user_id]&.to_i
   halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
-  items = DataManager.prendi_tutto_ovunque(user_id)
+  items = DataManager.prendi_tutto_ovunque(user_id).reject { |item| item['nome'] == CONFIG_PREFERITI_NOME }
   items.map { |i| serializza_item(i, nome_gruppo: i['nome_gruppo'].to_s) }.to_json
 end
 
@@ -924,7 +967,7 @@ end
 get '/lista/miei' do
   user_id = params[:user_id]&.to_i
   halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
-  items = DataManager.prendi_miei_ovunque(user_id)
+  items = DataManager.prendi_miei_ovunque(user_id).reject { |item| item['nome'] == CONFIG_PREFERITI_NOME }
   items.map { |i| serializza_item(i, nome_gruppo: i['nome_gruppo'].to_s) }.to_json
 end
 

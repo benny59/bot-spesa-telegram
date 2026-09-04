@@ -710,6 +710,8 @@ class DataManager
     end
 
     effimere_by_key = {}
+    where << "nome != ?"
+    params << Lista::CONFIG_PREFERITI_NOME
     DB.execute("SELECT nome FROM items WHERE #{where.join(' AND ')} ORDER BY nome ASC", params).each do |row|
       _item_nome, categoria = row["nome"].to_s.split("&", 2)
       categoria_label = self.normalizza_categoria_nome(categoria)
@@ -761,7 +763,8 @@ class DataManager
     end
 
     item_rows = DB.execute(
-      "SELECT nome FROM items WHERE nome LIKE '%&%' ORDER BY nome ASC"
+      "SELECT nome FROM items WHERE nome LIKE '%&%' AND nome != ? ORDER BY nome ASC",
+      [Lista::CONFIG_PREFERITI_NOME]
     )
     item_rows.each do |row|
       raw = row["nome"].to_s.strip

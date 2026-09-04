@@ -18,6 +18,27 @@
         android:layout_height="1dp"
         android:background="#22000000" />
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="end"
+        android:orientation="horizontal"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="4dp">
+
+        <Button
+            android:id="@+id/btnBackupPreferiti"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/backup" />
+
+        <Button
+            android:id="@+id/btnRipristinaPreferiti"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ripristina" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/tvPreferitiVuoto"
         android:layout_width="match_parent"

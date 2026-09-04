@@ -2,6 +2,8 @@
 require_relative "../db"
 
 class Lista
+  CONFIG_PREFERITI_NOME = '__botspesa_favorites_backup__ & config'.freeze
+
   def self.tutti(gruppo_id, topic_id)
     rows = DB.execute(
       "SELECT i.*, u.initials AS user_initials, buyer.initials AS buyer_initials, c.nome AS categoria_nome
@@ -11,8 +13,9 @@ class Lista
     LEFT JOIN categorie c ON i.categoria_id = c.id
      WHERE i.gruppo_id = ?
        AND i.topic_id = ?
+       AND i.nome != ?
      ORDER BY #{DataManager.item_state_order_sql("i")}, CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC, c.nome ASC, i.id DESC",
-      [gruppo_id, topic_id]
+      [gruppo_id, topic_id, CONFIG_PREFERITI_NOME]
     )
     DataManager.ordina_items_per_categoria(rows)
   end
@@ -24,9 +27,9 @@ class Lista
      LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
     LEFT JOIN categorie c ON i.categoria_id = c.id
-     WHERE i.gruppo_id = 0 AND i.creato_da = ?
+    WHERE i.gruppo_id = 0 AND i.creato_da = ? AND i.nome != ?
      ORDER BY #{DataManager.item_state_order_sql("i")}, CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC, c.nome ASC, i.id DESC",
-      [user_id]
+     [user_id, CONFIG_PREFERITI_NOME]
     )
     DataManager.ordina_items_per_categoria(rows)
   end

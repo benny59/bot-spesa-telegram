@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.File
+import java.time.Instant
 import java.util.UUID
 
 class FavoritesStore(context: Context) {
@@ -16,6 +17,16 @@ class FavoritesStore(context: Context) {
     }.getOrDefault(emptyList())
 
     fun contains(item: SpesaItem): Boolean = all().any { it.matches(item) }
+
+    fun backup(userId: Int): FavoriteBackup = FavoriteBackup(
+        userId = userId,
+        lastBackupAt = Instant.now().toString(),
+        favorites = all()
+    )
+
+    fun restore(backup: FavoriteBackup) {
+        save(backup.favorites)
+    }
 
     fun toggle(item: SpesaItem): Boolean {
         val favorites = all().toMutableList()

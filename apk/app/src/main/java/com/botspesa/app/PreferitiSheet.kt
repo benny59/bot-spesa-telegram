@@ -34,6 +34,52 @@ class PreferitiSheet : BottomSheetDialogFragment() {
         recycler.visibility = if (favorites.isEmpty()) View.GONE else View.VISIBLE
         recycler.layoutManager = LinearLayoutManager(requireContext())
         recycler.adapter = PreferitiAdapter(favorites, addedIds) { favorite -> addFavorite(favorite, recycler) }
+        view.findViewById<View>(R.id.btnBackupPreferiti).setOnClickListener { backupPreferiti() }
+        view.findViewById<View>(R.id.btnRipristinaPreferiti).setOnClickListener { scaricaBackupPerRipristino() }
+    }
+
+    private fun backupPreferiti() {
+        lifecycleScope.launch {
+            val backup = FavoritesStore(requireContext()).backup(userId)
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.backupPreferiti(userId, backup) }
+            }
+            result.onSuccess { lastBackupAt ->
+                Toast.makeText(requireContext(), "Backup completato: $lastBackupAt", Toast.LENGTH_LONG).show()
+            }.onFailure {
+                Toast.makeText(requireContext(), it.message ?: "Errore backup", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun scaricaBackupPerRipristino() {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getBackupPreferiti(userId) }
+            }
+            result.onSuccess { backup ->
+                if (backup.schemaVersion != 1 || backup.kind != "favorites-backup" || backup.userId != userId) {
+                    Toast.makeText(requireContext(), "Backup preferiti non valido", Toast.LENGTH_LONG).show()
+                    return@onSuccess
+                }
+                confermaRipristino(backup)
+            }.onFailure {
+                Toast.makeText(requireContext(), it.message ?: "Backup non disponibile", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun confermaRipristino(backup: FavoriteBackup) {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Ripristina preferiti")
+            .setMessage("Il backup del ${backup.lastBackupAt} contiene ${backup.favorites.size} preferiti. I preferiti locali saranno sostituiti.")
+            .setNegativeButton("Annulla", null)
+            .setPositiveButton("Ripristina") { _, _ ->
+                FavoritesStore(requireContext()).restore(backup)
+                Toast.makeText(requireContext(), "Preferiti ripristinati", Toast.LENGTH_SHORT).show()
+                dismiss()
+            }
+            .show()
     }
 
     private fun addFavorite(favorite: FavoriteItem, recycler: RecyclerView) {

@@ -83,6 +83,7 @@
     <string name="cancella_articolo">Cancella articolo</string>
     <string name="rimuovi">Rimuovi</string>
     <string name="ripristina">Ripristina</string>
+    <string name="backup">Backup</string>
     <string name="cancella">Cancella</string>
     <string name="articolo_cancellato">Articolo cancellato</string>
     <string name="articolo_ripristinato">Articolo ripristinato</string>

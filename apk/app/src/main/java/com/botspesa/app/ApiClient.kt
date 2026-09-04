@@ -280,6 +280,33 @@ object ApiClient {
         }
     }
 
+    fun backupPreferiti(userId: Int, backup: FavoriteBackup): String {
+        val payload = gson.toJson(mapOf("user_id" to userId, "backup" to backup))
+        val req = Request.Builder()
+            .url("$baseUrl/utente/config/preferiti")
+            .put(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("Server ${response.code}: $body")
+            val result: Map<String, Any> = gson.fromJson(body, object : TypeToken<Map<String, Any>>() {}.type)
+            result["last_backup_at"] as? String ?: backup.lastBackupAt
+        }
+    }
+
+    fun getBackupPreferiti(userId: Int): FavoriteBackup {
+        val req = Request.Builder()
+            .url("$baseUrl/utente/config/preferiti?user_id=$userId")
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("Server ${response.code}: $body")
+            gson.fromJson(body, FavoriteBackup::class.java)
+        }
+    }
+
     fun resolveSharedProductTitle(url: String): String? {
         val cleanUrl = url.trim()
         if (cleanUrl.isEmpty()) return null
