@@ -38,7 +38,7 @@ class StoricoManager
     parti << "🛒 <b>#{nome_sicuro}</b> ha comprato #{comprati.join(', ')}." unless comprati.empty?
     parti << "🗑️ <b>#{nome_sicuro}</b> ha eliminato definitivamente #{cancellati.join(', ')} senza averli comprati." unless cancellati.empty?
     if mantenuti.any?
-      parti << "📌 <b>#{nome_sicuro}</b> ha lasciato #{mantenuti.join(', ')} in lista: articoli non disponibili in questa sessione, mantenuti in lista."
+      parti << "📌 <b>#{nome_sicuro}</b> ha lasciato #{mantenuti.join(', ')} in lista perché non disponibili in questa sessione"
     end
 
     parti.join("\n")
