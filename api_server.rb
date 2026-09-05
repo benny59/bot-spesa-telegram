@@ -88,12 +88,15 @@ def esegui_cronoscopetta
       next if candidati.empty?
 
       ids = candidati.map { |i| i['id'] }
+      comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+      cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+      mantenuti = DB.execute(
+        "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+        [gruppo_id, topic_id]
+      ).map { |i| i['nome'] }
       rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id, ids)
       next if rimossi.to_i <= 0
 
-      comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
-      cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
-      mantenuti = candidati.select { |i| i['comprato'].to_s.strip == '' && i['deleted'].to_i == 0 && i['disponibile'].to_i == 0 }.map { |i| i['nome'] }
       notifica_scopetta(gruppo_id, topic_id, creato_da, comprati: comprati, cancellati: cancellati, mantenuti: mantenuti, nome_override: 'cronoscopetta')
       contati += 1
       next
@@ -105,12 +108,15 @@ def esegui_cronoscopetta
     )
     next if candidati.empty?
 
+    comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+    cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+    mantenuti = DB.execute(
+      "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+      [gruppo_id, topic_id]
+    ).map { |i| i['nome'] }
     rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id)
     next if rimossi.to_i <= 0
 
-    comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
-    cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
-    mantenuti = candidati.select { |i| i['comprato'].to_s.strip == '' && i['deleted'].to_i == 0 && i['disponibile'].to_i == 0 }.map { |i| i['nome'] }
     notifica_scopetta(gruppo_id, topic_id, 0, comprati: comprati, cancellati: cancellati, mantenuti: mantenuti, nome_override: 'cronoscopetta')
     contati += 1
   end
@@ -547,6 +553,18 @@ delete '/lista/comprati' do
   end
 
   # Lista Personale: scopetta solo i propri articoli comprati
+  mantenuti = if gruppo_id == 0 && user_id != 0
+    DB.execute(
+      "SELECT nome FROM items WHERE gruppo_id = 0 AND topic_id = ? AND creato_da = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+      [topic_id, user_id]
+    ).map { |item| item['nome'] }
+  else
+    DB.execute(
+      "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+      [gruppo_id, topic_id]
+    ).map { |item| item['nome'] }
+  end
+
   rimossi = if gruppo_id == 0 && user_id != 0
     target = (acquistati + cancellati).map { |r| r['id'] }
     target.any? ? DataManager.esegui_scopetta(0, topic_id, target) : 0
@@ -561,6 +579,7 @@ delete '/lista/comprati' do
       user_id,
       comprati: acquistati.map { |item| item['nome'] },
       cancellati: cancellati.map { |item| item['nome'] },
+      mantenuti: mantenuti,
       force: gruppo_id != 0 && user_id != 0
     )
   end

@@ -350,6 +350,10 @@ when /^trigger_list:(-?\d*):(\d*)$/
 
         mappa.each do |(g_id, t_id), items|
           ids = items.map { |i| i["id"] }
+          mantenuti = DB.execute(
+            "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+            [g_id, t_id]
+          ).map { |item| item["nome"] }
           rimossi = DataManager.esegui_scopetta(g_id, t_id, ids)
           totale += rimossi
 
@@ -357,7 +361,6 @@ when /^trigger_list:(-?\d*):(\d*)$/
             chat_id_dest = DataManager.get_real_chat_id(g_id)
             comprati = items.select { |i| i["comprato"].to_s.strip != "" }.map { |item| item["nome"] }
             cancellati = items.reject { |i| i["comprato"].to_s.strip != "" }.map { |item| item["nome"] }
-            mantenuti = items.select { |i| i["comprato"].to_s.strip == "" && i["deleted"].to_i == 0 && i["disponibile"].to_i == 0 }.map { |item| item["nome"] }
             GroupOperationalNotifier.scopetta(
               bot: bot,
               gruppo_id: g_id,
@@ -366,7 +369,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
               comprati: comprati,
               cancellati: cancellati,
               mantenuti: mantenuti,
-              force: callback.message.chat.type != "private" && callback.message.chat.id == chat_id_dest
+              force: true
             )
           end
         end
@@ -389,12 +392,15 @@ when /^trigger_list:(-?\d*):(\d*)$/
         "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 1 ORDER BY id",
         [g_id, t_id]
       )
+      mantenuti = DB.execute(
+        "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+        [g_id, t_id]
+      ).map { |item| item["nome"] }
       rimossi = DataManager.esegui_scopetta(g_id, t_id)
 
       if rimossi > 0 && g_id != 0
         u_name = callback.from.first_name
         chat_id_dest = DataManager.get_real_chat_id(g_id)
-        mantenuti = (DB.execute("SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato = '' AND deleted = 0 AND disponibile = 0 ORDER BY id", [g_id, t_id])).map { |item| item["nome"] }
         GroupOperationalNotifier.scopetta(
           bot: bot,
           gruppo_id: g_id,
@@ -403,7 +409,7 @@ when /^trigger_list:(-?\d*):(\d*)$/
           comprati: acquistati.map { |item| item["nome"] },
           cancellati: cancellati.map { |item| item["nome"] },
           mantenuti: mantenuti,
-          force: callback.message.chat.type != "private" && callback.message.chat.id == chat_id_dest
+          force: true
         )
       end
 

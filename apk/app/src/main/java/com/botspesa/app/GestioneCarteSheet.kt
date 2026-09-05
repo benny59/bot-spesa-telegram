@@ -289,8 +289,7 @@ private class CarteGestioneAdapter(
 ) : RecyclerView.Adapter<CarteGestioneAdapter.VH>() {
 
     inner class VH(v: View) : RecyclerView.ViewHolder(v) {
-        val tvNome:  TextView = v.findViewById(R.id.tvNomeCartaGest)
-        val tvBadge: TextView = v.findViewById(R.id.tvBadgeCondivisa)
+        val tvNome: TextView = v.findViewById(R.id.tvNomeCartaGest)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
@@ -302,11 +301,6 @@ private class CarteGestioneAdapter(
 
         holder.tvNome.text = "${marker} ${carta.nome}"
         holder.tvNome.setTextColor(color)
-        holder.tvBadge.text = marker
-        holder.tvBadge.visibility = View.VISIBLE
-        holder.tvBadge.setTextColor(android.graphics.Color.WHITE)
-        holder.tvBadge.setBackgroundColor(color)
-
         holder.itemView.setOnClickListener { onTap(carta) }
     }
 
