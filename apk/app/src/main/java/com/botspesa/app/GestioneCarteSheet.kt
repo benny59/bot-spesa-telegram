@@ -298,10 +298,14 @@ private class CarteGestioneAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val carta = carte[position]
-        holder.tvNome.text = carta.nome
+        val (marker, color) = carta.statusMarker()
 
-        holder.tvBadge.visibility = if (carta.condivisaConGruppo && gruppoNome.isNotEmpty())
-            View.VISIBLE else View.GONE
+        holder.tvNome.text = "${marker} ${carta.nome}"
+        holder.tvNome.setTextColor(color)
+        holder.tvBadge.text = marker
+        holder.tvBadge.visibility = View.VISIBLE
+        holder.tvBadge.setTextColor(android.graphics.Color.WHITE)
+        holder.tvBadge.setBackgroundColor(color)
 
         holder.itemView.setOnClickListener { onTap(carta) }
     }

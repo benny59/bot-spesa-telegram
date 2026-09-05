@@ -17,7 +17,8 @@ import kotlinx.coroutines.withContext
 class PreferitiSheet : BottomSheetDialogFragment() {
 
     private var onItemAdded: (() -> Unit)? = null
-    private val addedIds = mutableSetOf<String>()
+    private val addedIds = mutableSetOf<String>()  // ID dei preferiti aggiunti
+    private val preferiteItemIds = mutableMapOf<String, Int>()  // Mappa preferite ID → item ID nella lista
 
     private val gruppoId get() = arguments?.getInt(ARG_GRUPPO_ID) ?: 0
     private val topicId get() = arguments?.getInt(ARG_TOPIC_ID) ?: 0
@@ -33,7 +34,7 @@ class PreferitiSheet : BottomSheetDialogFragment() {
         empty.visibility = if (favorites.isEmpty()) View.VISIBLE else View.GONE
         recycler.visibility = if (favorites.isEmpty()) View.GONE else View.VISIBLE
         recycler.layoutManager = LinearLayoutManager(requireContext())
-        recycler.adapter = PreferitiAdapter(favorites, addedIds) { favorite -> addFavorite(favorite, recycler) }
+        recycler.adapter = PreferitiAdapter(favorites, addedIds) { favorite -> toggleFavorite(favorite, recycler) }
         view.findViewById<View>(R.id.btnBackupPreferiti).setOnClickListener { backupPreferiti() }
         view.findViewById<View>(R.id.btnRipristinaPreferiti).setOnClickListener { scaricaBackupPerRipristino() }
     }
@@ -82,6 +83,14 @@ class PreferitiSheet : BottomSheetDialogFragment() {
             .show()
     }
 
+    private fun toggleFavorite(favorite: FavoriteItem, recycler: RecyclerView) {
+        if (favorite.id in addedIds) {
+            removeFavorite(favorite, recycler)
+        } else {
+            addFavorite(favorite, recycler)
+        }
+    }
+
     private fun addFavorite(favorite: FavoriteItem, recycler: RecyclerView) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -97,14 +106,35 @@ class PreferitiSheet : BottomSheetDialogFragment() {
                         telegramPhotoId = favorite.telegramPhotoId,
                         telegramPhotoFileName = favorite.telegramPhotoFileName
                     ).also { if (it.isEmpty()) throw IllegalStateException("Articolo non creato") }
+                        .first()
                 }
             }
-            result.onSuccess {
+            result.onSuccess { itemId ->
                 addedIds.add(favorite.id)
+                preferiteItemIds[favorite.id] = itemId
                 recycler.adapter?.notifyDataSetChanged()
                 onItemAdded?.invoke()
             }.onFailure {
                 Toast.makeText(requireContext(), it.message ?: "Errore aggiunta", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun removeFavorite(favorite: FavoriteItem, recycler: RecyclerView) {
+        val itemId = preferiteItemIds[favorite.id] ?: return
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    ApiClient.removeItem(gruppoId, itemId, userId)
+                }
+            }
+            result.onSuccess {
+                addedIds.remove(favorite.id)
+                preferiteItemIds.remove(favorite.id)
+                recycler.adapter?.notifyDataSetChanged()
+                Toast.makeText(requireContext(), "Rimosso dalla lista", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(requireContext(), it.message ?: "Errore rimozione", Toast.LENGTH_SHORT).show()
             }
         }
     }

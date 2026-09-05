@@ -65,11 +65,7 @@ class CarteAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val carta = carte[position]
-        val (marker, color) = when {
-            carta.isMia && carta.condivisaConGruppo -> Pair("🟢", Color.parseColor("#2E7D32"))
-            carta.isMia -> Pair("🟡", Color.parseColor("#8D6E00"))
-            else -> Pair("🔵", Color.parseColor("#1565C0"))
-        }
+        val (marker, color) = carta.statusMarker()
 
         holder.tvNome.text = "$marker ${carta.nome}"
         holder.tvNome.setTextColor(color)

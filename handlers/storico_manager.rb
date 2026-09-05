@@ -24,18 +24,22 @@ class StoricoManager
     "🛒 <b>#{nome_sicuro}</b> ha comprato #{elenco}."
   end
 
-  def self.notifica_scopetta_html(nome, comprati: [], cancellati: [])
+  def self.notifica_scopetta_html(nome, comprati: [], cancellati: [], mantenuti: [])
     nome_sicuro = CGI.escapeHTML(nome.to_s)
     comprati = Array(comprati).map { |articolo| CGI.escapeHTML(articolo.to_s) }
     cancellati = Array(cancellati).map { |articolo| CGI.escapeHTML(articolo.to_s) }
+    mantenuti = Array(mantenuti).map { |articolo| CGI.escapeHTML(articolo.to_s) }
 
-    if comprati.empty? && cancellati.empty?
+    if comprati.empty? && cancellati.empty? && mantenuti.empty?
       return "🧹 <b>#{nome_sicuro}</b> ha pulito la lista."
     end
 
     parti = []
     parti << "🛒 <b>#{nome_sicuro}</b> ha comprato #{comprati.join(', ')}." unless comprati.empty?
     parti << "🗑️ <b>#{nome_sicuro}</b> ha eliminato definitivamente #{cancellati.join(', ')} senza averli comprati." unless cancellati.empty?
+    if mantenuti.any?
+      parti << "📌 <b>#{nome_sicuro}</b> ha lasciato #{mantenuti.join(', ')} in lista: articoli non disponibili in questa sessione, mantenuti in lista."
+    end
 
     parti.join("\n")
   end

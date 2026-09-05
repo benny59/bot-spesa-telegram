@@ -19,12 +19,12 @@ module GroupOperationalNotifier
     )
   end
 
-  def scopetta(bot:, gruppo_id:, topic_id:, actor:, comprati:, cancellati:, force: false)
+  def scopetta(bot:, gruppo_id:, topic_id:, actor:, comprati:, cancellati:, mantenuti: [], force: false)
     notify(
       bot: bot,
       gruppo_id: gruppo_id,
       topic_id: topic_id,
-      text: StoricoManager.notifica_scopetta_html(actor, comprati: comprati, cancellati: cancellati),
+      text: StoricoManager.notifica_scopetta_html(actor, comprati: comprati, cancellati: cancellati, mantenuti: mantenuti),
       force: force
     )
   end

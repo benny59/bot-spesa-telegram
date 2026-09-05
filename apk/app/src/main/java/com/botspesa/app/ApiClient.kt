@@ -396,6 +396,15 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
+    fun removeItem(gruppoId: Int, itemId: Int, userId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/rimuovi?gruppo_id=$gruppoId&user_id=$userId")
+            .delete()
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
     fun restoreItem(gruppoId: Int, itemId: Int, userId: Int): Boolean {
         val req = Request.Builder()
             .url("$baseUrl/lista/$itemId/restore?gruppo_id=$gruppoId&user_id=$userId")

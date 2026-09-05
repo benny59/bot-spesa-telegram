@@ -50,7 +50,7 @@ end
 # Invia notifica Telegram al gruppo dopo la scopetta
 # user_id può essere 0 per i trigger automatici (cronoscopetta): in tal caso
 # il nome viene sostituito da nome_override se passato.
-def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: [], nome_override: nil, force: false)
+def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: [], mantenuti: [], nome_override: nil, force: false)
   nome = if nome_override && !nome_override.to_s.strip.empty?
     nome_override.to_s
   else
@@ -59,7 +59,7 @@ def notifica_scopetta(gruppo_id, topic_id, user_id, comprati: [], cancellati: []
     ) || 'Utente'
   end
 
-  testo = StoricoManager.notifica_scopetta_html(nome, comprati: comprati, cancellati: cancellati)
+  testo = StoricoManager.notifica_scopetta_html(nome, comprati: comprati, cancellati: cancellati, mantenuti: mantenuti)
   notifica_gruppo(gruppo_id, topic_id, testo, force: force)
 end
 
@@ -82,7 +82,7 @@ def esegui_cronoscopetta
 
     if gruppo_id == 0
       candidati = DB.execute(
-        "SELECT id, nome, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND creato_da = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
+        "SELECT id, nome, comprato, deleted, disponibile FROM items WHERE gruppo_id = ? AND topic_id = ? AND creato_da = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
         [gruppo_id, topic_id, creato_da]
       )
       next if candidati.empty?
@@ -93,13 +93,14 @@ def esegui_cronoscopetta
 
       comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
       cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
-      notifica_scopetta(gruppo_id, topic_id, creato_da, comprati: comprati, cancellati: cancellati, nome_override: 'cronoscopetta')
+      mantenuti = candidati.select { |i| i['comprato'].to_s.strip == '' && i['deleted'].to_i == 0 && i['disponibile'].to_i == 0 }.map { |i| i['nome'] }
+      notifica_scopetta(gruppo_id, topic_id, creato_da, comprati: comprati, cancellati: cancellati, mantenuti: mantenuti, nome_override: 'cronoscopetta')
       contati += 1
       next
     end
 
     candidati = DB.execute(
-      "SELECT id, nome, comprato FROM items WHERE gruppo_id = ? AND topic_id = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
+      "SELECT id, nome, comprato, deleted, disponibile FROM items WHERE gruppo_id = ? AND topic_id = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
       [gruppo_id, topic_id]
     )
     next if candidati.empty?
@@ -109,7 +110,8 @@ def esegui_cronoscopetta
 
     comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
     cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
-    notifica_scopetta(gruppo_id, topic_id, 0, comprati: comprati, cancellati: cancellati, nome_override: 'cronoscopetta')
+    mantenuti = candidati.select { |i| i['comprato'].to_s.strip == '' && i['deleted'].to_i == 0 && i['disponibile'].to_i == 0 }.map { |i| i['nome'] }
+    notifica_scopetta(gruppo_id, topic_id, 0, comprati: comprati, cancellati: cancellati, mantenuti: mantenuti, nome_override: 'cronoscopetta')
     contati += 1
   end
 
@@ -614,6 +616,26 @@ get '/storico/acquisti' do
       in_lista:     !acquisto['in_lista'].nil?
     }
   }.to_json
+end
+
+delete '/lista/:id/rimuovi' do
+  item_id   = params[:id].to_i
+  gruppo_id = params[:gruppo_id]&.to_i
+  user_id   = params[:user_id]&.to_i || 0
+
+  halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
+
+  item = DB.get_first_row("SELECT id, nome, topic_id, creato_da FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+  halt 404, { error: 'item non trovato' }.to_json unless item
+  halt 403, { error: 'accesso negato' }.to_json unless item['creato_da'].to_i == user_id || DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
+
+  removed = DataManager.rimuovi_da_lista(item_id)
+  if gruppo_id != 0 && user_id != 0
+    nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+    notifica_gruppo(gruppo_id, item['topic_id'], DataManager.build_item_action_message(nome_utente, item['nome'], 'rimosso_dalla_lista'))
+  end
+
+  { ok: true, removed: removed }.to_json
 end
 
 delete '/lista/:id' do
