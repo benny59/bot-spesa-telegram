@@ -117,6 +117,12 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
     }
 
     private fun mostraMenuCarta(carta: CartaFedeltaItem) {
+        // Se siamo in modalità DISPONIBILI e la carta non è nostra: mostra solo il barcode
+        if (mode == MODE_DISPONIBILI && !carta.isMia) {
+            apriBarcode(carta)
+            return
+        }
+        
         val voci = buildList {
             add("Visualizza barcode")
             if (gruppoId != 0)
