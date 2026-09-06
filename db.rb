@@ -1049,15 +1049,20 @@ class DataManager
   def self.esegui_scopetta(gruppo_id, topic_id = 0, target_ids = nil)
     puts "\n🧹 [SCOPETTA] Inizio esegui_scopetta - G:#{gruppo_id}, T:#{topic_id}"
 
-    if target_ids && !target_ids.empty?
-      placeholders = target_ids.map { "?" }.join(",")
-      query = <<~SQL
-        SELECT id, nome, categoria_id, link_url, creato_da, comprato, deleted
-        FROM items
-        WHERE id IN (#{placeholders})
-          AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
-      SQL
-      params = target_ids
+    if target_ids
+      if target_ids.empty?
+        query = "SELECT id, nome, categoria_id, link_url, creato_da, comprato, deleted FROM items WHERE 1 = 0"
+        params = []
+      else
+        placeholders = target_ids.map { "?" }.join(",")
+        query = <<~SQL
+          SELECT id, nome, categoria_id, link_url, creato_da, comprato, deleted
+          FROM items
+          WHERE id IN (#{placeholders})
+            AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
+        SQL
+        params = target_ids
+      end
       puts "🧹 [SCOPETTA] Modalità: target_ids (#{target_ids.size} items)"
     else
       query = <<~SQL
@@ -1071,10 +1076,6 @@ class DataManager
       puts "🧹 [SCOPETTA] Modalità: query da DB"
     end
 
-    da_cancellare = DB.execute(query, params)
-    puts "🧹 [SCOPETTA] Articoli candidati alla rimozione: #{da_cancellare.size}"
-    return 0 if da_cancellare.empty?
-
     DB.transaction do
       if gruppo_id && topic_id
         DB.execute(
@@ -1082,7 +1083,13 @@ class DataManager
           [gruppo_id, topic_id]
         )
       end
+    end
 
+    da_cancellare = DB.execute(query, params)
+    puts "🧹 [SCOPETTA] Articoli candidati alla rimozione: #{da_cancellare.size}"
+    return 0 if da_cancellare.empty?
+
+    DB.transaction do
       da_cancellare.each do |item|
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         if item["comprato"].to_s.strip != ""

@@ -69,7 +69,13 @@ def esegui_cronoscopetta
     <<~SQL,
       SELECT DISTINCT gruppo_id, topic_id, creato_da
       FROM items
-      WHERE (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
+      WHERE deleted = 1
+         OR TRIM(COALESCE(comprato, '')) != ''
+         OR (
+           deleted = 0
+           AND TRIM(COALESCE(comprato, '')) = ''
+           AND COALESCE(disponibile, 1) = 0
+         )
       ORDER BY gruppo_id, topic_id, creato_da
     SQL
   )
@@ -85,8 +91,6 @@ def esegui_cronoscopetta
         "SELECT id, nome, comprato, deleted, disponibile FROM items WHERE gruppo_id = ? AND topic_id = ? AND creato_da = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
         [gruppo_id, topic_id, creato_da]
       )
-      next if candidati.empty?
-
       ids = candidati.map { |i| i['id'] }
       comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
       cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
@@ -95,7 +99,7 @@ def esegui_cronoscopetta
         [gruppo_id, topic_id]
       ).map { |i| i['nome'] }
       rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id, ids)
-      next if rimossi.to_i <= 0
+      next if rimossi.to_i <= 0 && mantenuti.empty?
 
       notifica_scopetta(gruppo_id, topic_id, creato_da, comprati: comprati, cancellati: cancellati, mantenuti: mantenuti, nome_override: 'cronoscopetta')
       contati += 1
@@ -106,16 +110,14 @@ def esegui_cronoscopetta
       "SELECT id, nome, comprato, deleted, disponibile FROM items WHERE gruppo_id = ? AND topic_id = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
       [gruppo_id, topic_id]
     )
-    next if candidati.empty?
-
     comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
     cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
     mantenuti = DB.execute(
       "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
       [gruppo_id, topic_id]
     ).map { |i| i['nome'] }
-    rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id)
-    next if rimossi.to_i <= 0
+    rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id, candidati.map { |i| i['id'] })
+    next if rimossi.to_i <= 0 && mantenuti.empty?
 
     notifica_scopetta(gruppo_id, topic_id, 0, comprati: comprati, cancellati: cancellati, mantenuti: mantenuti, nome_override: 'cronoscopetta')
     contati += 1
