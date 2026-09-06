@@ -2011,10 +2011,9 @@ end
       <<-SQL,
         SELECT i.id, i.nome, i.gruppo_id, i.topic_id, i.comprato, i.deleted
         FROM items i
-        WHERE i.creato_da = ?
-          AND (
-            CAST(i.comprato AS INTEGER) = ?
-            OR COALESCE(i.deleted, 0) = 1
+        WHERE (
+          CAST(i.comprato AS INTEGER) = ?
+          OR (COALESCE(i.deleted, 0) = 1 AND i.creato_da = ?)
           )
           AND (
             (i.gruppo_id = 0 AND i.creato_da = ?)
