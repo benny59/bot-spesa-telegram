@@ -764,7 +764,7 @@ class DataManager
 
     item_rows = DB.execute(
       "SELECT nome FROM items WHERE nome LIKE '%&%' AND nome != ? ORDER BY nome ASC",
-      [Lista::CONFIG_PREFERITI_NOME]
+      [defined?(Lista) ? Lista::CONFIG_PREFERITI_NOME : "__CONFIG_PREFERITI__"]
     )
     item_rows.each do |row|
       raw = row["nome"].to_s.strip
@@ -910,16 +910,6 @@ class DataManager
     gruppo_id = gruppo_id.to_i if gruppo_id
     topic_id = topic_id.to_i
 
-    if categoria_id_explicit && categoria_id_explicit > 0
-      return {
-        nome: testo,
-        categoria_id: categoria_id_explicit,
-        categoria_nome: nil,
-        categoria_temporanea: nil,
-        categoria_esplicita: true
-      }
-    end
-
     if testo.empty?
       categoria_finale = categoria_attiva && categoria_attiva > 0 ? categoria_attiva : nil
       return {
@@ -963,6 +953,16 @@ class DataManager
         categoria_id: nil,
         categoria_nome: categoria_temporanea,
         categoria_temporanea: categoria_temporanea,
+        categoria_esplicita: true
+      }
+    end
+
+    if categoria_id_explicit && categoria_id_explicit > 0
+      return {
+        nome: testo,
+        categoria_id: categoria_id_explicit,
+        categoria_nome: nil,
+        categoria_temporanea: nil,
         categoria_esplicita: true
       }
     end
@@ -1917,12 +1917,32 @@ end
     { nome: nome_pulito, categoria_id: 0, categoria_nome: categoria_nome, effimera: !categoria_nome.empty? }
   end
 
-  # Il JOIN su categorie non "vede" le categorie effimere (derivate dal nome, non persistite).
-  # Post-processiamo l'ordine SQL per portare gli item davvero senza categoria (né canonica né
-  # effimera) subito prima dei checked, mantenendo stabile l'ordine già calcolato dalla query.
+  def self.categoria_effettiva_nome(item)
+    parsed = self.parse_nome_categoria(
+      item["nome"].to_s, item["categoria_id"], item["categoria_id"], item["gruppo_id"], item["topic_id"]
+    )
+    if parsed[:categoria_esplicita] && parsed[:categoria_nome].to_s.strip != ""
+      return parsed[:categoria_nome].to_s.strip
+    end
+    cat_nome = item["categoria_nome"].to_s.strip
+    return cat_nome unless cat_nome.empty?
+    parsed[:categoria_nome].to_s.strip
+  end
+
+  # Post-processiamo l'ordine SQL per raggruppare gli item per categoria effettiva (canonica o effimera)
+  # nell'ordine alfabetico della categoria, mantenendo stabile l'ordine relativo degli item senza categoria.
   def self.ordina_items_per_categoria(items)
     items.each_with_index.sort_by do |item, idx|
-      [item["gruppo_id"].to_i, item["topic_id"].to_i, self.item_state_rank(item), self.item_ha_categoria?(item) ? 0 : 1, idx]
+      cat = self.categoria_effettiva_nome(item)
+      has_cat = !cat.empty?
+      [
+        item["gruppo_id"].to_i,
+        item["topic_id"].to_i,
+        self.item_state_rank(item),
+        has_cat ? 0 : 1,
+        cat.downcase,
+        idx
+      ]
     end.map(&:first)
   end
 
