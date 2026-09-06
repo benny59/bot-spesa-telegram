@@ -744,22 +744,12 @@ class DataManager
       next if raw_nome.empty?
 
       key = raw_nome.downcase
-      canonica = self.categoria_nome_canonica(raw_nome)
-
-      if raw_nome == canonica
-        canonical_by_key[key] ||= {
-          id: row["id"].to_i,
-          nome: raw_nome,
-          effimera: false
-        }
-      else
-        next if canonical_by_key.key?(key)
-        effimera_by_key[key] ||= {
-          id: row["id"].to_i,
-          nome: raw_nome,
-          effimera: true
-        }
-      end
+      # Tutte le categorie dal DB sono canoniche per definizione
+      canonical_by_key[key] ||= {
+        id: row["id"].to_i,
+        nome: raw_nome,
+        effimera: false
+      }
     end
 
     item_rows = DB.execute(
