@@ -91,9 +91,11 @@ class SpesaAdapter(
         } else {
             holder.ivContextNotification.visibility = View.GONE
         }
-        holder.contextSeparator.isClickable = !listaSingola
-        holder.contextSeparator.isFocusable = !listaSingola
-        holder.contextSeparator.setOnClickListener(if (listaSingola) null else View.OnClickListener { onContext(item) })
+        holder.contextSeparator.isClickable = true
+        holder.contextSeparator.isFocusable = true
+        holder.contextSeparator.setOnClickListener { v ->
+            if (listaSingola) onSectionLongPress(item, v, separatoreLista) else onContext(item)
+        }
         holder.contextSeparator.setOnLongClickListener { v ->
             onSectionLongPress(item, v, separatoreLista)
             true
@@ -172,7 +174,14 @@ class SpesaAdapter(
         holder.ivPreferito.setOnClickListener { onFavorite(item) }
 
         holder.itemCard.setOnClickListener { onToggle(item) }
-        holder.itemCard.setOnLongClickListener { v -> onLongPress(item, v); true }
+        holder.itemCard.setOnLongClickListener { v ->
+            if (listaSingola && mostraContesto) {
+                onSectionLongPress(item, v, separatoreLista)
+            } else {
+                onLongPress(item, v)
+            }
+            true
+        }
     }
 
     override fun getItemCount(): Int = items.size

@@ -384,9 +384,18 @@ post '/modelli' do
     halt 403, { error: 'accesso negato' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
   end
 
-  result = ListaModello.crea(gruppo_id, topic_id, user_id, nome, items)
-  status = result[:status] == :creato ? 201 : 409
-  { ok: result[:status] == :creato, status: result[:status], id: result[:id] }.to_json
+  result = ListaModello.aggiorna(gruppo_id, topic_id, user_id, nome, items)
+  if result[:status] == :aggiornato
+    status 200
+  elsif result[:status] == :non_trovato
+    result = ListaModello.crea(gruppo_id, topic_id, user_id, nome, items)
+    status 201 if result[:status] == :creato
+  elsif result[:status] == :non_autorizzato
+    status 403
+  end
+  status 409 if result[:status] == :duplicato
+  status 400 if result[:status] == :errore
+  { ok: %i[creato aggiornato].include?(result[:status]), status: result[:status], id: result[:id] }.to_json
 end
 
 delete '/modelli/:id' do

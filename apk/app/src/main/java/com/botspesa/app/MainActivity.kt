@@ -969,8 +969,8 @@ class MainActivity : AppCompatActivity() {
                 menu.add(0, 2002, 1, "Elimina modello")
             } else {
                 menu.add(0, 2003, 0, "Aggiungi articolo in questa categoria")
-                menu.add(0, 2004, 1, "Salva lista in modello")
             }
+            menu.add(0, 2004, 2, "Salva la lista in modello")
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     2001 -> {

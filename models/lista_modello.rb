@@ -42,6 +42,31 @@ class ListaModello
     )
   end
 
+  def self.aggiorna(gruppo_id, topic_id, user_id, nome, items_raw_array)
+    nome = nome.to_s.strip
+    items = Array(items_raw_array).flat_map { |item| DataManager.separa_items(item) }
+    items = items.map(&:strip).reject(&:empty?)
+
+    return { status: :errore, messaggio: "Nome modello non valido." } if nome.empty?
+    return { status: :errore, messaggio: "Nessun articolo nel modello." } if items.empty?
+
+    modello = DB.get_first_row(
+      "SELECT id, creato_da FROM liste_modello WHERE gruppo_id = ? AND topic_id = ? AND nome = ? LIMIT 1",
+      [gruppo_id.to_i, topic_id.to_i, nome]
+    )
+    return { status: :non_trovato } unless modello
+    return { status: :non_autorizzato } unless modello['creato_da'].to_i == user_id.to_i
+
+    DB.execute(
+      "UPDATE liste_modello SET items_raw = ?, aggiornato_il = datetime('now') WHERE id = ?",
+      [JSON.generate(items), modello['id']]
+    )
+    { status: :aggiornato, id: modello['id'].to_i }
+  rescue => e
+    puts "❌ [LISTA_MODELLO] Errore aggiornamento: #{e.message}"
+    { status: :errore, messaggio: e.message }
+  end
+
   def self.trova(modello_id)
     DB.get_first_row("SELECT * FROM liste_modello WHERE id = ? LIMIT 1", [modello_id.to_i])
   end
