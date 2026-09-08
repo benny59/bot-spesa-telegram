@@ -226,11 +226,11 @@ class MessageHandler
     when /^\/modello\s+([^:]+):\s*(.+)$/m
       nome_modello = $1.to_s.strip
       corpo = $2.to_s
-      items_raw = corpo.split("&&").map(&:strip).reject(&:empty?)
+      items_raw = DataManager.separa_items(corpo)
       g_id = context.config["db_id"].to_i
       t_id = context.config["topic_id"].to_i
       if items_raw.empty?
-        bot.api.send_message(chat_id: c_id, text: "⚠️ Specifica almeno un articolo separato da &&.")
+        bot.api.send_message(chat_id: c_id, text: "⚠️ Specifica almeno un articolo separato da virgola. Esempio: /modello Viaggio: Passaporto, Costumi, Caricabatterie")
       else
         esito = ListaModello.crea(g_id, t_id, u_id, nome_modello, items_raw)
         testo = case esito[:status]
@@ -249,7 +249,7 @@ class MessageHandler
       if kb
         bot.api.send_message(chat_id: c_id, message_thread_id: (t_id > 0 && !context.private_chat? ? t_id : nil), text: "📋 <b>Modelli disponibili</b>\nScegli quale richiamare integralmente nella lista corrente.", reply_markup: kb, parse_mode: "HTML")
       else
-        bot.api.send_message(chat_id: c_id, text: "Nessun modello salvato. Creane uno con:\n/modello NomeViaggio: Passaporto && Caricabatterie && Costume da bagno")
+        bot.api.send_message(chat_id: c_id, text: "Nessun modello salvato. Creane uno con:\n/modello NomeViaggio: Passaporto, Caricabatterie, Costume da bagno")
       end
       return
     

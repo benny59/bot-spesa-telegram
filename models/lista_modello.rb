@@ -4,7 +4,8 @@ require "json"
 class ListaModello
   def self.crea(gruppo_id, topic_id, user_id, nome, items_raw_array)
     nome = nome.to_s.strip
-    items = Array(items_raw_array).map { |item| item.to_s.strip }.reject(&:empty?)
+    items = Array(items_raw_array).flat_map { |item| DataManager.separa_items(item) }
+    items = items.map(&:strip).reject(&:empty?)
 
     if nome.empty?
       return { status: :errore, messaggio: "Nome modello non valido." }
@@ -67,10 +68,17 @@ class ListaModello
 
     ids_creati = []
     items.each do |riga|
+      item_da_inserire = riga.to_s.strip
+      if item_da_inserire.include?("&")
+        # Item specifico con categoria interna: preserva la categoria originale.
+      else
+        item_da_inserire = "#{item_da_inserire} & Modello: #{modello["nome"]}"
+      end
+
       ids = DataManager.aggiungi_articoli(
         gruppo_id: gruppo_id_target.to_i,
         user_id: user_id,
-        items_text: riga,
+        items_text: item_da_inserire,
         topic_id: topic_id_target.to_i,
         split_items: false
       )

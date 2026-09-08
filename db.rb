@@ -1255,6 +1255,10 @@ def self.prendi_telegram_chat_id(g_id)
 end
 
 	
+  def self.separa_items(raw_text)
+    raw_text.to_s.split(/\s*(?:&&|\||,)\s*/).map(&:strip).reject(&:empty?)
+  end
+
   # ----------------------------------------------------------------------------
   # PILASTRO '+': AGGIUNTA ARTICOLI
   # ----------------------------------------------------------------------------
@@ -1262,7 +1266,7 @@ end
     puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{gruppo_id} | T:#{topic_id} | U:#{user_id}"
 
     nomi = if split_items
-      items_text.split(",").map(&:strip).reject(&:empty?)
+      self.separa_items(items_text)
     else
       [items_text.to_s.strip].reject(&:empty?)
     end
