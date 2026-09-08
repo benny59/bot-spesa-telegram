@@ -221,6 +221,11 @@ class MainActivity : AppCompatActivity() {
                         .also { it.setOnItemAddedListener { aggiornaLista() } }
                         .show(supportFragmentManager, "preferiti")
                 }
+                R.id.nav_modelli          -> {
+                    ModelliSheet.newInstance(gruppoId, topicId, userId)
+                        .also { it.setOnModelChangedListener { aggiornaLista() } }
+                        .show(supportFragmentManager, "modelli")
+                }
                 R.id.nav_checklist        -> {
                     val gNome = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
                     val tNome = tvTopic.text.toString().trimEnd('▾', ' ').trim()
@@ -1592,24 +1597,31 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "Nessun item da salvare", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                lifecycleScope.launch {
-                    val ok = withContext(Dispatchers.IO) {
-                        runCatching {
-                            ApiClient.createModello(
-                                gruppoId = gruppoId,
-                                topicId = topicId,
-                                userId = userId,
-                                nome = nome,
-                                items = itemsSezione
-                            )
-                        }.getOrDefault(false)
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Conferma modello")
+                    .setMessage("Salvare il modello \"$nome\" con ${itemsSezione.size} articoli?\n\n${itemsSezione.joinToString("\n")}")
+                    .setNegativeButton("Modifica nome", null)
+                    .setPositiveButton("Conferma") { _, _ ->
+                        lifecycleScope.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    ApiClient.createModello(
+                                        gruppoId = gruppoId,
+                                        topicId = topicId,
+                                        userId = userId,
+                                        nome = nome,
+                                        items = itemsSezione
+                                    )
+                                }.getOrDefault(false)
+                            }
+                            if (ok) {
+                                mostraEsitoBreve("Modello salvato: $nome", true)
+                            } else {
+                                mostraEsitoBreve("Impossibile salvare il modello", false)
+                            }
+                        }
                     }
-                    if (ok) {
-                        mostraEsitoBreve("Modello salvato: $nome", true)
-                    } else {
-                        mostraEsitoBreve("Impossibile salvare il modello", false)
-                    }
-                }
+                    .show()
             }
             .setNegativeButton("Annulla", null)
             .show()
