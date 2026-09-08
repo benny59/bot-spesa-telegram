@@ -18,6 +18,7 @@ require_relative 'models/open_food_facts_client'
 require_relative 'handlers/storico_manager'
 require_relative 'models/item_action_message'
 require_relative 'models/group_manager'
+require_relative 'models/lista_modello'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
 def telegram_token_attivo
@@ -345,6 +346,68 @@ get '/categorie' do
   end
 
   categorie.map { |r| { id: r[:id].to_i, nome: r[:nome].to_s, effimera: !!r[:effimera] } }.to_json
+end
+
+get '/modelli' do
+  gruppo_id = params[:gruppo_id]&.to_i
+  topic_id  = params[:topic_id]&.to_i || 0
+  user_id   = params[:user_id]&.to_i || 0
+
+  rows = ListaModello.disponibili(gruppo_id, topic_id, user_id)
+  rows.map do |r|
+    items = begin
+      JSON.parse(r['items_raw'].to_s)
+    rescue JSON::ParserError
+      []
+    end
+    {
+      id: r['id'].to_i,
+      nome: r['nome'].to_s,
+      items: items,
+      creato_da: r['creato_da'].to_i
+    }
+  end.to_json
+end
+
+post '/modelli' do
+  body = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  topic_id  = body['topic_id']&.to_i || 0
+  user_id   = body['user_id']&.to_i || 0
+  nome      = body['nome'].to_s.strip
+  items     = Array(body['items']).map(&:to_s).reject(&:empty?)
+
+  halt 400, { error: 'nome mancante' }.to_json if nome.empty?
+  halt 400, { error: 'items mancanti' }.to_json if items.empty?
+
+  if gruppo_id && gruppo_id != 0
+    halt 403, { error: 'accesso negato' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
+  end
+
+  result = ListaModello.crea(gruppo_id, topic_id, user_id, nome, items)
+  status = result[:status] == :creato ? 201 : 409
+  { ok: result[:status] == :creato, status: result[:status], id: result[:id] }.to_json
+end
+
+delete '/modelli/:id' do
+  modello_id = params[:id].to_i
+  user_id = params[:user_id]&.to_i || 0
+  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
+  ok = ListaModello.elimina(modello_id, user_id)
+  halt 403, { error: 'accesso negato' }.to_json unless ok
+  { ok: true }.to_json
+end
+
+post '/modelli/:id/richiama' do
+  body = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  topic_id  = body['topic_id']&.to_i || 0
+  user_id   = body['user_id']&.to_i || 0
+  halt 400, { error: 'gruppo_id mancante' }.to_json if gruppo_id.nil?
+
+  risultato = ListaModello.richiama(params[:id], gruppo_id, user_id, topic_id)
+  halt 404, { error: 'modello non trovato' }.to_json if risultato.nil?
+  { ok: true, ids: risultato[:ids] }.to_json
 end
 
 get '/utente/config/preferiti' do

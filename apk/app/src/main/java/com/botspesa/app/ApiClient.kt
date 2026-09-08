@@ -280,6 +280,77 @@ object ApiClient {
         }
     }
 
+    data class Modello(
+        val id: Int,
+        val nome: String,
+        val items: List<String>
+    )
+
+    fun getModelli(gruppoId: Int, topicId: Int, userId: Int): List<Modello> {
+        val req = Request.Builder()
+            .url("$baseUrl/modelli?gruppo_id=$gruppoId&topic_id=$topicId&user_id=$userId")
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("Server ${response.code}: $body")
+            val raw: List<Map<String, Any>> = gson.fromJson(body, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            raw.map { row ->
+                Modello(
+                    id = (row["id"] as? Double)?.toInt() ?: 0,
+                    nome = row["nome"] as? String ?: "",
+                    items = (row["items"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                )
+            }
+        }
+    }
+
+    fun createModello(gruppoId: Int, topicId: Int, userId: Int, nome: String, items: List<String>): Boolean {
+        val payload = gson.toJson(mapOf(
+            "gruppo_id" to gruppoId,
+            "topic_id" to topicId,
+            "user_id" to userId,
+            "nome" to nome,
+            "items" to items
+        ))
+        val req = Request.Builder()
+            .url("$baseUrl/modelli")
+            .post(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            response.isSuccessful
+        }
+    }
+
+    fun deleteModello(modelloId: Int, userId: Int): Boolean {
+        val req = Request.Builder()
+            .url("$baseUrl/modelli/$modelloId?user_id=$userId")
+            .delete()
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response -> response.isSuccessful }
+    }
+
+    fun richiamaModello(modelloId: Int, gruppoId: Int, topicId: Int, userId: Int): List<Int> {
+        val payload = gson.toJson(mapOf(
+            "gruppo_id" to gruppoId,
+            "topic_id" to topicId,
+            "user_id" to userId
+        ))
+        val req = Request.Builder()
+            .url("$baseUrl/modelli/$modelloId/richiama")
+            .post(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("Server ${response.code}: $body")
+            val result: Map<String, Any> = gson.fromJson(body, object : TypeToken<Map<String, Any>>() {}.type)
+            (result["ids"] as? List<*>)?.mapNotNull { (it as? Double)?.toInt() } ?: emptyList()
+        }
+    }
+
     fun backupPreferiti(userId: Int, backup: FavoriteBackup): String {
         val payload = gson.toJson(mapOf("user_id" to userId, "backup" to backup))
         val req = Request.Builder()

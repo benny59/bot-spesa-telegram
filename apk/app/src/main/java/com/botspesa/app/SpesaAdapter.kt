@@ -22,7 +22,8 @@ class SpesaAdapter(
     private val contextColor: (SpesaItem) -> Int,
     private val notificationEnabled: (Int) -> Boolean?,
     private val singleContextList: () -> Boolean,
-    private val onLongPress: (SpesaItem, android.view.View) -> Unit = { _, _ -> }
+    private val onLongPress: (SpesaItem, android.view.View) -> Unit = { _, _ -> },
+    private val onSectionLongPress: (SpesaItem, android.view.View, String) -> Unit = { _, _, _ -> }
 ) : RecyclerView.Adapter<SpesaAdapter.ViewHolder>() {
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -93,6 +94,10 @@ class SpesaAdapter(
         holder.contextSeparator.isClickable = !listaSingola
         holder.contextSeparator.isFocusable = !listaSingola
         holder.contextSeparator.setOnClickListener(if (listaSingola) null else View.OnClickListener { onContext(item) })
+        holder.contextSeparator.setOnLongClickListener { v ->
+            onSectionLongPress(item, v, separatoreLista)
+            true
+        }
         holder.tvNome.text = item.nome
 
         val labels = mutableListOf<String>()

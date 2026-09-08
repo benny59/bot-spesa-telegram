@@ -175,7 +175,8 @@ class MainActivity : AppCompatActivity() {
             contextColor = ::coloreSeparatoreContesto,
             notificationEnabled = { gruppoId -> notificheOperazioniPerGruppo[gruppoId] },
             singleContextList = { vistaAttuale.isEmpty() },
-            onLongPress = { item, anchor -> mostraMenuContestuale(item, anchor) }
+            onLongPress = { item, anchor -> mostraMenuContestuale(item, anchor) },
+            onSectionLongPress = { item, anchor, label -> mostraMenuSezione(item, anchor, label) }
         )
 
         drawerLayout = findViewById(R.id.drawerLayout)
@@ -955,6 +956,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun mostraMenuSezione(item: SpesaItem, anchor: android.view.View, etichetta: String) {
+        val isModello = etichetta.startsWith("Modello:", ignoreCase = true)
+        PopupMenu(this, anchor).apply {
+            if (isModello) {
+                menu.add(0, 2001, 0, "Aggiungi modello alla lista")
+                menu.add(0, 2002, 1, "Elimina modello")
+            } else {
+                menu.add(0, 2003, 0, "Aggiungi articolo in questa categoria")
+                menu.add(0, 2004, 1, "Salva lista in modello")
+            }
+            setOnMenuItemClickListener { menuItem ->
+                when (menuItem.itemId) {
+                    2001 -> {
+                        val nomeModello = etichetta.removePrefix("Modello:").trim()
+                        if (nomeModello.isNotEmpty()) {
+                            lifecycleScope.launch {
+                                val modelli = withContext(Dispatchers.IO) {
+                                    runCatching { ApiClient.getModelli(gruppoId, topicId, userId) }.getOrDefault(emptyList())
+                                }
+                                val modello = modelli.find { it.nome.equals(nomeModello, ignoreCase = true) }
+                                if (modello == null) {
+                                    Toast.makeText(this@MainActivity, "Modello non trovato", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val ok = withContext(Dispatchers.IO) {
+                                        runCatching { ApiClient.richiamaModello(modello.id, gruppoId, topicId, userId) }.getOrDefault(emptyList())
+                                    }
+                                    if (ok.isNotEmpty()) {
+                                        aggiornaLista()
+                                        mostraEsitoBreve("Modello aggiunto: ${modello.nome}", true)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    2002 -> {
+                        val nomeModello = etichetta.removePrefix("Modello:").trim()
+                        if (nomeModello.isNotEmpty()) {
+                            lifecycleScope.launch {
+                                val modelli = withContext(Dispatchers.IO) {
+                                    runCatching { ApiClient.getModelli(gruppoId, topicId, userId) }.getOrDefault(emptyList())
+                                }
+                                val modello = modelli.find { it.nome.equals(nomeModello, ignoreCase = true) }
+                                if (modello == null) {
+                                    Toast.makeText(this@MainActivity, "Modello non trovato", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val ok = withContext(Dispatchers.IO) {
+                                        runCatching { ApiClient.deleteModello(modello.id, userId) }.getOrDefault(false)
+                                    }
+                                    if (ok) {
+                                        aggiornaLista()
+                                        mostraEsitoBreve("Modello eliminato", true)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    2003 -> {
+                        mostraDialogAggiungi(prefilledCategoryName = item.categoriaNome.ifBlank { "" })
+                    }
+                    2004 -> {
+                        mostraDialogSalvaModelloDaSezione(item)
+                    }
+                }
+                true
+            }
+            show()
+        }
+    }
+
     private fun mostraDialogModificaItem(item: SpesaItem) {
         lifecycleScope.launch {
             val categorie = withContext(Dispatchers.IO) {
@@ -1351,7 +1421,8 @@ class MainActivity : AppCompatActivity() {
     private fun mostraDialogAggiungi(
         prefilledText: String? = null,
         prefilledLink: String? = null,
-        productPreview: ApiClient.ProductPreview? = null
+        productPreview: ApiClient.ProductPreview? = null,
+        prefilledCategoryName: String? = null
     ) {
         lifecycleScope.launch {
             val destinazioni = withContext(Dispatchers.IO) {
@@ -1393,6 +1464,14 @@ class MainActivity : AppCompatActivity() {
                 android.R.layout.simple_spinner_item,
                 opzioniCategoria.map { it.label }
             ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            val categoriaDefaultIndex = if (!prefilledCategoryName.isNullOrBlank()) {
+                opzioniCategoria.indexOfFirst { it.nome.equals(prefilledCategoryName.trim(), ignoreCase = true) || it.label.equals(prefilledCategoryName.trim(), ignoreCase = true) }
+            } else {
+                0
+            }
+            if (categoriaDefaultIndex >= 0) {
+                categoriaSpinner.setSelection(categoriaDefaultIndex)
+            }
             val radioGroup = android.widget.RadioGroup(this@MainActivity).apply {
                 orientation = android.widget.RadioGroup.VERTICAL
             }
@@ -1488,6 +1567,52 @@ class MainActivity : AppCompatActivity() {
             }
             dlg.show()
         }
+    }
+
+    private fun mostraDialogSalvaModelloDaSezione(item: SpesaItem) {
+        val input = EditText(this@MainActivity).apply {
+            hint = "Nome modello"
+            setPadding(48, 16, 48, 16)
+        }
+        AlertDialog.Builder(this@MainActivity)
+            .setTitle("Salva modello")
+            .setView(input)
+            .setPositiveButton("Salva") { _, _ ->
+                val nome = input.text.toString().trim()
+                if (nome.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "Inserisci un nome modello", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val itemsSezione = items.filter { current ->
+                    val sameCategory = current.categoriaNome.equals(item.categoriaNome, ignoreCase = true)
+                    val sameNoCategory = current.categoriaNome.isBlank() && item.categoriaNome.isBlank()
+                    sameCategory || sameNoCategory
+                }.map { it.nome }
+                if (itemsSezione.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "Nessun item da salvare", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                lifecycleScope.launch {
+                    val ok = withContext(Dispatchers.IO) {
+                        runCatching {
+                            ApiClient.createModello(
+                                gruppoId = gruppoId,
+                                topicId = topicId,
+                                userId = userId,
+                                nome = nome,
+                                items = itemsSezione
+                            )
+                        }.getOrDefault(false)
+                    }
+                    if (ok) {
+                        mostraEsitoBreve("Modello salvato: $nome", true)
+                    } else {
+                        mostraEsitoBreve("Impossibile salvare il modello", false)
+                    }
+                }
+            }
+            .setNegativeButton("Annulla", null)
+            .show()
     }
 
     private fun productPreviewText(preview: ApiClient.ProductPreview): String {
