@@ -2,6 +2,7 @@
 require_relative "storico_manager"
 require_relative "../models/carte_fedelta"
 require_relative "../models/whitelist"
+require_relative "../models/lista_modello"
 
 require_relative "../models/context"
 require_relative "../db"
@@ -231,6 +232,31 @@ when /^trigger_list:(-?\d*):(\d*)$/
       )
 
       bot.api.answer_callback_query(callback_query_id: callback.id)
+    when /^modello_richiama:(\d+):(-?\d+):(\d+)$/
+      modello_id, g_id, t_id = $1.to_i, $2.to_i, $3.to_i
+      esito = ListaModello.richiama(modello_id, g_id, user_id, t_id)
+      if esito
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "✅ #{esito[:count]} articoli aggiunti da '#{esito[:nome]}'")
+        items = DataManager.prendi_articoli_ordinati(g_id, t_id)
+        header = DataManager.genera_header_contesto(g_id, t_id)
+        ui = KeyboardGenerator.genera_lista(items, g_id, t_id, 0, { nome_target: header, is_group: !(callback.message.chat.type == "private") })
+        self.edit_veloce(bot, callback.message.chat.id, callback.message.message_id, ui[:text], ui[:markup])
+      else
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "❌ Modello non trovato")
+      end
+    when /^modello_elimina:(\d+):(-?\d+):(\d+)$/
+      modello_id, g_id, t_id = $1.to_i, $2.to_i, $3.to_i
+      ok = ListaModello.elimina(modello_id, user_id)
+      testo = ok ? "🗑️ Modello eliminato" : "⛔ Solo chi ha creato il modello può eliminarlo"
+      bot.api.answer_callback_query(callback_query_id: callback.id, text: testo)
+      if ok
+        kb = KeyboardGenerator.genera_tastiera_modelli(g_id, t_id, user_id)
+        if kb
+          bot.api.edit_message_reply_markup(chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: kb)
+        else
+          bot.api.edit_message_text(chat_id: callback.message.chat.id, message_id: callback.message.message_id, text: "📋 Nessun modello rimasto.", parse_mode: "HTML")
+        end
+      end
     when /^mycontext:(\d+):(-?\d+):(\d)$/
       g_id, t_id, s_all = $1.to_i, $2.to_i, $3.to_i
 

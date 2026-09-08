@@ -258,6 +258,21 @@ SQL
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_categoria ON items (categoria_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_categorie_gruppo_topic ON categorie (gruppo_id, topic_id, nome);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_categoria_stats_group_topic ON categoria_stats (gruppo_id, topic_id, tipo, categoria_id, categoria_nome);"
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS liste_modello (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gruppo_id INTEGER NOT NULL DEFAULT 0,
+      topic_id INTEGER NOT NULL DEFAULT 0,
+      nome TEXT NOT NULL,
+      items_raw TEXT NOT NULL,
+      creato_da INTEGER,
+      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
+      aggiornato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(gruppo_id, topic_id, nome)
+    );
+  SQL
+  db.execute "CREATE INDEX IF NOT EXISTS idx_liste_modello_gruppo_topic ON liste_modello (gruppo_id, topic_id);"
+
   db.execute "CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_topic ON pending_actions (chat_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_gruppo_topic ON storico_articoli (gruppo_id, topic_id, conteggio DESC, ultima_aggiunta DESC);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_nome_gruppo ON storico_articoli (nome, gruppo_id, topic_id);"

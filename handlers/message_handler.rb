@@ -1,10 +1,12 @@
 # handlers/message_handler.rb
+require "cgi"
 require_relative "../utils/keyboard_generator"
 require_relative "../models/context"
 require_relative "../models/group_manager"
 require_relative "../models/group_operational_notifier"
 require_relative "../models/carte_fedelta"
 require_relative "../models/carte_fedelta_gruppo"
+require_relative "../models/lista_modello"
 require_relative "./storico_manager"
 require_relative "../db"
 require_relative "./cleanup_manager"  # needed for /cleanup command
@@ -219,6 +221,36 @@ class MessageHandler
       puts "🔧 comando /cleanup ricevuto da #{u_id}"
       CleanupManager.esegui_cleanup(bot, msg.chat.id, u_id)
       puts "🔧 cleanup eseguito (ritorno al router)"
+      return
+
+    when /^\/modello\s+([^:]+):\s*(.+)$/m
+      nome_modello = $1.to_s.strip
+      corpo = $2.to_s
+      items_raw = corpo.split("&&").map(&:strip).reject(&:empty?)
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
+      if items_raw.empty?
+        bot.api.send_message(chat_id: c_id, text: "⚠️ Specifica almeno un articolo separato da &&.")
+      else
+        esito = ListaModello.crea(g_id, t_id, u_id, nome_modello, items_raw)
+        testo = case esito[:status]
+          when :creato then "✅ Modello <b>#{CGI.escapeHTML(nome_modello)}</b> salvato con #{items_raw.size} articoli. Richiamalo con /modelli."
+          when :duplicato then "⚠️ Esiste già un modello chiamato <b>#{CGI.escapeHTML(nome_modello)}</b> in questo contesto."
+          else "❌ Errore durante il salvataggio del modello."
+        end
+        bot.api.send_message(chat_id: c_id, message_thread_id: (t_id > 0 && !context.private_chat? ? t_id : nil), text: testo, parse_mode: "HTML")
+      end
+      return
+
+    when "/modelli", /^\/modello$/
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
+      kb = KeyboardGenerator.genera_tastiera_modelli(g_id, t_id, u_id)
+      if kb
+        bot.api.send_message(chat_id: c_id, message_thread_id: (t_id > 0 && !context.private_chat? ? t_id : nil), text: "📋 <b>Modelli disponibili</b>\nScegli quale richiamare integralmente nella lista corrente.", reply_markup: kb, parse_mode: "HTML")
+      else
+        bot.api.send_message(chat_id: c_id, text: "Nessun modello salvato. Creane uno con:\n/modello NomeViaggio: Passaporto && Caricabatterie && Costume da bagno")
+      end
       return
     
   when "/ss", "/share"

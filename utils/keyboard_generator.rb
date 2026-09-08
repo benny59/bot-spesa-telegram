@@ -66,6 +66,25 @@ class KeyboardGenerator
     Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: kb)
   end
 
+  def self.genera_tastiera_modelli(gruppo_id, topic_id, user_id)
+    modelli = ListaModello.disponibili(gruppo_id, topic_id, user_id)
+    return nil if modelli.empty?
+
+    keyboard = modelli.map do |m|
+      conteggio = (JSON.parse(m["items_raw"]) rescue []).size
+      row = [Telegram::Bot::Types::InlineKeyboardButton.new(
+        text: "▶️ #{m["nome"]} (#{conteggio})",
+        callback_data: "modello_richiama:#{m["id"]}:#{gruppo_id}:#{topic_id}"
+      )]
+      if m["creato_da"].to_i == user_id.to_i
+        row << Telegram::Bot::Types::InlineKeyboardButton.new(text: "🗑️", callback_data: "modello_elimina:#{m["id"]}:#{gruppo_id}:#{topic_id}")
+      end
+      row
+    end
+    keyboard << [Telegram::Bot::Types::InlineKeyboardButton.new(text: "❌ Chiudi", callback_data: "ui_close:#{gruppo_id}:0")]
+    Telegram::Bot::Types::InlineKeyboardMarkup.new(inline_keyboard: keyboard)
+  end
+
   def self.genera_lista(items, gruppo_id, topic_id, page = 0, options = {})
     # Default delle opzioni
     opts = { nome_target: "Lista", is_group: false }.merge(options)
