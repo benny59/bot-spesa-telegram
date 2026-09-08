@@ -1797,6 +1797,7 @@ end
         t_id = t["topic_id"] || 0
         t_label = t["t_nome"].to_s.strip.empty? ? (t_id == 0 ? "Generale" : "Topic #{t_id}") : t["t_nome"]
         destinazioni << {
+          "gruppo_id" => r["id"].to_i,
           "chat_id" => chat_id,
           "topic_id" => t_id,
           "nome" => "👥 #{r["nome"]}: #{t_label}",

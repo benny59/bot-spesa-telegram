@@ -739,7 +739,7 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
       bot.api.answer_callback_query(callback_query_id: callback.id)
 
       # --- NUOVA GESTIONE CAMBIO GRUPPO DA PRIVATA ---
-    when /^private_set:(\d+):(\d+):(\d+)$/
+    when /^private_set:(-?\d+):(\d+):(\d+)$/
       g_id, u_id, t_id = $1.to_i, $2.to_i, $3.to_i
 
       # 1. Recuperiamo il nome del topic per la configurazione

@@ -291,8 +291,7 @@ class KeyboardGenerator
 
       [Telegram::Bot::Types::InlineKeyboardButton.new(
         text: "#{prefix}#{dest["nome"]}",
-        # Usiamo chat_id restituito dal DB che rappresenta l'ID interno del gruppo
-        callback_data: "private_set:#{dest["chat_id"]}:#{user_id}:#{dest["topic_id"]}",
+        callback_data: "private_set:#{dest.fetch("gruppo_id", dest["chat_id"])}:#{user_id}:#{dest["topic_id"]}",
       )]
     end
 
