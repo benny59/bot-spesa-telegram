@@ -26,22 +26,34 @@ class StoricoManager
 
   def self.notifica_scopetta_html(nome, comprati: [], cancellati: [], mantenuti: [])
     nome_sicuro = CGI.escapeHTML(nome.to_s)
-    comprati = Array(comprati).map { |articolo| CGI.escapeHTML(articolo.to_s) }
-    cancellati = Array(cancellati).map { |articolo| CGI.escapeHTML(articolo.to_s) }
-    mantenuti = Array(mantenuti).map { |articolo| CGI.escapeHTML(articolo.to_s) }
+    comprati = formatta_elenco_scopetta(comprati)
+    cancellati = formatta_elenco_scopetta(cancellati)
+    mantenuti = formatta_elenco_scopetta(mantenuti)
 
     if comprati.empty? && cancellati.empty? && mantenuti.empty?
       return "🧹 <b>#{nome_sicuro}</b> ha pulito la lista."
     end
 
     parti = []
-    parti << "🛒 <b>#{nome_sicuro}</b> ha comprato #{comprati.join(', ')}." unless comprati.empty?
-    parti << "🗑️ <b>#{nome_sicuro}</b> ha eliminato definitivamente #{cancellati.join(', ')} senza averli comprati." unless cancellati.empty?
+    parti << "🛒 <b>#{nome_sicuro}</b> ha comprato:\n#{comprati.join("\n")}" unless comprati.empty?
+    parti << "🗑️ <b>#{nome_sicuro}</b> ha eliminato definitivamente:\n#{cancellati.join("\n")}\nSenza averli comprati." unless cancellati.empty?
     if mantenuti.any?
-      parti << "📌 <b>#{nome_sicuro}</b> ha lasciato #{mantenuti.join(', ')} in lista perché non disponibili in questa sessione"
+      parti << "📌 <b>#{nome_sicuro}</b> ha lasciato in lista perché non disponibili in questa sessione:\n#{mantenuti.join("\n")}"
     end
 
     parti.join("\n")
+  end
+
+  def self.formatta_elenco_scopetta(articoli)
+    Array(articoli).map do |articolo|
+      nome, categoria = articolo.to_s.split("&", 2).map { |parte| parte.to_s.strip }
+      nome = articolo.to_s.strip if nome.to_s.empty?
+      categoria = nil if categoria.to_s.empty? || nome == articolo.to_s.strip
+
+      voce = "• <b>#{CGI.escapeHTML(nome)}</b>"
+      voce += " <i>(#{CGI.escapeHTML(categoria)})</i>" if categoria
+      voce
+    end
   end
 
   # ==============================================================================
