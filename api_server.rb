@@ -407,6 +407,28 @@ delete '/modelli/:id' do
   { ok: true }.to_json
 end
 
+put '/modelli/:id' do
+  body = json_body
+  modello_id = params[:id].to_i
+  user_id = body['user_id']&.to_i || 0
+  nome     = body['nome'].to_s.strip
+  items    = Array(body['items']).map(&:to_s).reject(&:empty?)
+
+  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
+  halt 400, { error: 'nome mancante' }.to_json if nome.empty?
+  halt 400, { error: 'items mancanti' }.to_json if items.empty?
+
+  result = ListaModello.modifica(modello_id, user_id, nome, items)
+  case result[:status]
+  when :aggiornato then status 200
+  when :non_trovato then status 404
+  when :non_autorizzato then status 403
+  when :duplicato then status 409
+  else status 400
+  end
+  { ok: result[:status] == :aggiornato, status: result[:status], messaggio: result[:messaggio] }.to_json
+end
+
 post '/modelli/:id/richiama' do
   body = json_body
   gruppo_id = body['gruppo_id']&.to_i

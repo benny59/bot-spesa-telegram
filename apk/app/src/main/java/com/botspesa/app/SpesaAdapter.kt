@@ -48,6 +48,9 @@ class SpesaAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        // Difensivo: una view riciclata da una riga precedentemente swipata non deve ereditare l'offset/trasparenza residui
+        holder.itemView.translationX = 0f
+        holder.itemView.alpha = 1f
         val item = items[position]
         val listaSingola = singleContextList()
         val categoriaVisualizzata = if (item.categoriaEffimera) item.categoriaNome.lowercase() else item.categoriaNome
@@ -175,11 +178,8 @@ class SpesaAdapter(
 
         holder.itemCard.setOnClickListener { onToggle(item) }
         holder.itemCard.setOnLongClickListener { v ->
-            if (listaSingola && mostraContesto) {
-                onSectionLongPress(item, v, separatoreLista)
-            } else {
-                onLongPress(item, v)
-            }
+            // Il long-press sulla card deve sempre aprire il menu dell'item, mai quello della sezione (bug: veniva rubato dal separatore quando visibile sopra il primo item)
+            onLongPress(item, v)
             true
         }
     }

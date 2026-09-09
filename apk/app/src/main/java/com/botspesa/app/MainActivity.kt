@@ -603,11 +603,55 @@ class MainActivity : AppCompatActivity() {
             val pos = viewHolder.adapterPosition
             if (pos == RecyclerView.NO_POSITION) return
             val item = items[pos]
+            // Reset immediato: l'item non viene rimosso dall'adapter, quindi la libreria non lo farebbe da sola
+            viewHolder.itemView.translationX = 0f
+            viewHolder.itemView.alpha = 1f
             adapter.notifyItemChanged(pos)
             when (direction) {
                 ItemTouchHelper.RIGHT -> toggleItem(item)
                 ItemTouchHelper.LEFT -> toggleDeleteItem(item)
             }
+        }
+
+        override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+            super.clearView(recyclerView, viewHolder)
+            viewHolder.itemView.translationX = 0f
+            viewHolder.itemView.alpha = 1f
+        }
+
+        private val greenPaint = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#43A047") }
+        private val redPaint = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#E53935") }
+        private val iconPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 48f
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+        }
+
+        // Sfondo colorato "in stile Gmail" che segue lo swipe: verde verso destra (comprato), rosso verso sinistra (elimina)
+        override fun onChildDraw(
+            c: android.graphics.Canvas,
+            recyclerView: RecyclerView,
+            viewHolder: RecyclerView.ViewHolder,
+            dX: Float,
+            dY: Float,
+            actionState: Int,
+            isCurrentlyActive: Boolean
+        ) {
+            val itemView = viewHolder.itemView
+            if (actionState == ItemTouchHelper.ACTION_STATE_SWIPE && dX != 0f) {
+                val top = itemView.top.toFloat()
+                val bottom = itemView.bottom.toFloat()
+                val textY = top + (bottom - top) / 2f - (iconPaint.descent() + iconPaint.ascent()) / 2f
+                if (dX > 0) {
+                    c.drawRect(itemView.left.toFloat(), top, itemView.left + dX, bottom, greenPaint)
+                    c.drawText("✓", itemView.left + dX / 2f, textY, iconPaint)
+                } else {
+                    c.drawRect(itemView.right + dX, top, itemView.right.toFloat(), bottom, redPaint)
+                    c.drawText("🗑", itemView.right + dX / 2f, textY, iconPaint)
+                }
+            }
+            super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
         }
     }
 

@@ -37,6 +37,14 @@
             android:padding="8dp" />
 
         <TextView
+            android:id="@+id/btnModelloModifica"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Modifica"
+            android:textColor="@android:color/darker_gray"
+            android:padding="8dp" />
+
+        <TextView
             android:id="@+id/btnModelloElimina"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

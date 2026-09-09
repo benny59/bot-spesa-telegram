@@ -283,7 +283,8 @@ object ApiClient {
     data class Modello(
         val id: Int,
         val nome: String,
-        val items: List<String>
+        val items: List<String>,
+        val creatoDa: Int = 0
     )
 
     fun getModelli(gruppoId: Int, topicId: Int, userId: Int): List<Modello> {
@@ -299,7 +300,8 @@ object ApiClient {
                 Modello(
                     id = (row["id"] as? Double)?.toInt() ?: 0,
                     nome = row["nome"] as? String ?: "",
-                    items = (row["items"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                    items = (row["items"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+                    creatoDa = (row["creato_da"] as? Double)?.toInt() ?: 0
                 )
             }
         }
@@ -321,6 +323,20 @@ object ApiClient {
         return http.newCall(req).execute().use { response ->
             response.isSuccessful
         }
+    }
+
+    fun updateModello(modelloId: Int, userId: Int, nome: String, items: List<String>): Boolean {
+        val payload = gson.toJson(mapOf(
+            "user_id" to userId,
+            "nome" to nome,
+            "items" to items
+        ))
+        val req = Request.Builder()
+            .url("$baseUrl/modelli/$modelloId")
+            .put(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response -> response.isSuccessful }
     }
 
     fun deleteModello(modelloId: Int, userId: Int): Boolean {

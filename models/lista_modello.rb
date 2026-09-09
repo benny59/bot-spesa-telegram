@@ -71,6 +71,32 @@ class ListaModello
     DB.get_first_row("SELECT * FROM liste_modello WHERE id = ? LIMIT 1", [modello_id.to_i])
   end
 
+  # Modifica per id (a differenza di aggiorna, che matcha per nome): consente anche la rinomina.
+  def self.modifica(modello_id, user_id, nome, items_raw_array)
+    modello_id = modello_id.to_i
+    user_id = user_id.to_i
+    nome = nome.to_s.strip
+    items = Array(items_raw_array).flat_map { |item| DataManager.separa_items(item) }
+    items = items.map(&:strip).reject(&:empty?)
+
+    return { status: :errore, messaggio: "Nome modello non valido." } if nome.empty?
+    return { status: :errore, messaggio: "Nessun articolo nel modello." } if items.empty?
+
+    modello = trova(modello_id)
+    return { status: :non_trovato } unless modello
+    return { status: :non_autorizzato } unless modello["creato_da"].to_i == user_id
+
+    begin
+      DB.execute(
+        "UPDATE liste_modello SET nome = ?, items_raw = ?, aggiornato_il = datetime('now') WHERE id = ?",
+        [nome, JSON.generate(items), modello_id]
+      )
+      { status: :aggiornato }
+    rescue SQLite3::ConstraintException
+      { status: :duplicato, messaggio: "Esiste già un modello con questo nome in questo contesto." }
+    end
+  end
+
   def self.elimina(modello_id, user_id)
     modello_id = modello_id.to_i
     user_id = user_id.to_i

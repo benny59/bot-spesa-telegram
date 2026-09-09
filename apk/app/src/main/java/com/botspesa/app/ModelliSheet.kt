@@ -40,7 +40,7 @@ class ModelliSheet : BottomSheetDialogFragment() {
             result.onSuccess { modelli ->
                 empty.visibility = if (modelli.isEmpty()) View.VISIBLE else View.GONE
                 recycler.visibility = if (modelli.isEmpty()) View.GONE else View.VISIBLE
-                recycler.adapter = ModelliAdapter(modelli, ::richiama, ::confermaEliminazione)
+                recycler.adapter = ModelliAdapter(modelli, ::richiama, ::apriModifica, ::confermaEliminazione)
             }.onFailure {
                 empty.visibility = View.VISIBLE
                 empty.text = it.message ?: "Impossibile caricare i modelli"
@@ -66,6 +66,15 @@ class ModelliSheet : BottomSheetDialogFragment() {
                 Toast.makeText(requireContext(), it.message ?: "Errore inserimento modello", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    private fun apriModifica(modello: ApiClient.Modello) {
+        ModelloEditSheet.newInstance(gruppoId, topicId, userId, modello)
+            .also { it.setOnSavedListener {
+                onModelChanged?.invoke()
+                view?.let(::caricaModelli)
+            } }
+            .show(parentFragmentManager, "modello_edit")
     }
 
     private fun confermaEliminazione(modello: ApiClient.Modello) {
@@ -114,6 +123,7 @@ class ModelliSheet : BottomSheetDialogFragment() {
 private class ModelliAdapter(
     private val modelli: List<ApiClient.Modello>,
     private val onRecall: (ApiClient.Modello) -> Unit,
+    private val onEdit: (ApiClient.Modello) -> Unit,
     private val onDelete: (ApiClient.Modello) -> Unit
 ) : RecyclerView.Adapter<ModelliAdapter.ViewHolder>() {
 
@@ -121,6 +131,7 @@ private class ModelliAdapter(
         val nome: TextView = view.findViewById(R.id.tvModelloNome)
         val articoli: TextView = view.findViewById(R.id.tvModelloArticoli)
         val aggiungi: TextView = view.findViewById(R.id.btnModelloAggiungi)
+        val modifica: TextView = view.findViewById(R.id.btnModelloModifica)
         val elimina: TextView = view.findViewById(R.id.btnModelloElimina)
     }
 
@@ -136,6 +147,7 @@ private class ModelliAdapter(
         holder.articoli.text = modello.items.joinToString(", ")
         holder.itemView.setOnClickListener { onRecall(modello) }
         holder.aggiungi.setOnClickListener { onRecall(modello) }
+        holder.modifica.setOnClickListener { onEdit(modello) }
         holder.elimina.setOnClickListener { onDelete(modello) }
     }
 }
