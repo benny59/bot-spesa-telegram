@@ -603,10 +603,9 @@ class MainActivity : AppCompatActivity() {
             val pos = viewHolder.adapterPosition
             if (pos == RecyclerView.NO_POSITION) return
             val item = items[pos]
-            // Reset immediato: l'item non viene rimosso dall'adapter, quindi la libreria non lo farebbe da sola
-            viewHolder.itemView.translationX = 0f
-            viewHolder.itemView.alpha = 1f
-            adapter.notifyItemChanged(pos)
+            // Niente notifyItemChanged qui: interromperebbe l'animazione di rientro dello swipe ancora in corso
+            // e impedirebbe a clearView() di ripristinare translationX/alpha correttamente (bug dello sfondo "incollato").
+            // Il refresh visivo arriva comunque da aggiornaLista() al termine della chiamata di rete.
             when (direction) {
                 ItemTouchHelper.RIGHT -> toggleItem(item)
                 ItemTouchHelper.LEFT -> toggleDeleteItem(item)
@@ -1006,6 +1005,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostraMenuSezione(item: SpesaItem, anchor: android.view.View, etichetta: String) {
+        val etichetteStato = setOf(
+            getString(R.string.separatore_cancellati),
+            getString(R.string.separatore_nel_carrello),
+            getString(R.string.separatore_non_disponibili)
+        )
+        if (etichetta in etichetteStato) return // Sezioni di stato, non categorie: nessuna azione di categoria/modello ha senso qui.
+
         val isModello = etichetta.startsWith("Modello:", ignoreCase = true)
         PopupMenu(this, anchor).apply {
             if (isModello) {
