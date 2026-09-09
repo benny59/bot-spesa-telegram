@@ -42,6 +42,13 @@ class FavoritesStore(context: Context) {
         return true
     }
 
+    fun remove(favoriteId: String) {
+        val favorites = all().toMutableList()
+        if (favorites.removeAll { it.id == favoriteId }) {
+            save(favorites)
+        }
+    }
+
     private fun save(favorites: List<FavoriteItem>) {
         val temporaryFile = File(file.parentFile, "$FILE_NAME.tmp")
         temporaryFile.writeText(gson.toJson(favorites))

@@ -1941,15 +1941,25 @@ end
 
   # Post-processiamo l'ordine SQL per raggruppare gli item per categoria effettiva (canonica o effimera)
   # nell'ordine alfabetico della categoria, mantenendo stabile l'ordine relativo degli item senza categoria.
+  # Le categorie "Modello: ..." (assegnate al richiamo di un modello) vanno sotto le categorie normali,
+  # ma sopra gli item senza categoria.
   def self.ordina_items_per_categoria(items)
     items.each_with_index.sort_by do |item, idx|
       cat = self.categoria_effettiva_nome(item)
       has_cat = !cat.empty?
+      is_modello = cat.strip.downcase.start_with?("modello:")
+      tier = if !has_cat
+        2
+      elsif is_modello
+        1
+      else
+        0
+      end
       [
         item["gruppo_id"].to_i,
         item["topic_id"].to_i,
         self.item_state_rank(item),
-        has_cat ? 0 : 1,
+        tier,
         cat.downcase,
         idx
       ]

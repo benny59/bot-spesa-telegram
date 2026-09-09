@@ -28,15 +28,31 @@ class PreferitiSheet : BottomSheetDialogFragment() {
         inflater.inflate(R.layout.fragment_preferiti, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        caricaPreferiti(view)
+        view.findViewById<View>(R.id.btnBackupPreferiti).setOnClickListener { backupPreferiti() }
+        view.findViewById<View>(R.id.btnRipristinaPreferiti).setOnClickListener { scaricaBackupPerRipristino() }
+    }
+
+    private fun caricaPreferiti(view: View) {
         val favorites = FavoritesStore(requireContext()).all()
         val recycler = view.findViewById<RecyclerView>(R.id.rvPreferiti)
         val empty = view.findViewById<TextView>(R.id.tvPreferitiVuoto)
         empty.visibility = if (favorites.isEmpty()) View.VISIBLE else View.GONE
         recycler.visibility = if (favorites.isEmpty()) View.GONE else View.VISIBLE
         recycler.layoutManager = LinearLayoutManager(requireContext())
-        recycler.adapter = PreferitiAdapter(favorites, addedIds) { favorite -> toggleFavorite(favorite, recycler) }
-        view.findViewById<View>(R.id.btnBackupPreferiti).setOnClickListener { backupPreferiti() }
-        view.findViewById<View>(R.id.btnRipristinaPreferiti).setOnClickListener { scaricaBackupPerRipristino() }
+        recycler.adapter = PreferitiAdapter(favorites, addedIds, { favorite -> toggleFavorite(favorite, recycler) }, ::confermaEliminazionePreferito)
+    }
+
+    private fun confermaEliminazionePreferito(favorite: FavoriteItem) {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Elimina preferito")
+            .setMessage("Eliminare definitivamente \"${favorite.description}\" dai preferiti?")
+            .setNegativeButton("Annulla", null)
+            .setPositiveButton("Elimina") { _, _ ->
+                FavoritesStore(requireContext()).remove(favorite.id)
+                view?.let(::caricaPreferiti)
+            }
+            .show()
     }
 
     private fun backupPreferiti() {
@@ -161,7 +177,8 @@ class PreferitiSheet : BottomSheetDialogFragment() {
 private class PreferitiAdapter(
     private val favorites: List<FavoriteItem>,
     private val addedIds: Set<String>,
-    private val onAdd: (FavoriteItem) -> Unit
+    private val onAdd: (FavoriteItem) -> Unit,
+    private val onDelete: (FavoriteItem) -> Unit
 ) : RecyclerView.Adapter<PreferitiAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -170,6 +187,7 @@ private class PreferitiAdapter(
         val category: TextView = view.findViewById(R.id.tvPreferitoCategoria)
         val link: View = view.findViewById(R.id.ivPreferitoLink)
         val photo: View = view.findViewById(R.id.ivPreferitoFoto)
+        val elimina: View = view.findViewById(R.id.tvPreferitoElimina)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder = ViewHolder(
@@ -192,5 +210,6 @@ private class PreferitiAdapter(
         holder.link.visibility = if (favorite.yukaLink.isBlank()) View.GONE else View.VISIBLE
         holder.photo.visibility = if (favorite.telegramPhotoId.isNullOrBlank()) View.GONE else View.VISIBLE
         holder.itemView.setOnClickListener { onAdd(favorite) }
+        holder.elimina.setOnClickListener { onDelete(favorite) }
     }
 }

@@ -25,6 +25,7 @@ class ModelloEditSheet : BottomSheetDialogFragment() {
     private val topicId get() = arguments?.getInt(ARG_TOPIC_ID) ?: 0
     private val userId get() = arguments?.getInt(ARG_USER_ID) ?: 0
     private val modelloId get() = arguments?.getInt(ARG_MODELLO_ID) ?: 0
+    private val isNuovo get() = modelloId <= 0
     private val nomeIniziale get() = arguments?.getString(ARG_NOME).orEmpty()
     private val itemsIniziali get() = arguments?.getStringArrayList(ARG_ITEMS)?.toList() ?: emptyList()
 
@@ -38,6 +39,7 @@ class ModelloEditSheet : BottomSheetDialogFragment() {
         items.clear()
         items.addAll(itemsIniziali)
 
+        view.findViewById<TextView>(R.id.tvTitoloModelloEdit).text = if (isNuovo) "Nuovo modello" else "Modifica modello"
         val etNome = view.findViewById<EditText>(R.id.etModelloNome)
         val etNuovoItem = view.findViewById<EditText>(R.id.etNuovoItem)
         val recycler = view.findViewById<RecyclerView>(R.id.rvModelloItems)
@@ -89,14 +91,17 @@ class ModelloEditSheet : BottomSheetDialogFragment() {
         }
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.updateModello(modelloId, userId, nome, items) }.getOrDefault(false)
+                runCatching {
+                    if (isNuovo) ApiClient.createModello(gruppoId, topicId, userId, nome, items)
+                    else ApiClient.updateModello(modelloId, userId, nome, items)
+                }.getOrDefault(false)
             }
             if (ok) {
-                Toast.makeText(requireContext(), "Modello aggiornato", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), if (isNuovo) "Modello creato" else "Modello aggiornato", Toast.LENGTH_SHORT).show()
                 onSaved?.invoke()
                 dismiss()
             } else {
-                Toast.makeText(requireContext(), "Impossibile salvare le modifiche", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "Impossibile salvare il modello", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -113,14 +118,14 @@ class ModelloEditSheet : BottomSheetDialogFragment() {
         private const val ARG_NOME = "nome"
         private const val ARG_ITEMS = "items"
 
-        fun newInstance(gruppoId: Int, topicId: Int, userId: Int, modello: ApiClient.Modello) = ModelloEditSheet().apply {
+        fun newInstance(gruppoId: Int, topicId: Int, userId: Int, modello: ApiClient.Modello?) = ModelloEditSheet().apply {
             arguments = Bundle().apply {
                 putInt(ARG_GRUPPO_ID, gruppoId)
                 putInt(ARG_TOPIC_ID, topicId)
                 putInt(ARG_USER_ID, userId)
-                putInt(ARG_MODELLO_ID, modello.id)
-                putString(ARG_NOME, modello.nome)
-                putStringArrayList(ARG_ITEMS, ArrayList(modello.items))
+                putInt(ARG_MODELLO_ID, modello?.id ?: 0)
+                putString(ARG_NOME, modello?.nome.orEmpty())
+                putStringArrayList(ARG_ITEMS, ArrayList(modello?.items.orEmpty()))
             }
         }
     }

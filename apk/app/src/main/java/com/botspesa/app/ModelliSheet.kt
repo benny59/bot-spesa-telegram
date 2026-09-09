@@ -27,6 +27,16 @@ class ModelliSheet : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         caricaModelli(view)
+        view.findViewById<View>(R.id.btnNuovoModello).setOnClickListener { apriCreazione() }
+    }
+
+    private fun apriCreazione() {
+        ModelloEditSheet.newInstance(gruppoId, topicId, userId, modello = null)
+            .also { it.setOnSavedListener {
+                onModelChanged?.invoke()
+                view?.let(::caricaModelli)
+            } }
+            .show(parentFragmentManager, "modello_edit")
     }
 
     private fun caricaModelli(view: View) {
