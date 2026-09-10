@@ -176,7 +176,10 @@ class MainActivity : AppCompatActivity() {
             notificationEnabled = { gruppoId -> notificheOperazioniPerGruppo[gruppoId] },
             singleContextList = { vistaAttuale.isEmpty() },
             onLongPress = { item, anchor -> mostraMenuContestuale(item, anchor) },
-            onSectionLongPress = { item, anchor, label -> mostraMenuSezione(item, anchor, label) }
+            onSectionLongPress = { item, anchor, label ->
+                if (vistaAttuale.isEmpty()) mostraMenuSezione(item, anchor, label)
+                else mostraMenuTopic(item, anchor)
+            }
         )
 
         drawerLayout = findViewById(R.id.drawerLayout)
@@ -1078,6 +1081,53 @@ class MainActivity : AppCompatActivity() {
             }
             show()
         }
+    }
+
+    private fun mostraMenuTopic(item: SpesaItem, anchor: android.view.View) {
+        val notificheAttive = notificheOperazioniPerGruppo[item.gruppoId] ?: true
+        PopupMenu(this, anchor).apply {
+            menu.add(0, 2005, 0, "Notifiche al gruppo (${if (notificheAttive) "ON" else "OFF"})")
+            menu.add(0, 2006, 1, "Cambia colore topic")
+            setOnMenuItemClickListener { menuItem ->
+                when (menuItem.itemId) {
+                    2005 -> {
+                        lifecycleScope.launch {
+                            val nuovoStato = !notificheAttive
+                            val ok = withContext(Dispatchers.IO) {
+                                runCatching { ApiClient.setNotificheGruppo(item.gruppoId, userId, nuovoStato) }
+                                    .getOrDefault(false)
+                            }
+                            if (ok) {
+                                notificheOperazioniPerGruppo[item.gruppoId] = nuovoStato
+                                adapter.notifyDataSetChanged()
+                                mostraEsitoBreve("Notifiche al gruppo: ${if (nuovoStato) "ON" else "OFF"}", true)
+                            } else {
+                                mostraEsitoBreve("Impossibile aggiornare le notifiche del gruppo", false)
+                            }
+                        }
+                    }
+                    2006 -> mostraDialogColoreTopic(item)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun mostraDialogColoreTopic(item: SpesaItem) {
+        val topicNome = item.nomeTopic.ifBlank { item.nomeContesto.substringAfter(" • ", "Principale") }
+        val colorKey = "topic_color_${item.gruppoId}_${item.topicId}"
+        AlertDialog.Builder(this)
+            .setTitle("Colore per $topicNome")
+            .setItems(colorPalette.map { it.second }.toTypedArray()) { _, index ->
+                val color = colorPalette[index].first
+                prefs().edit().putInt(colorKey, color).apply()
+                if (item.gruppoId == gruppoId && item.topicId == topicId) {
+                    applicaColoreToolbar(item.gruppoId, topicNome)
+                }
+                adapter.notifyDataSetChanged()
+            }
+            .show()
     }
 
     private fun mostraDialogModificaItem(item: SpesaItem) {

@@ -248,6 +248,27 @@ get '/gruppi' do
   ([{ id: 0, nome: 'Lista Personale', chat_id: nil, notifiche_operazioni: nil }] + result).to_json
 end
 
+patch '/gruppi/:id/notifiche' do
+  body = json_body
+  gruppo_id = params[:id].to_i
+  user_id = body['user_id']&.to_i || 0
+  abilitate = body['abilitate'] == true
+  gruppo = DB.get_first_row("SELECT id, chat_id FROM gruppi WHERE id = ?", [gruppo_id])
+
+  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
+  halt 404, { error: 'gruppo non trovato' }.to_json unless gruppo
+  halt 403, { error: 'accesso negato' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
+
+  token = telegram_token_attivo
+  halt 503, { error: 'token Telegram non configurato' }.to_json unless token
+  bot = Telegram::Bot::Client.new(token)
+  halt 403, { error: 'solo un amministratore può modificare le notifiche' }.to_json unless
+    GroupManager.admin_del_gruppo?(bot, gruppo['chat_id'], user_id)
+
+  GroupManager.imposta_notifiche_operazioni(gruppo_id, abilitate)
+  { ok: true, notifiche_operazioni: abilitate }.to_json
+end
+
 get '/topics' do
   gruppo_id = params[:gruppo_id]&.to_i
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id

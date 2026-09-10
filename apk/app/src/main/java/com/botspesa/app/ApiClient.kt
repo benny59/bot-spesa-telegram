@@ -692,6 +692,17 @@ object ApiClient {
         }
     }
 
+    fun setNotificheGruppo(gruppoId: Int, userId: Int, abilitate: Boolean): Boolean {
+        val payload = mapOf("user_id" to userId, "abilitate" to abilitate)
+        val body = gson.toJson(payload).toRequestBody(JSON_TYPE)
+        val req = Request.Builder()
+            .url("$baseUrl/gruppi/$gruppoId/notifiche")
+            .patch(body)
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
     fun getTopics(gruppoId: Int): List<TopicItem> {
         val req = Request.Builder().url("$baseUrl/topics?gruppo_id=$gruppoId").auth().build()
         val body = http.newCall(req).execute().use { it.body!!.string() }
