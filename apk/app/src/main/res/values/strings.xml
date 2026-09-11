@@ -106,6 +106,7 @@
     <string name="con_yuka">Con Yuka</string>
     <string name="con_bot_spesa">Con Bot Spesa</string>
     <string name="nessun_articolo_da_condividere">Nessun articolo da condividere</string>
+    <string name="nessun_articolo_selezionato">Nessun articolo selezionato</string>
     <string name="nessun_articolo_da_pulire">Nessun articolo da pulire</string>
     <string name="conferma_pulizia">Rimuovere %1$d %2$s da pulire?</string>
     <string name="articolo_singolare">articolo</string>

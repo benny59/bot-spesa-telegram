@@ -31,6 +31,6 @@
         android:layout_marginStart="8dp"
         android:src="@drawable/ic_delete"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Elimina" />
+        android:contentDescription="@string/elimina" />
 
 </LinearLayout>

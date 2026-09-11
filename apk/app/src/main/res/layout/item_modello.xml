@@ -6,12 +6,29 @@
     android:paddingTop="10dp"
     android:paddingBottom="10dp">
 
-    <TextView
-        android:id="@+id/tvModelloNome"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="17sp"
-        android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tvModelloNome"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/ivModelloShare"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:padding="4dp"
+            android:contentDescription="Condividi modello"
+            android:src="@drawable/ic_share"
+            android:tint="@android:color/darker_gray" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tvModelloArticoli"

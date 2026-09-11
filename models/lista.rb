@@ -109,6 +109,24 @@ class Lista
     DB.changes > 0
   end
 
+  def self.sposta_topic_multipla(item_ids, gruppo_id, topic_id)
+    ids = Array(item_ids).map(&:to_i).uniq.reject(&:zero?)
+    return 0 if ids.empty?
+
+    moved = 0
+    DB.transaction do
+      ids.each do |item_id|
+        DB.execute(
+          "UPDATE items SET gruppo_id = ?, topic_id = ? WHERE id = ?",
+          [gruppo_id.to_i, topic_id.to_i, item_id]
+        )
+        moved += 1 if DB.changes > 0
+      end
+    end
+
+    moved
+  end
+
   def self.ha_immagine?(item_id)
     count = DB.get_first_value("SELECT COUNT(*) FROM item_images WHERE item_id = ?", [item_id])
     count > 0

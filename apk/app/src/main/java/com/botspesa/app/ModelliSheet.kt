@@ -3,6 +3,7 @@ package com.botspesa.app
 import android.app.AlertDialog
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.widget.PopupMenu
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -18,6 +19,7 @@ import kotlinx.coroutines.withContext
 class ModelliSheet : BottomSheetDialogFragment() {
 
     private var onModelChanged: (() -> Unit)? = null
+    private var onModelShared: ((ApiClient.Modello) -> Unit)? = null
     private val gruppoId get() = arguments?.getInt(ARG_GRUPPO_ID) ?: 0
     private val topicId get() = arguments?.getInt(ARG_TOPIC_ID) ?: 0
     private val userId get() = arguments?.getInt(ARG_USER_ID) ?: 0
@@ -50,7 +52,13 @@ class ModelliSheet : BottomSheetDialogFragment() {
             result.onSuccess { modelli ->
                 empty.visibility = if (modelli.isEmpty()) View.VISIBLE else View.GONE
                 recycler.visibility = if (modelli.isEmpty()) View.GONE else View.VISIBLE
-                recycler.adapter = ModelliAdapter(modelli, ::richiama, ::apriModifica, ::confermaEliminazione)
+                recycler.adapter = ModelliAdapter(
+                    modelli,
+                    ::richiama,
+                    ::apriModifica,
+                    ::confermaEliminazione,
+                    { modello -> onModelShared?.invoke(modello) }
+                )
             }.onFailure {
                 empty.visibility = View.VISIBLE
                 empty.text = it.message ?: "Impossibile caricare i modelli"
@@ -115,6 +123,10 @@ class ModelliSheet : BottomSheetDialogFragment() {
         onModelChanged = listener
     }
 
+    fun setOnModelSharedListener(listener: (ApiClient.Modello) -> Unit) {
+        onModelShared = listener
+    }
+
     companion object {
         private const val ARG_GRUPPO_ID = "gruppo_id"
         private const val ARG_TOPIC_ID = "topic_id"
@@ -134,12 +146,14 @@ private class ModelliAdapter(
     private val modelli: List<ApiClient.Modello>,
     private val onRecall: (ApiClient.Modello) -> Unit,
     private val onEdit: (ApiClient.Modello) -> Unit,
-    private val onDelete: (ApiClient.Modello) -> Unit
+    private val onDelete: (ApiClient.Modello) -> Unit,
+    private val onShare: (ApiClient.Modello) -> Unit
 ) : RecyclerView.Adapter<ModelliAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val nome: TextView = view.findViewById(R.id.tvModelloNome)
         val articoli: TextView = view.findViewById(R.id.tvModelloArticoli)
+        val share: View = view.findViewById(R.id.ivModelloShare)
         val aggiungi: TextView = view.findViewById(R.id.btnModelloAggiungi)
         val modifica: TextView = view.findViewById(R.id.btnModelloModifica)
         val elimina: TextView = view.findViewById(R.id.btnModelloElimina)
@@ -156,6 +170,18 @@ private class ModelliAdapter(
         holder.nome.text = modello.nome
         holder.articoli.text = modello.items.joinToString(", ")
         holder.itemView.setOnClickListener { onRecall(modello) }
+        holder.itemView.setOnLongClickListener { anchor ->
+            PopupMenu(anchor.context, anchor).apply {
+                menu.add("Condividi items modello")
+                setOnMenuItemClickListener {
+                    onShare(modello)
+                    true
+                }
+                show()
+            }
+            true
+        }
+        holder.share.setOnClickListener { onShare(modello) }
         holder.aggiungi.setOnClickListener { onRecall(modello) }
         holder.modifica.setOnClickListener { onEdit(modello) }
         holder.elimina.setOnClickListener { onDelete(modello) }

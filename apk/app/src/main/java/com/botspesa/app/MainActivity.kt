@@ -64,6 +64,12 @@ class MainActivity : AppCompatActivity() {
         val label: String
     )
 
+    private data class ShareItem(
+        val nome: String,
+        val categoriaNome: String = "",
+        val categoriaEffimera: Boolean = false
+    )
+
     private companion object {
         const val LINK_MARKER = "[YUKA_LINK]"
     }
@@ -226,7 +232,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.nav_modelli          -> {
                     ModelliSheet.newInstance(gruppoId, topicId, userId)
-                        .also { it.setOnModelChangedListener { aggiornaLista() } }
+                        .also {
+                            it.setOnModelChangedListener { aggiornaLista() }
+                            it.setOnModelSharedListener(::condividiModello)
+                        }
                         .show(supportFragmentManager, "modelli")
                 }
                 R.id.nav_checklist        -> {
@@ -463,17 +472,45 @@ class MainActivity : AppCompatActivity() {
 
     private fun condividiListaCorrente() {
         val daComprare = items.filter { !it.isBought && !it.isDeleted && it.disponibile }
-        if (daComprare.isEmpty()) {
+        val nomeGruppo = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
+        val nomeTopic = tvTopic.text.toString().trimEnd('▾', ' ').trim()
+        condividiItems(
+            titolo = "🛒 Lista spesa: $nomeGruppo",
+            subject = "Lista spesa: $nomeGruppo",
+            topic = nomeTopic,
+            elementi = daComprare.map(::shareItem)
+        )
+    }
+
+    private fun condividiModello(modello: ApiClient.Modello) {
+        val nomeGruppo = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
+        val nomeTopic = tvTopic.text.toString().trimEnd('▾', ' ').trim()
+        condividiItems(
+            titolo = "📋 Modello: ${modello.nome}",
+            subject = "Modello spesa: ${modello.nome}",
+            gruppo = nomeGruppo,
+            topic = nomeTopic,
+            elementi = modello.items.map(::shareItemFromModello)
+        )
+    }
+
+    private fun condividiItems(
+        titolo: String,
+        subject: String,
+        gruppo: String? = null,
+        topic: String? = null,
+        elementi: List<ShareItem>
+    ) {
+        val itemsDaCondividere = elementi.filter { it.nome.isNotBlank() }
+        if (itemsDaCondividere.isEmpty()) {
             Toast.makeText(this, getString(R.string.nessun_articolo_da_condividere), Toast.LENGTH_SHORT).show()
             return
         }
 
-        val nomeGruppo = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
-        val nomeTopic = tvTopic.text.toString().trimEnd('▾', ' ').trim()
         val aggiornatoIl = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy 'alle' HH:mm"))
         val gruppiPerCategoria = linkedMapOf<String, MutableList<String>>()
 
-        daComprare.forEach { item ->
+        itemsDaCondividere.forEach { item ->
             val marker = if (item.categoriaEffimera) "◌" else "▣"
             val categoriaLabel = if (item.categoriaNome.isBlank()) "Senza categoria" else item.categoriaNome.trim()
             val chiaveCategoria = if (item.categoriaEffimera) "$marker ${categoriaLabel.lowercase(Locale.ROOT)}" else "$marker $categoriaLabel"
@@ -481,8 +518,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         val testo = buildString {
-            appendLine("🛒 Lista spesa: $nomeGruppo")
-            if (nomeTopic.isNotEmpty()) appendLine("📍 Reparto: $nomeTopic")
+            appendLine(titolo)
+            gruppo?.takeIf { it.isNotEmpty() }?.let { appendLine("👥 Gruppo: $it") }
+            topic?.takeIf { it.isNotEmpty() }?.let { appendLine("📍 Reparto: $it") }
             appendLine()
 
             gruppiPerCategoria.forEach { (categoria, nomi) ->
@@ -496,10 +534,25 @@ class MainActivity : AppCompatActivity() {
 
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Lista spesa: $nomeGruppo")
+            putExtra(Intent.EXTRA_SUBJECT, subject)
             putExtra(Intent.EXTRA_TEXT, testo)
         }
         startActivity(Intent.createChooser(intent, getString(R.string.scegli_app_condivisione)))
+    }
+
+    private fun shareItem(item: SpesaItem) = ShareItem(
+        nome = item.nome,
+        categoriaNome = item.categoriaNome,
+        categoriaEffimera = item.categoriaEffimera
+    )
+
+    private fun shareItemFromModello(item: String): ShareItem {
+        val parts = item.split("&", limit = 2)
+        return ShareItem(
+            nome = parts.first().trim(),
+            categoriaNome = parts.getOrNull(1)?.trim().orEmpty(),
+            categoriaEffimera = parts.getOrNull(1)?.isNotBlank() == true
+        )
     }
 
     private fun mostraScopettaConferma() {
@@ -1024,6 +1077,8 @@ class MainActivity : AppCompatActivity() {
                 menu.add(0, 2003, 0, "Aggiungi articolo in questa categoria")
             }
             menu.add(0, 2004, 2, "Salva la lista in modello")
+            menu.add(0, 2007, 3, "Condividi items categoria")
+            menu.add(0, 2010, 4, if (isModello) "Sposta items modello" else "Sposta items categoria")
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     2001 -> {
@@ -1076,6 +1131,51 @@ class MainActivity : AppCompatActivity() {
                     2004 -> {
                         mostraDialogSalvaModelloDaSezione(item)
                     }
+                    2007 -> {
+                        val categoria = item.categoriaNome
+                        val elementiCategoria = items.filter { candidato ->
+                            !candidato.isBought && !candidato.isDeleted && candidato.disponibile &&
+                                if (item.categoriaEffimera) {
+                                    candidato.categoriaEffimera &&
+                                        candidato.categoriaNome.equals(categoria, ignoreCase = true)
+                                } else {
+                                    !candidato.categoriaEffimera && candidato.categoriaId == item.categoriaId
+                                }
+                        }
+                        val nomeGruppo = tvGruppo.text.toString().trimEnd('▾', ' ').trim()
+                        val nomeTopic = tvTopic.text.toString().trimEnd('▾', ' ').trim()
+                        condividiItems(
+                            titolo = "🛒 Categoria: $etichetta",
+                            subject = "Lista spesa: $etichetta",
+                            gruppo = nomeGruppo,
+                            topic = nomeTopic,
+                            elementi = elementiCategoria.map(::shareItem)
+                        )
+                    }
+                    2010 -> {
+                        val elementiDaSpostare = if (isModello) {
+                            val nomeModello = etichetta.removePrefix("Modello:").trim()
+                            items.filter { candidato ->
+                                !candidato.isBought && !candidato.isDeleted && candidato.disponibile &&
+                                    candidato.categoriaNome.equals("Modello: $nomeModello", ignoreCase = true)
+                            }
+                        } else {
+                            items.filter { candidato ->
+                                !candidato.isBought && !candidato.isDeleted && candidato.disponibile &&
+                                    if (item.categoriaEffimera) {
+                                        candidato.categoriaEffimera &&
+                                            candidato.categoriaNome.equals(item.categoriaNome, ignoreCase = true)
+                                    } else {
+                                        !candidato.categoriaEffimera && candidato.categoriaId == item.categoriaId
+                                    }
+                            }
+                        }
+                        mostraDialogSpostaItems(
+                            itemIds = elementiDaSpostare.map { it.id },
+                            titolo = if (isModello) "Sposta items modello" else "Sposta items categoria",
+                            contesto = if (isModello) etichetta else item.categoriaNome.ifBlank { etichetta }
+                        )
+                    }
                 }
                 true
             }
@@ -1088,6 +1188,9 @@ class MainActivity : AppCompatActivity() {
         PopupMenu(this, anchor).apply {
             menu.add(0, 2005, 0, "Notifiche al gruppo (${if (notificheAttive) "ON" else "OFF"})")
             menu.add(0, 2006, 1, "Cambia colore topic")
+            menu.add(0, 2008, 2, "Condividi items topic")
+            menu.add(0, 2009, 3, "Aggiungi un articolo qui")
+            menu.add(0, 2011, 4, "Sposta tutti gli item del topic")
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     2005 -> {
@@ -1107,6 +1210,39 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     2006 -> mostraDialogColoreTopic(item)
+                    2008 -> {
+                        val elementiTopic = items.filter { candidato ->
+                            candidato.gruppoId == item.gruppoId && candidato.topicId == item.topicId &&
+                                !candidato.isBought && !candidato.isDeleted && candidato.disponibile
+                        }
+                        val nomeTopic = item.nomeTopic.ifBlank {
+                            item.nomeContesto.substringAfter(" • ", "Principale")
+                        }
+                        condividiItems(
+                            titolo = "🛒 Lista spesa: ${item.nomeGruppo}",
+                            subject = "Lista spesa: ${item.nomeGruppo}",
+                            topic = nomeTopic,
+                            elementi = elementiTopic.map(::shareItem)
+                        )
+                    }
+                    2009 -> mostraDialogAggiungi(
+                        destinazionePreselezionata = AddDestination(
+                            item.gruppoId,
+                            item.topicId,
+                            item.nomeContesto
+                        )
+                    )
+                    2011 -> {
+                        val elementiTopic = items.filter { candidato ->
+                            candidato.gruppoId == item.gruppoId && candidato.topicId == item.topicId &&
+                                !candidato.isBought && !candidato.isDeleted && candidato.disponibile
+                        }
+                        mostraDialogSpostaItems(
+                            itemIds = elementiTopic.map { it.id },
+                            titolo = "Sposta topic",
+                            contesto = item.nomeTopic.ifBlank { item.nomeContesto.substringAfter(" • ", "Principale") }
+                        )
+                    }
                 }
                 true
             }
@@ -1215,18 +1351,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostraDialogSpostaItem(item: SpesaItem) {
+        mostraDialogSpostaItems(
+            itemIds = listOf(item.id),
+            titolo = getString(R.string.sposta_topic),
+            contesto = item.nome
+        )
+    }
+
+    private fun mostraDialogSpostaItems(itemIds: List<Int>, titolo: String, contesto: String) {
+        val validIds = itemIds.distinct().filter { it > 0 }
+        if (validIds.isEmpty()) {
+            Toast.makeText(this, getString(R.string.nessun_articolo_selezionato), Toast.LENGTH_SHORT).show()
+            return
+        }
+
         lifecycleScope.launch {
             val destinazioni = withContext(Dispatchers.IO) {
                 runCatching {
                     val gruppi = ApiClient.getGruppiTyped(userId).filter { it.id != 0 }
                     buildList {
-                        if (item.gruppoId != 0) {
+                        if (gruppoId != 0 || topicId != 0) {
                             add(AddDestination(0, 0, "Lista Personale"))
                         }
                         gruppi.forEach { gruppo ->
                             val topics = ApiClient.getTopics(gruppo.id)
                             topics.forEach { topic ->
-                                val sameCurrent = (gruppo.id == item.gruppoId && topic.topicId == item.topicId)
+                                val sameCurrent = (gruppo.id == gruppoId && topic.topicId == topicId)
                                 if (!sameCurrent) {
                                     add(AddDestination(gruppo.id, topic.topicId, "${gruppo.nome}: ${topic.nome}"))
                                 }
@@ -1240,15 +1390,26 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
             AlertDialog.Builder(this@MainActivity)
-                .setTitle(R.string.sposta_topic)
+                .setTitle(titolo)
                 .setItems(destinazioni.map { it.label }.toTypedArray()) { _, index ->
                     val target = destinazioni[index]
                     lifecycleScope.launch {
-                        val ok = withContext(Dispatchers.IO) {
-                            runCatching { ApiClient.moveItem(item.id, target.gruppoId, target.topicId, userId) }.getOrDefault(false)
+                        val total = validIds.size
+                        var spostati = 0
+                        validIds.forEach { itemId ->
+                            val ok = withContext(Dispatchers.IO) {
+                                runCatching { ApiClient.moveItem(itemId, target.gruppoId, target.topicId, userId) }.getOrDefault(false)
+                            }
+                            if (ok) spostati++
                         }
-                        if (ok) aggiornaLista()
-                        else Toast.makeText(this@MainActivity, getString(R.string.spostamento_non_riuscito), Toast.LENGTH_SHORT).show()
+
+                        if (spostati == total && total > 0) {
+                            aggiornaLista()
+                            mostraEsitoBreve("Spostati $spostati articoli in ${target.label}", true)
+                        } else {
+                            Toast.makeText(this@MainActivity, "Spostati $spostati di $total articoli", Toast.LENGTH_SHORT).show()
+                            aggiornaLista()
+                        }
                     }
                 }
                 .show()
@@ -1527,7 +1688,8 @@ class MainActivity : AppCompatActivity() {
         prefilledText: String? = null,
         prefilledLink: String? = null,
         productPreview: ApiClient.ProductPreview? = null,
-        prefilledCategoryName: String? = null
+        prefilledCategoryName: String? = null,
+        destinazionePreselezionata: AddDestination? = null
     ) {
         lifecycleScope.launch {
             val destinazioni = withContext(Dispatchers.IO) {
@@ -1559,9 +1721,21 @@ class MainActivity : AppCompatActivity() {
                 }
                 setPadding(0, 16, 0, 16)
             }
+            val destinazioneIniziale = destinazionePreselezionata?.takeIf { preselezionata ->
+                destinazioni.any {
+                    it.gruppoId == preselezionata.gruppoId && it.topicId == preselezionata.topicId
+                }
+            }
+            val destinazioneCategorie = destinazioneIniziale ?: AddDestination(gruppoId, topicId, "")
             val categoriaSpinner = android.widget.Spinner(this@MainActivity)
             val categorieBase = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getCategorie(gruppoId, topicId, userId) }.getOrDefault(emptyList())
+                runCatching {
+                    ApiClient.getCategorie(
+                        destinazioneCategorie.gruppoId,
+                        destinazioneCategorie.topicId,
+                        userId
+                    )
+                }.getOrDefault(emptyList())
             }
             val opzioniCategoria = opzioniCategoria(categorieBase)
             categoriaSpinner.adapter = ArrayAdapter(
@@ -1581,7 +1755,8 @@ class MainActivity : AppCompatActivity() {
                 orientation = android.widget.RadioGroup.VERTICAL
             }
             val currentIndex = destinazioni.indexOfFirst {
-                it.gruppoId == gruppoId && it.topicId == topicId
+                it.gruppoId == destinazioneCategorie.gruppoId &&
+                    it.topicId == destinazioneCategorie.topicId
             }.takeIf { it >= 0 } ?: 0
             destinazioni.forEachIndexed { index, destinazione ->
                 radioGroup.addView(android.widget.RadioButton(this@MainActivity).apply {
