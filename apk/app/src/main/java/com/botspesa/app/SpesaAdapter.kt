@@ -96,8 +96,8 @@ class SpesaAdapter(
         }
         holder.contextSeparator.isClickable = true
         holder.contextSeparator.isFocusable = true
-        holder.contextSeparator.setOnClickListener { v ->
-            if (listaSingola) onSectionLongPress(item, v, separatoreLista) else onContext(item)
+        holder.contextSeparator.setOnClickListener { _ ->
+            if (!listaSingola) onContext(item)
         }
         holder.contextSeparator.setOnLongClickListener { v ->
             onSectionLongPress(item, v, separatoreLista)

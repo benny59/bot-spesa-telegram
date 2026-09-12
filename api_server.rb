@@ -236,6 +236,28 @@ get '/gruppi' do
   else
     DB.execute("SELECT id, nome, chat_id, notifiche_operazioni FROM gruppi ORDER BY nome")
   end
+
+  # Sincronizzazione on-demand con Telegram se disponibile token bot
+  token = telegram_token_attivo
+  if token && !rows.empty?
+    bot_client = Telegram::Bot::Client.new(token)
+    rows.each do |r|
+      c_id = r['chat_id']
+      next unless c_id && c_id.to_i < 0
+
+      begin
+        chat_info = bot_client.api.get_chat(chat_id: c_id)
+        nuovo_titolo = chat_info.title.to_s.strip
+        if !nuovo_titolo.empty? && nuovo_titolo != r['nome'].to_s.strip
+          DataManager.sincronizza_nome_gruppo(c_id, nuovo_titolo)
+          r['nome'] = nuovo_titolo
+        end
+      rescue => e
+        # Ignora errori di rete o permessi chat verso Telegram
+      end
+    end
+  end
+
   result = rows.map do |r|
     {
       id: r['id'],

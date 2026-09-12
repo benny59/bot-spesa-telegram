@@ -19,7 +19,13 @@ class MessageHandler
 
     chat_id = msg.chat.id.to_i
     existing = DataManager.prendi_gruppo_da_chat_id(chat_id)
-    return unless existing.nil? || existing.empty?
+    if existing && !existing.empty?
+      titolo_corrente = msg.chat.title.to_s.strip
+      if !titolo_corrente.empty? && existing["nome"].to_s.strip != titolo_corrente
+        DataManager.sincronizza_nome_gruppo(chat_id, titolo_corrente)
+      end
+      return
+    end
 
     if msg.respond_to?(:migrate_from_chat_id) && msg.migrate_from_chat_id.to_i != 0
       old_chat_id = msg.migrate_from_chat_id.to_i
@@ -677,6 +683,8 @@ class TopicManager
   def self.sincronizza(msg)
     if msg.new_chat_title
       DataManager.aggiorna_nome_gruppo(msg.chat.id, msg.new_chat_title)
+    elsif msg.chat && msg.chat.title && !msg.chat.title.to_s.strip.empty?
+      DataManager.sincronizza_nome_gruppo(msg.chat.id, msg.chat.title)
     elsif msg.forum_topic_created
       DataManager.set_topic_name(msg.chat.id, msg.message_thread_id, msg.forum_topic_created.name)
     elsif msg.forum_topic_edited
