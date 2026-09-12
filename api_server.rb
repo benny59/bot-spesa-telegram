@@ -89,16 +89,16 @@ def esegui_cronoscopetta
 
     if gruppo_id == 0
       candidati = DB.execute(
-        "SELECT id, nome, comprato, deleted, disponibile FROM items WHERE gruppo_id = ? AND topic_id = ? AND creato_da = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
+        "SELECT id, nome, comprato, deleted, disponibile, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND creato_da = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
         [gruppo_id, topic_id, creato_da]
       )
       ids = candidati.map { |i| i['id'] }
-      comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
-      cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+      comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| DataManager.etichetta_scopetta(i, gruppo_id, topic_id) }
+      cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| DataManager.etichetta_scopetta(i, gruppo_id, topic_id) }
       mantenuti = DB.execute(
-        "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+        "SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
         [gruppo_id, topic_id]
-      ).map { |i| i['nome'] }
+      ).map { |i| DataManager.etichetta_scopetta(i, gruppo_id, topic_id) }
       rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id, ids)
       next if rimossi.to_i <= 0 && mantenuti.empty?
 
@@ -108,15 +108,15 @@ def esegui_cronoscopetta
     end
 
     candidati = DB.execute(
-      "SELECT id, nome, comprato, deleted, disponibile FROM items WHERE gruppo_id = ? AND topic_id = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
+      "SELECT id, nome, comprato, deleted, disponibile, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')",
       [gruppo_id, topic_id]
     )
-    comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
-    cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| i['nome'] }
+    comprati = candidati.select { |i| i['comprato'].to_s.strip != '' }.map { |i| DataManager.etichetta_scopetta(i, gruppo_id, topic_id) }
+    cancellati = candidati.reject { |i| i['comprato'].to_s.strip != '' }.map { |i| DataManager.etichetta_scopetta(i, gruppo_id, topic_id) }
     mantenuti = DB.execute(
-      "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+      "SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
       [gruppo_id, topic_id]
-    ).map { |i| i['nome'] }
+    ).map { |i| DataManager.etichetta_scopetta(i, gruppo_id, topic_id) }
     rimossi = DataManager.esegui_scopetta(gruppo_id, topic_id, candidati.map { |i| i['id'] })
     next if rimossi.to_i <= 0 && mantenuti.empty?
 
@@ -669,24 +669,24 @@ delete '/lista/comprati' do
 
   acquistati = if gruppo_id == 0 && user_id != 0
     DB.execute(
-      "SELECT id, nome FROM items WHERE gruppo_id=0 AND topic_id=? AND comprato!='' AND creato_da=?",
+      "SELECT id, nome, categoria_id FROM items WHERE gruppo_id=0 AND topic_id=? AND comprato!='' AND creato_da=?",
       [topic_id, user_id]
     )
   else
     DB.execute(
-      "SELECT id, nome FROM items WHERE gruppo_id=? AND topic_id=? AND comprato!=''",
+      "SELECT id, nome, categoria_id FROM items WHERE gruppo_id=? AND topic_id=? AND comprato!=''",
       [gruppo_id, topic_id]
     )
   end
 
   cancellati = if gruppo_id == 0 && user_id != 0
     DB.execute(
-      "SELECT id, nome FROM items WHERE gruppo_id=0 AND topic_id=? AND deleted = 1 AND creato_da=?",
+      "SELECT id, nome, categoria_id FROM items WHERE gruppo_id=0 AND topic_id=? AND deleted = 1 AND creato_da=?",
       [topic_id, user_id]
     )
   else
     DB.execute(
-      "SELECT id, nome FROM items WHERE gruppo_id=? AND topic_id=? AND deleted = 1",
+      "SELECT id, nome, categoria_id FROM items WHERE gruppo_id=? AND topic_id=? AND deleted = 1",
       [gruppo_id, topic_id]
     )
   end
@@ -694,14 +694,14 @@ delete '/lista/comprati' do
   # Lista Personale: scopetta solo i propri articoli comprati
   mantenuti = if gruppo_id == 0 && user_id != 0
     DB.execute(
-      "SELECT nome FROM items WHERE gruppo_id = 0 AND topic_id = ? AND creato_da = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+      "SELECT nome, categoria_id FROM items WHERE gruppo_id = 0 AND topic_id = ? AND creato_da = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
       [topic_id, user_id]
-    ).map { |item| item['nome'] }
+    ).map { |item| DataManager.etichetta_scopetta(item, gruppo_id, topic_id) }
   else
     DB.execute(
-      "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+      "SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
       [gruppo_id, topic_id]
-    ).map { |item| item['nome'] }
+    ).map { |item| DataManager.etichetta_scopetta(item, gruppo_id, topic_id) }
   end
 
   rimossi = if gruppo_id == 0 && user_id != 0
@@ -716,8 +716,8 @@ delete '/lista/comprati' do
       gruppo_id,
       topic_id,
       user_id,
-      comprati: acquistati.map { |item| item['nome'] },
-      cancellati: cancellati.map { |item| item['nome'] },
+      comprati: acquistati.map { |item| DataManager.etichetta_scopetta(item, gruppo_id, topic_id) },
+      cancellati: cancellati.map { |item| DataManager.etichetta_scopetta(item, gruppo_id, topic_id) },
       mantenuti: mantenuti,
       force: gruppo_id != 0 && user_id != 0
     )
@@ -740,8 +740,8 @@ delete '/lista/comprati/ovunque' do
     ids = items.map { |i| i['id'] }
     eliminati = DataManager.esegui_scopetta(g_id, t_id, ids)
     if eliminati > 0
-      comprati = items.select { |i| i['comprato'].to_s.strip != '' }.map { |item| item['nome'] }
-      cancellati = items.reject { |i| i['comprato'].to_s.strip != '' }.map { |item| item['nome'] }
+      comprati = items.select { |i| i['comprato'].to_s.strip != '' }.map { |item| DataManager.etichetta_scopetta(item, g_id, t_id) }
+      cancellati = items.reject { |i| i['comprato'].to_s.strip != '' }.map { |item| DataManager.etichetta_scopetta(item, g_id, t_id) }
       notifica_scopetta(g_id, t_id, user_id, comprati: comprati, cancellati: cancellati)
     end
     eliminati

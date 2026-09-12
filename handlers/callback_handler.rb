@@ -377,16 +377,16 @@ when /^trigger_list:(-?\d*):(\d*)$/
         mappa.each do |(g_id, t_id), items|
           ids = items.map { |i| i["id"] }
           mantenuti = DB.execute(
-            "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+            "SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
             [g_id, t_id]
-          ).map { |item| item["nome"] }
+          ).map { |item| DataManager.etichetta_scopetta(item, g_id, t_id) }
           rimossi = DataManager.esegui_scopetta(g_id, t_id, ids)
           totale += rimossi
 
           if rimossi > 0 && g_id != 0
             chat_id_dest = DataManager.get_real_chat_id(g_id)
-            comprati = items.select { |i| i["comprato"].to_s.strip != "" }.map { |item| item["nome"] }
-            cancellati = items.reject { |i| i["comprato"].to_s.strip != "" }.map { |item| item["nome"] }
+            comprati = items.select { |i| i["comprato"].to_s.strip != "" }.map { |item| DataManager.etichetta_scopetta(item, g_id, t_id) }
+            cancellati = items.reject { |i| i["comprato"].to_s.strip != "" }.map { |item| DataManager.etichetta_scopetta(item, g_id, t_id) }
             GroupOperationalNotifier.scopetta(
               bot: bot,
               gruppo_id: g_id,
@@ -411,17 +411,17 @@ when /^trigger_list:(-?\d*):(\d*)$/
       bot.api.answer_callback_query(callback_query_id: callback.id, text: "🧹 Lista pulita!")
 
       acquistati = DB.execute(
-        "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != '' ORDER BY id",
+        "SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND comprato != '' ORDER BY id",
         [g_id, t_id]
       )
       cancellati = DB.execute(
-        "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 1 ORDER BY id",
+        "SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 1 ORDER BY id",
         [g_id, t_id]
       )
       mantenuti = DB.execute(
-        "SELECT nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
+        "SELECT nome, categoria_id FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND TRIM(COALESCE(comprato, '')) = '' AND COALESCE(disponibile, 1) = 0 ORDER BY id",
         [g_id, t_id]
-      ).map { |item| item["nome"] }
+      ).map { |item| DataManager.etichetta_scopetta(item, g_id, t_id) }
       rimossi = DataManager.esegui_scopetta(g_id, t_id)
 
       if rimossi > 0 && g_id != 0
@@ -432,8 +432,8 @@ when /^trigger_list:(-?\d*):(\d*)$/
           gruppo_id: g_id,
           topic_id: t_id,
           actor: u_name,
-          comprati: acquistati.map { |item| item["nome"] },
-          cancellati: cancellati.map { |item| item["nome"] },
+          comprati: acquistati.map { |item| DataManager.etichetta_scopetta(item, g_id, t_id) },
+          cancellati: cancellati.map { |item| DataManager.etichetta_scopetta(item, g_id, t_id) },
           mantenuti: mantenuti,
           force: true
         )

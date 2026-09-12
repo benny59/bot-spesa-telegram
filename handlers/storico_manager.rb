@@ -26,34 +26,53 @@ class StoricoManager
 
   def self.notifica_scopetta_html(nome, comprati: [], cancellati: [], mantenuti: [])
     nome_sicuro = CGI.escapeHTML(nome.to_s)
-    comprati = formatta_elenco_scopetta(comprati)
-    cancellati = formatta_elenco_scopetta(cancellati)
-    mantenuti = formatta_elenco_scopetta(mantenuti)
+    sez_comprati = raggruppa_scopetta_per_categoria(comprati)
+    sez_cancellati = raggruppa_scopetta_per_categoria(cancellati)
+    sez_mantenuti = raggruppa_scopetta_per_categoria(mantenuti)
 
-    if comprati.empty? && cancellati.empty? && mantenuti.empty?
+    if sez_comprati.empty? && sez_cancellati.empty? && sez_mantenuti.empty?
       return "🧹 <b>#{nome_sicuro}</b> ha pulito la lista."
     end
 
     parti = []
-    parti << "🛒 <b>#{nome_sicuro}</b> ha comprato:\n#{comprati.join("\n")}" unless comprati.empty?
-    parti << "🗑️ <b>#{nome_sicuro}</b> ha eliminato definitivamente:\n#{cancellati.join("\n")}\nSenza averli comprati." unless cancellati.empty?
-    if mantenuti.any?
-      parti << "📌 <b>#{nome_sicuro}</b> ha lasciato in lista perché non disponibili in questa sessione:\n#{mantenuti.join("\n")}"
+    parti << "🛒 <b>#{nome_sicuro}</b> ha comprato:\n#{sez_comprati}" unless sez_comprati.empty?
+    parti << "🗑️ <b>#{nome_sicuro}</b> ha eliminato definitivamente:\n#{sez_cancellati}\nSenza averli comprati." unless sez_cancellati.empty?
+    unless sez_mantenuti.empty?
+      parti << "📌 <b>#{nome_sicuro}</b> ha lasciato in lista perché non disponibili in questa sessione:\n#{sez_mantenuti}"
     end
 
     parti.join("\n")
   end
 
-  def self.formatta_elenco_scopetta(articoli)
-    Array(articoli).map do |articolo|
+  # Raggruppa gli articoli per categoria (canonica o effimera) inserendo un
+  # separatore per ogni categoria. Gli articoli senza categoria restano in coda
+  # senza separatore. Ogni elemento in ingresso è nel formato "nome & categoria".
+  def self.raggruppa_scopetta_per_categoria(articoli)
+    gruppi = {}
+    senza_categoria = []
+
+    Array(articoli).each do |articolo|
       nome, categoria = articolo.to_s.split("&", 2).map { |parte| parte.to_s.strip }
       nome = articolo.to_s.strip if nome.to_s.empty?
       categoria = nil if categoria.to_s.empty? || nome == articolo.to_s.strip
 
-      voce = "• <b>#{CGI.escapeHTML(nome)}</b>"
-      voce += " <i>(#{CGI.escapeHTML(categoria)})</i>" if categoria
-      voce
+      if categoria
+        (gruppi[categoria] ||= []) << nome
+      else
+        senza_categoria << nome
+      end
     end
+
+    return "" if gruppi.empty? && senza_categoria.empty?
+
+    righe = []
+    gruppi.sort_by { |categoria, _| categoria.downcase }.each do |categoria, nomi|
+      righe << "📂 <b>#{CGI.escapeHTML(categoria)}</b>"
+      nomi.each { |nome| righe << "• <b>#{CGI.escapeHTML(nome)}</b>" }
+    end
+    senza_categoria.each { |nome| righe << "• <b>#{CGI.escapeHTML(nome)}</b>" }
+
+    righe.join("\n")
   end
 
   # ==============================================================================

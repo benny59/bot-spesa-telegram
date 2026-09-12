@@ -23,6 +23,7 @@ class SpesaAdapter(
     private val notificationEnabled: (Int) -> Boolean?,
     private val singleContextList: () -> Boolean,
     private val onLongPress: (SpesaItem, android.view.View) -> Unit = { _, _ -> },
+    private val tapCheckoutEnabled: () -> Boolean = { true },
     private val onSectionLongPress: (SpesaItem, android.view.View, String) -> Unit = { _, _, _ -> }
 ) : RecyclerView.Adapter<SpesaAdapter.ViewHolder>() {
 
@@ -176,7 +177,7 @@ class SpesaAdapter(
         )
         holder.ivPreferito.setOnClickListener { onFavorite(item) }
 
-        holder.itemCard.setOnClickListener { onToggle(item) }
+        holder.itemCard.setOnClickListener { if (tapCheckoutEnabled()) onToggle(item) }
         holder.itemCard.setOnLongClickListener { v ->
             // Il long-press sulla card deve sempre aprire il menu dell'item, mai quello della sezione (bug: veniva rubato dal separatore quando visibile sopra il primo item)
             onLongPress(item, v)

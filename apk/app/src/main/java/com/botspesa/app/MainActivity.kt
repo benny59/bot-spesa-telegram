@@ -72,6 +72,7 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val LINK_MARKER = "[YUKA_LINK]"
+        const val PREF_CHECKOUT_TAP = "checkout_tap_enabled"
     }
 
     private lateinit var recyclerView: RecyclerView
@@ -182,6 +183,7 @@ class MainActivity : AppCompatActivity() {
             notificationEnabled = { gruppoId -> notificheOperazioniPerGruppo[gruppoId] },
             singleContextList = { vistaAttuale.isEmpty() },
             onLongPress = { item, anchor -> mostraMenuContestuale(item, anchor) },
+            tapCheckoutEnabled = { checkoutTapAbilitato() },
             onSectionLongPress = { item, anchor, label ->
                 if (vistaAttuale.isEmpty()) mostraMenuSezione(item, anchor, label)
                 else mostraMenuTopic(item, anchor)
@@ -218,6 +220,8 @@ class MainActivity : AppCompatActivity() {
         if (satispayIcon != null) {
             satispayMenuItem?.icon = satispayIcon
         }
+
+        aggiornaTitoloCheckoutTap(navView)
 
         navView.setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
@@ -261,6 +265,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_config_rete       -> mostraDialogConfigRete()
                 R.id.nav_lingua            -> mostraDialogLingua()
                 R.id.nav_colori_gruppi     -> mostraDialogColoriTopic()
+                R.id.nav_checkout_tap      -> mostraDialogCheckoutTap()
                 R.id.nav_amministrazione   -> AdminSheet.newInstance(userId).show(supportFragmentManager, "admin")
             }
             true
@@ -960,6 +965,38 @@ class MainActivity : AppCompatActivity() {
                     LocalizationManager.applyLanguage(this, selected)
                     recreate()
                 }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Annulla", null)
+            .show()
+    }
+
+    private fun checkoutTapAbilitato(): Boolean = prefs().getBoolean(PREF_CHECKOUT_TAP, false)
+
+    private fun aggiornaTitoloCheckoutTap(navView: NavigationView = findViewById(R.id.navView)) {
+        val stato = getString(if (checkoutTapAbilitato()) R.string.stato_on else R.string.stato_off)
+        navView.menu.findItem(R.id.nav_checkout_tap)?.title =
+            getString(R.string.nav_checkout_tap_stato, stato)
+    }
+
+    private fun mostraDialogCheckoutTap() {
+        val opzioni = arrayOf(
+            getString(R.string.dialog_checkout_tap_off),
+            getString(R.string.dialog_checkout_tap_on)
+        )
+        val selezione = if (checkoutTapAbilitato()) 1 else 0
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_checkout_tap_titolo)
+            .setSingleChoiceItems(opzioni, selezione) { dialog, which ->
+                val nuovoStato = which == 1
+                prefs().edit().putBoolean(PREF_CHECKOUT_TAP, nuovoStato).apply()
+                adapter.notifyDataSetChanged()
+                aggiornaTitoloCheckoutTap()
+                Toast.makeText(
+                    this,
+                    getString(if (nuovoStato) R.string.checkout_tap_attivata else R.string.checkout_tap_disattivata),
+                    Toast.LENGTH_SHORT
+                ).show()
                 dialog.dismiss()
             }
             .setNegativeButton("Annulla", null)

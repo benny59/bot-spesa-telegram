@@ -44,6 +44,17 @@
     <string name="nav_config_rete">Netzwerkkonfiguration</string>
     <string name="nav_lingua">Sprache</string>
     <string name="nav_colori_gruppi">Topic-Farben</string>
+    <string name="nav_checkout_tap">Abhaken per Tippen</string>
+    <string name="nav_checkout_tap_stato">Abhaken per Tippen: %1$s</string>
+    <string name="stato_on">EIN</string>
+    <string name="stato_off">AUS</string>
+    <string name="checkout_tap_attivata">Abhaken per Tippen aktiviert</string>
+    <string name="checkout_tap_disattivata">Abhaken per Tippen deaktiviert</string>
+    <string name="dialog_checkout_tap_titolo">Abhaken per Tippen</string>
+    <string name="dialog_checkout_tap_opzione">Artikel per Tippen abhaken</string>
+    <string name="dialog_checkout_tap_hint">Wenn deaktiviert, kann ein Artikel nur per Wischen als gekauft markiert werden, um versehentliche Berührungen zu vermeiden.</string>
+    <string name="dialog_checkout_tap_off">Deaktiviert — nur Wischen</string>
+    <string name="dialog_checkout_tap_on">Aktiviert — Tippen und Wischen</string>
     <string name="nav_amministrazione">Verwaltung</string>
     <string name="nav_tutti_count">Alle Artikel (%1$d)</string>
     <string name="nav_miei_count">Meine Artikel (%1$d)</string>

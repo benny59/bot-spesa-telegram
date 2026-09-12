@@ -1939,6 +1939,26 @@ end
     parsed[:categoria_nome].to_s.strip
   end
 
+  # Costruisce l'etichetta "nome & categoria" usata dalle notifiche di scopetta,
+  # risolvendo sia le categorie canoniche (da categoria_id) sia quelle effimere (dal nome).
+  def self.etichetta_scopetta(item, gruppo_id = nil, topic_id = 0)
+    gruppo_id = item["gruppo_id"] if gruppo_id.nil?
+    topic_id = item["topic_id"] unless item["topic_id"].nil?
+    categoria_id = item["categoria_id"].to_i
+
+    parsed = self.parse_nome_categoria(item["nome"].to_s, categoria_id, categoria_id, gruppo_id, topic_id)
+    nome = parsed[:nome].to_s.strip
+    nome = item["nome"].to_s.strip if nome.empty?
+
+    categoria = item["categoria_nome"].to_s.strip
+    if categoria.empty? && categoria_id > 0
+      categoria = DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_id]).to_s.strip
+    end
+    categoria = parsed[:categoria_nome].to_s.strip if categoria.empty?
+
+    categoria.empty? ? nome : "#{nome} & #{categoria}"
+  end
+
   # Post-processiamo l'ordine SQL per raggruppare gli item per categoria effettiva (canonica o effimera)
   # nell'ordine alfabetico della categoria, mantenendo stabile l'ordine relativo degli item senza categoria.
   # Le categorie "Modello: ..." (assegnate al richiamo di un modello) vanno sotto le categorie normali,
@@ -2049,7 +2069,7 @@ end
   def self.articoli_da_superscopetta(user_id, _show_all)
     DB.execute(
       <<-SQL,
-        SELECT i.id, i.nome, i.gruppo_id, i.topic_id, i.comprato, i.deleted
+        SELECT i.id, i.nome, i.gruppo_id, i.topic_id, i.comprato, i.deleted, i.categoria_id
         FROM items i
         WHERE (
           CAST(i.comprato AS INTEGER) = ?

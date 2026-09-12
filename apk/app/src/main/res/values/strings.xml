@@ -44,6 +44,17 @@
     <string name="nav_config_rete">Configurazione rete</string>
     <string name="nav_lingua">Lingua</string>
     <string name="nav_colori_gruppi">Colori topic</string>
+    <string name="nav_checkout_tap">Spunta con tap</string>
+    <string name="nav_checkout_tap_stato">Spunta con tap: %1$s</string>
+    <string name="stato_on">ON</string>
+    <string name="stato_off">OFF</string>
+    <string name="checkout_tap_attivata">Spunta con tap attivata</string>
+    <string name="checkout_tap_disattivata">Spunta con tap disattivata</string>
+    <string name="dialog_checkout_tap_titolo">Spunta con tap</string>
+    <string name="dialog_checkout_tap_opzione">Abilita spunta articolo con tap</string>
+    <string name="dialog_checkout_tap_hint">Se disattivato, un articolo si può segnare come comprato solo con lo swipe, per evitare tocchi accidentali.</string>
+    <string name="dialog_checkout_tap_off">Disattivata — solo swipe</string>
+    <string name="dialog_checkout_tap_on">Attivata — tap e swipe</string>
     <string name="nav_amministrazione">Amministrazione</string>
     <string name="nav_tutti_count">Tutti gli articoli (%1$d)</string>
     <string name="nav_miei_count">I miei articoli (%1$d)</string>
