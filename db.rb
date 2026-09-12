@@ -1750,6 +1750,44 @@ end
     end
   end
 
+  def self.sincronizza_memberships_telegram(user_id, telegram_api)
+    return 0 if user_id.to_i <= 0
+
+    candidati = DB.execute(
+      <<-SQL,
+        SELECT g.chat_id
+        FROM gruppi g
+        WHERE g.chat_id < 0
+          AND NOT EXISTS (
+            SELECT 1 FROM items i
+            WHERE i.gruppo_id = g.id AND i.deleted = 0
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM memberships m
+            WHERE m.user_id = ? AND m.gruppo_id = g.id
+          )
+          AND g.creato_da != ?
+          AND NOT EXISTS (
+            SELECT 1 FROM items i
+            WHERE i.gruppo_id = g.id AND i.creato_da = ?
+          )
+      SQL
+      [user_id, user_id, user_id]
+    )
+
+    candidati.count do |gruppo|
+      begin
+        membro = telegram_api.get_chat_member(chat_id: gruppo["chat_id"], user_id: user_id)
+        presente = %w[creator administrator member restricted].include?(membro.status.to_s)
+        self.aggiorna_membership(user_id, gruppo["chat_id"]) if presente
+        presente
+      rescue => e
+        puts "⚠️ [MEMBERSHIP] Verifica Telegram fallita: #{e.message}"
+        false
+      end
+    end
+  end
+
   def self.get_nome_articolo(item_id)
     nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id.to_i])
     puts "🔍 [DB_TRACE] ID:#{item_id} -> Nome recuperato: '#{nome}'"

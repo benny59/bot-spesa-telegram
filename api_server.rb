@@ -231,6 +231,13 @@ end
 
 get '/gruppi' do
   user_id = params[:user_id]&.to_i
+  token = telegram_token_attivo
+  bot_client = nil
+  if user_id && user_id != 0 && token
+    bot_client = Telegram::Bot::Client.new(token)
+    DataManager.sincronizza_memberships_telegram(user_id, bot_client.api)
+  end
+
   rows = if user_id && user_id != 0
     DataManager.prendi_gruppi_accessibili(user_id)
   else
@@ -238,9 +245,8 @@ get '/gruppi' do
   end
 
   # Sincronizzazione on-demand con Telegram se disponibile token bot
-  token = telegram_token_attivo
   if token && !rows.empty?
-    bot_client = Telegram::Bot::Client.new(token)
+    bot_client ||= Telegram::Bot::Client.new(token)
     rows.each do |r|
       c_id = r['chat_id']
       next unless c_id && c_id.to_i < 0
