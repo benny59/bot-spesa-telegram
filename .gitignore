@@ -24,6 +24,7 @@ test/*
 !test/multi_item_shared_category_test.rb
 !test/categorie_assegnabili_effimere_test.rb
 !test/group_member_empty_group_test.rb
+!test/storico_topic_isolation_test.rb
 
 # Ruby
 .bundle/

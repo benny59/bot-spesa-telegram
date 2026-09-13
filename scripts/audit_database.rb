@@ -10,7 +10,7 @@ EXPECTED_TABLES = {
   "items" => %w[id gruppo_id topic_id creato_da nome link_url categoria_id comprato deleted disponibile creato_il],
   "item_images" => %w[id item_id file_id file_unique_id creato_il],
   "memberships" => %w[user_id gruppo_id last_seen],
-  "categorie" => %w[id gruppo_id topic_id nome creato_da creato_il],
+  "categorie" => %w[id gruppo_id topic_id nome],
   "user_names" => %w[user_id first_name last_name initials aggiornato_il],
   "user_preferences" => %w[user_id view_mode updated_at],
   "whitelist" => %w[user_id username full_name added_at],
@@ -128,34 +128,11 @@ def print_sql(title, statements)
 end
 
 def print_schema_migrations(schema_issues)
-  if schema_issues.any? { |issue| issue.start_with?("categorie: colonne mancanti=") }
-    puts <<~SQL
-
-      -- MIGRAZIONE categorie: aggiunge i metadati previsti dal codice corrente.
-      BEGIN IMMEDIATE;
-      CREATE TABLE categorie_migrazione (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        gruppo_id INTEGER,
-        topic_id INTEGER DEFAULT 0,
-        nome TEXT NOT NULL,
-        creato_da INTEGER,
-        creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(gruppo_id, topic_id, nome)
-      );
-      INSERT INTO categorie_migrazione (id, gruppo_id, topic_id, nome, creato_il)
-      SELECT id, gruppo_id, COALESCE(topic_id, 0), nome, CURRENT_TIMESTAMP FROM categorie;
-      DROP TABLE categorie;
-      ALTER TABLE categorie_migrazione RENAME TO categorie;
-      CREATE INDEX idx_categorie_gruppo_topic ON categorie (gruppo_id, topic_id, nome);
-      COMMIT;
-    SQL
-  end
-
   if schema_issues.any? { |issue| issue.start_with?("storico_articoli: UNIQUE") }
     puts <<~SQL
 
       -- MIGRAZIONE storico_articoli: separa lo storico per topic.
-      -- Eseguire solo dopo avere risolto gli orfani riportati sotto.
+      -- Eseguire solo dopo avere risolto gli orfani riportati sopra.
       BEGIN IMMEDIATE;
       CREATE TABLE storico_articoli_migrazione (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

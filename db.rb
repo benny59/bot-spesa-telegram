@@ -524,11 +524,10 @@ class DataManager
 
     puts "  📝 [UPSERT] Elaborazione: '#{nome_formattato}' (G:#{gruppo_id}, T:#{topic_id})"
 
-    # CONSOLIDAMENTO: Se esistono duplicati case-different (o in topic_id diversi), consolidarli PRIMA
-    # ATTENZIONE: Il constraint unico è UNIQUE(nome, gruppo_id), quindi non filtriamo per topic_id qui!
-      duplicati = DB.execute(
-      "SELECT id, conteggio, topic_id, link_url FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ? ORDER BY id ASC",
-      [nome_normalizzato, gruppo_id]
+    # Consolida soltanto i duplicati dello stesso gruppo e topic.
+    duplicati = DB.execute(
+      "SELECT id, conteggio, topic_id, link_url FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ? AND COALESCE(topic_id, 0) = ? ORDER BY id ASC",
+      [nome_normalizzato, gruppo_id, topic_id.to_i]
     )
 
     puts "  📊 [UPSERT] Trovati #{duplicati.size} record pre-esistenti per il nome"
@@ -565,10 +564,10 @@ class DataManager
       end
     end
 
-    # ORA procedi con UPDATE o INSERT sul record (che ora è unico per nome+gruppo_id)
+    # Ora procede sul record univoco per nome, gruppo e topic.
     esistente = DB.get_first_row(
-      "SELECT id, metadata_json, link_url, last_file_id, last_file_unique_id, last_categoria_id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ?",
-      [nome_normalizzato, gruppo_id]
+      "SELECT id, metadata_json, link_url, last_file_id, last_file_unique_id, last_categoria_id FROM storico_articoli WHERE LOWER(nome) = ? AND gruppo_id = ? AND COALESCE(topic_id, 0) = ?",
+      [nome_normalizzato, gruppo_id, topic_id.to_i]
     )
 
     if esistente
@@ -1374,18 +1373,17 @@ end
         puts "   ✓ Eliminati #{ids_to_delete.size} record con nome vuoto"
       end
       
-      # 2. Trova e consolida i duplicati che l'UPDATE creerebbe
-      # L'indice del DB usa UNIQUE(nome, gruppo_id)
+      # 2. Trova e consolida i duplicati che l'UPDATE creerebbe nello stesso topic
       duplicates_query = <<~SQL
         SELECT 
           UPPER(SUBSTR(LOWER(nome),1,1)) || SUBSTR(LOWER(nome),2) as nome_normalizzato,
           gruppo_id,
-          MAX(topic_id) as topic_id_scelto,
+          COALESCE(topic_id, 0) as topic_id_scelto,
           MAX(NULLIF(TRIM(link_url), '')) as link_url_scelto,
           GROUP_CONCAT(id) as ids,
           SUM(conteggio) as total_count
         FROM storico_articoli
-        GROUP BY UPPER(SUBSTR(LOWER(nome),1,1)) || SUBSTR(LOWER(nome),2), gruppo_id
+        GROUP BY UPPER(SUBSTR(LOWER(nome),1,1)) || SUBSTR(LOWER(nome),2), gruppo_id, COALESCE(topic_id, 0)
         HAVING COUNT(*) > 1
       SQL
       
