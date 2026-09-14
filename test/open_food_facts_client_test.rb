@@ -29,6 +29,11 @@ payload = {
     "quantity" => "450 g",
     "image_front_small_url" => "https://example.test/nutella.jpg",
     "nutrition_grades" => "E",
+    "nova_group" => 4,
+    "additives_tags" => ["en:e322", "en:e vanillin"],
+    "allergens_tags" => ["en:milk", "en:soybeans"],
+    "ingredients_text" => "Zucchero, olio di palma, nocciole, latte.",
+    "completeness" => 0.9,
     "nutriments" => {
       "energy-kcal_100g" => 539,
       "sugars_100g" => 56.3,
@@ -42,6 +47,11 @@ result = OpenFoodFactsClient.normalize(payload, "3017624010701")
 expected = {
   name: "Nutella",
   nutriscore_grade: "e",
+  nova_group: 4,
+  additives: ["e322", "e vanillin"],
+  allergens: ["milk", "soybeans"],
+  ingredients_text: "Zucchero, olio di palma, nocciole, latte.",
+  completeness: 0.9,
   energy_kcal_100g: 539,
   saturated_fat_100g: 10.6
 }

@@ -677,6 +677,8 @@ class MainActivity : AppCompatActivity() {
             super.clearView(recyclerView, viewHolder)
             viewHolder.itemView.translationX = 0f
             viewHolder.itemView.alpha = 1f
+            recyclerView.invalidateItemDecorations()
+            recyclerView.invalidate()
         }
 
         private val greenPaint = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#43A047") }
@@ -1607,11 +1609,23 @@ class MainActivity : AppCompatActivity() {
                 items.clear()
                 items.addAll(nuovi)
                 adapter.notifyDataSetChanged()
+                recyclerView.post { ripristinaStatoSwipeVisibile() }
                 aggiornaConteggiDrawer()
             }.onFailure {
                 Toast.makeText(this@MainActivity, getString(R.string.connessione_fallita, it.message ?: ""), Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun ripristinaStatoSwipeVisibile() {
+        repeat(recyclerView.childCount) { index ->
+            recyclerView.getChildAt(index).apply {
+                translationX = 0f
+                alpha = 1f
+            }
+        }
+        recyclerView.invalidateItemDecorations()
+        recyclerView.invalidate()
     }
 
     // Usato da ChecklistSheet per aggiornare la lista principale dopo un toggle
@@ -1947,6 +1961,18 @@ class MainActivity : AppCompatActivity() {
             preview.saturatedFat100g?.let { add("saturi ${format.format(it)} g") }
             preview.salt100g?.let { add("sale ${format.format(it)} g") }
         }
+        val additives = preview.additives
+            .map { it.uppercase(Locale.ROOT) }
+            .take(8)
+            .joinToString(" · ")
+        val allergens = preview.allergens
+            .map(::allergenLabel)
+            .take(8)
+            .joinToString(", ")
+        val ingredients = preview.ingredientsText
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .let { if (it.length > 220) "${it.take(217)}..." else it }
         return buildString {
             append("Open Food Facts")
             if (preview.nutriscoreGrade.isNotBlank()) {
@@ -1957,6 +1983,48 @@ class MainActivity : AppCompatActivity() {
                 append("\nPer 100 g: ")
                 append(details.joinToString(" · "))
             }
+            preview.novaGroup?.takeIf { it in 1..4 }?.let {
+                append("\nGruppo NOVA ")
+                append(it)
+                if (it == 4) append(" · alimento ultraprocessato")
+            }
+            if (additives.isNotEmpty()) {
+                append("\nAdditivi dichiarati: ")
+                append(additives)
+                if (preview.additives.size > 8) append(" · +${preview.additives.size - 8}")
+            }
+            if (allergens.isNotEmpty()) {
+                append("\nAllergeni dichiarati: ")
+                append(allergens)
+            }
+            if (ingredients.isNotEmpty()) {
+                append("\nIngredienti: ")
+                append(ingredients)
+            }
+            preview.completeness?.takeIf { it in 0.0..1.0 }?.let {
+                append("\nCompletezza scheda: ")
+                append(NumberFormat.getPercentInstance(Locale.ITALY).format(it))
+            }
+        }
+    }
+
+    private fun allergenLabel(tag: String): String {
+        return when (tag.lowercase(Locale.ROOT)) {
+            "gluten" -> "glutine"
+            "crustaceans" -> "crostacei"
+            "eggs" -> "uova"
+            "fish" -> "pesce"
+            "peanuts" -> "arachidi"
+            "soybeans" -> "soia"
+            "milk" -> "latte"
+            "nuts" -> "frutta a guscio"
+            "celery" -> "sedano"
+            "mustard" -> "senape"
+            "sesame-seeds" -> "sesamo"
+            "sulphur-dioxide-and-sulphites" -> "anidride solforosa e solfiti"
+            "lupin" -> "lupini"
+            "molluscs" -> "molluschi"
+            else -> tag.replace('-', ' ')
         }
     }
 

@@ -10,6 +10,11 @@ class OpenFoodFactsClient
     quantity
     image_front_small_url
     nutrition_grades
+    nova_group
+    additives_tags
+    allergens_tags
+    ingredients_text
+    completeness
     nutriments
   ].join(",")
 
@@ -47,6 +52,11 @@ class OpenFoodFactsClient
       quantity: product["quantity"].to_s.strip,
       image_url: product["image_front_small_url"].to_s.strip,
       nutriscore_grade: product["nutrition_grades"].to_s.downcase,
+      nova_group: integer_value(product["nova_group"]),
+      additives: tag_values(product["additives_tags"]),
+      allergens: tag_values(product["allergens_tags"]),
+      ingredients_text: product["ingredients_text"].to_s.strip,
+      completeness: numeric_value(product["completeness"]),
       energy_kcal_100g: nutrient_value(nutriments, "energy-kcal_100g", "energy_kcal_100g"),
       sugars_100g: nutrient_value(nutriments, "sugars_100g"),
       saturated_fat_100g: nutrient_value(nutriments, "saturated-fat_100g", "saturated_fat_100g"),
@@ -57,8 +67,25 @@ class OpenFoodFactsClient
 
   def self.nutrient_value(nutriments, *keys)
     value = keys.lazy.map { |key| nutriments[key] }.find { |candidate| !candidate.nil? }
+    numeric_value(value)
+  end
+
+  def self.numeric_value(value)
     value.is_a?(Numeric) ? value : nil
   end
 
-  private_class_method :nutrient_value
+  def self.integer_value(value)
+    value.is_a?(Numeric) ? value.to_i : nil
+  end
+
+  def self.tag_values(value)
+    return [] unless value.is_a?(Array)
+
+    value.filter_map do |tag|
+      normalized = tag.to_s.sub(/\A[a-z]{2}:/, "").tr("-", " ").strip
+      normalized unless normalized.empty?
+    end
+  end
+
+  private_class_method :integer_value, :nutrient_value, :numeric_value, :tag_values
 end
