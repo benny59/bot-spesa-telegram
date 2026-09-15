@@ -406,6 +406,8 @@ class DataManager
   def self.soft_delete_item(item_id)
     item_id = item_id.to_i
     return false if item_id <= 0
+    nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id])
+    return false if Lista.config_preferiti?(nome)
 
     DB.execute("UPDATE items SET deleted = 1 WHERE id = ?", [item_id])
     DB.changes > 0
@@ -2025,8 +2027,9 @@ end
   def self.articoli_attivi(gruppo_id, topic_id, user_id = nil, show_all: true)
     sql = self.get_base_query_articoli_con_metadata + <<-SQL
     WHERE i.gruppo_id = ? AND i.topic_id = ?
+      AND SUBSTR(COALESCE(i.nome, ''), 1, LENGTH(?)) != ?
     SQL
-    params = [gruppo_id.to_i, topic_id.to_i]
+    params = [gruppo_id.to_i, topic_id.to_i, Lista::CONFIG_PREFERITI_PREFISSO, Lista::CONFIG_PREFERITI_PREFISSO]
 
     unless show_all
       sql += " AND i.creato_da = ?"

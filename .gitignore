@@ -25,6 +25,7 @@ test/*
 !test/categorie_assegnabili_effimere_test.rb
 !test/group_member_empty_group_test.rb
 !test/storico_topic_isolation_test.rb
+!test/config_preferiti_visibility_test.rb
 
 # Ruby
 .bundle/

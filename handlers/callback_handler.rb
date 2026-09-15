@@ -680,13 +680,14 @@ when /^add_from_hist:(.+):(-?\d+):(\d+)$/
         DataManager.undo_delete_item(item_id)
         action = 'rimesso_in_lista'
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "↩️ Ripristinato")
-      else
-        DataManager.soft_delete_item(item_id)
+      elsif DataManager.soft_delete_item(item_id)
         action = 'soft_delete'
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "🗑️ Cancellato")
+      else
+        bot.api.answer_callback_query(callback_query_id: callback.id, text: "🔒 Configurazione protetta")
       end
 
-      if item && item['gruppo_id'].to_i != 0
+      if action && item && item['gruppo_id'].to_i != 0
         GroupOperationalNotifier.item_action(bot: bot, item: item, actor: callback.from.first_name || 'Utente', action: action)
       end
 

@@ -677,8 +677,6 @@ class MainActivity : AppCompatActivity() {
             super.clearView(recyclerView, viewHolder)
             viewHolder.itemView.translationX = 0f
             viewHolder.itemView.alpha = 1f
-            recyclerView.invalidateItemDecorations()
-            recyclerView.invalidate()
         }
 
         private val greenPaint = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#43A047") }

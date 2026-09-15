@@ -2,7 +2,12 @@
 require_relative "../db"
 
 class Lista
-  CONFIG_PREFERITI_NOME = '__botspesa_favorites_backup__ & config'.freeze
+  CONFIG_PREFERITI_PREFISSO = '__botspesa_favorites_backup__'.freeze
+  CONFIG_PREFERITI_NOME = "#{CONFIG_PREFERITI_PREFISSO} & config".freeze
+
+  def self.config_preferiti?(nome)
+    nome.to_s.start_with?(CONFIG_PREFERITI_PREFISSO)
+  end
 
   def self.tutti(gruppo_id, topic_id)
     rows = DB.execute(
@@ -13,9 +18,9 @@ class Lista
     LEFT JOIN categorie c ON i.categoria_id = c.id
      WHERE i.gruppo_id = ?
        AND i.topic_id = ?
-       AND i.nome != ?
+       AND SUBSTR(COALESCE(i.nome, ''), 1, LENGTH(?)) != ?
      ORDER BY #{DataManager.item_state_order_sql("i")}, CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC, c.nome ASC, i.id DESC",
-      [gruppo_id, topic_id, CONFIG_PREFERITI_NOME]
+      [gruppo_id, topic_id, CONFIG_PREFERITI_PREFISSO, CONFIG_PREFERITI_PREFISSO]
     )
     DataManager.ordina_items_per_categoria(rows)
   end
@@ -27,9 +32,10 @@ class Lista
      LEFT JOIN user_names u ON i.creato_da = u.user_id
     LEFT JOIN user_names buyer ON CAST(i.comprato AS INTEGER) = buyer.user_id
     LEFT JOIN categorie c ON i.categoria_id = c.id
-    WHERE i.gruppo_id = 0 AND i.creato_da = ? AND i.nome != ?
+    WHERE i.gruppo_id = 0 AND i.creato_da = ?
+      AND SUBSTR(COALESCE(i.nome, ''), 1, LENGTH(?)) != ?
      ORDER BY #{DataManager.item_state_order_sql("i")}, CASE WHEN c.nome IS NULL THEN 1 ELSE 0 END ASC, c.nome ASC, i.id DESC",
-     [user_id, CONFIG_PREFERITI_NOME]
+     [user_id, CONFIG_PREFERITI_PREFISSO, CONFIG_PREFERITI_PREFISSO]
     )
     DataManager.ordina_items_per_categoria(rows)
   end
