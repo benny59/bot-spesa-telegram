@@ -289,6 +289,13 @@ DB = init_db
 # CLASSE DATA_MANAGER (MONITOR ARCHITETTURALE)
 # ==============================================================================
 class DataManager
+  CONFIG_PREFERITI_PREFISSO = '__botspesa_favorites_backup__'.freeze
+  CONFIG_PREFERITI_NOME = "#{CONFIG_PREFERITI_PREFISSO} & config".freeze
+
+  def self.config_preferiti?(nome)
+    nome.to_s.start_with?(CONFIG_PREFERITI_PREFISSO)
+  end
+
   def self.backup_database
     require 'fileutils'
     backup_dir = "data/backups"
@@ -407,7 +414,7 @@ class DataManager
     item_id = item_id.to_i
     return false if item_id <= 0
     nome = DB.get_first_value("SELECT nome FROM items WHERE id = ?", [item_id])
-    return false if Lista.config_preferiti?(nome)
+    return false if config_preferiti?(nome)
 
     DB.execute("UPDATE items SET deleted = 1 WHERE id = ?", [item_id])
     DB.changes > 0
@@ -727,7 +734,7 @@ class DataManager
 
     effimere_by_key = {}
     where << "nome != ?"
-    params << Lista::CONFIG_PREFERITI_NOME
+    params << CONFIG_PREFERITI_NOME
     DB.execute("SELECT nome FROM items WHERE #{where.join(' AND ')} ORDER BY nome ASC", params).each do |row|
       _item_nome, categoria = row["nome"].to_s.split("&", 2)
       categoria_label = self.normalizza_categoria_nome(categoria)
@@ -770,7 +777,7 @@ class DataManager
 
     item_rows = DB.execute(
       "SELECT nome FROM items WHERE nome LIKE '%&%' AND nome != ? ORDER BY nome ASC",
-      [defined?(Lista) ? Lista::CONFIG_PREFERITI_NOME : "__CONFIG_PREFERITI__"]
+      [CONFIG_PREFERITI_NOME]
     )
     item_rows.each do |row|
       raw = row["nome"].to_s.strip
@@ -2029,7 +2036,7 @@ end
     WHERE i.gruppo_id = ? AND i.topic_id = ?
       AND SUBSTR(COALESCE(i.nome, ''), 1, LENGTH(?)) != ?
     SQL
-    params = [gruppo_id.to_i, topic_id.to_i, Lista::CONFIG_PREFERITI_PREFISSO, Lista::CONFIG_PREFERITI_PREFISSO]
+    params = [gruppo_id.to_i, topic_id.to_i, CONFIG_PREFERITI_PREFISSO, CONFIG_PREFERITI_PREFISSO]
 
     unless show_all
       sql += " AND i.creato_da = ?"

@@ -2,11 +2,11 @@
 require_relative "../db"
 
 class Lista
-  CONFIG_PREFERITI_PREFISSO = '__botspesa_favorites_backup__'.freeze
-  CONFIG_PREFERITI_NOME = "#{CONFIG_PREFERITI_PREFISSO} & config".freeze
+  CONFIG_PREFERITI_PREFISSO = DataManager::CONFIG_PREFERITI_PREFISSO
+  CONFIG_PREFERITI_NOME = DataManager::CONFIG_PREFERITI_NOME
 
   def self.config_preferiti?(nome)
-    nome.to_s.start_with?(CONFIG_PREFERITI_PREFISSO)
+    DataManager.config_preferiti?(nome)
   end
 
   def self.tutti(gruppo_id, topic_id)
