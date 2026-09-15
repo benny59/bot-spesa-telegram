@@ -16,6 +16,7 @@ class SpesaAdapter(
     private val onToggle: (SpesaItem) -> Unit,
     private val onFoto: (SpesaItem) -> Unit,
     private val onLink: (SpesaItem) -> Unit,
+    private val onProduct: (SpesaItem) -> Unit,
     private val onContext: (SpesaItem) -> Unit,
     private val isFavorite: (SpesaItem) -> Boolean,
     private val onFavorite: (SpesaItem) -> Unit,
@@ -34,6 +35,7 @@ class SpesaAdapter(
         val tvGruppoNome: TextView    = view.findViewById(R.id.tvGruppoNome)
         val tvComprato: TextView      = view.findViewById(R.id.tvComprato)
         val ivLink: ImageView         = view.findViewById(R.id.ivLink)
+        val ivNutrition: ImageView    = view.findViewById(R.id.ivNutrition)
         val ivFoto: ImageView         = view.findViewById(R.id.ivFoto)
         val ivPreferito: ImageView    = view.findViewById(R.id.ivPreferito)
         val contextSeparator: LinearLayout = view.findViewById(R.id.tvContextSeparator)
@@ -168,6 +170,9 @@ class SpesaAdapter(
 
         holder.ivLink.visibility = if (item.linkUrl.isNotBlank()) View.VISIBLE else View.GONE
         holder.ivLink.setOnClickListener { onLink(item) }
+
+        holder.ivNutrition.alpha = if (item.gtin.isBlank()) 0.45f else 1f
+        holder.ivNutrition.setOnClickListener { onProduct(item) }
 
         holder.ivFoto.visibility = if (item.hasFoto) View.VISIBLE else View.GONE
         holder.ivFoto.setOnClickListener { onFoto(item) }

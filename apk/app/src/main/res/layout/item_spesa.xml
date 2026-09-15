@@ -112,6 +112,14 @@
             android:contentDescription="@string/apri_link_prodotto"
             android:visibility="gone" />
 
+        <ImageView
+            android:id="@+id/ivNutrition"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="@string/informazioni_prodotto"
+            android:src="@drawable/ic_nutrition" />
+
         <!-- Icona foto: visibile solo se l'item ha una foto allegata -->
         <ImageView
             android:id="@+id/ivFoto"

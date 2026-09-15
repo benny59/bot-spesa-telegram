@@ -91,6 +91,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingSharedText: String? = null
     private var pendingSharedLink: String? = null
     private var pendingSharedBarcode: String? = null
+    private var pendingProductItem: SpesaItem? = null
     private var cameraImageUri: Uri? = null
     // "": vista normale, "tutti": tutti gli articoli, "miei": i miei articoli
     private var vistaAttuale: String = ""
@@ -105,7 +106,11 @@ class MainActivity : AppCompatActivity() {
         if (ok) launchCamera() else Toast.makeText(this, getString(R.string.permesso_fotocamera_negato), Toast.LENGTH_SHORT).show()
     }
     private val productScanLauncher = registerForActivityResult(ScanContract()) { result ->
-        result.contents?.let(::caricaAnteprimaProdotto)
+        result.contents?.let { barcode ->
+            val item = pendingProductItem
+            pendingProductItem = null
+            if (item == null) caricaAnteprimaProdotto(barcode) else associaProdotto(item, barcode)
+        }
     }
 
     private val gruppoId  get() = prefs().getInt("gruppo_id", 1)
@@ -176,6 +181,7 @@ class MainActivity : AppCompatActivity() {
             onToggle   = ::toggleItem,
             onFoto     = ::apriFoto,
             onLink     = ::apriLinkArticolo,
+            onProduct  = ::apriInformazioniProdotto,
             onContext  = ::selezionaContestoDaListaGlobale,
             isFavorite = favoritesStore::contains,
             onFavorite = ::toggleFavorite,
@@ -786,6 +792,54 @@ class MainActivity : AppCompatActivity() {
                 mostraDialogAggiungi(prefilledText = preview.displayName, productPreview = preview)
             }
         }
+    }
+
+    private fun apriInformazioniProdotto(item: SpesaItem) {
+        if (item.gtin.isBlank()) {
+            pendingProductItem = item
+            avviaScannerInterno()
+            return
+        }
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(item.gtin) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(this@MainActivity, R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+            } else {
+                mostraInformazioniProdotto(preview)
+            }
+        }
+    }
+
+    private fun associaProdotto(item: SpesaItem, barcode: String) {
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(barcode) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(this@MainActivity, R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val associato = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.associateProduct(item.id, item.gruppoId, userId, preview.barcode) }
+                    .getOrDefault(false)
+            }
+            if (!associato) {
+                mostraEsitoBreve("Impossibile associare il prodotto", false)
+                return@launch
+            }
+            aggiornaLista()
+            mostraInformazioniProdotto(preview)
+        }
+    }
+
+    private fun mostraInformazioniProdotto(preview: ApiClient.ProductPreview) {
+        AlertDialog.Builder(this)
+            .setTitle(preview.displayName.ifBlank { getString(R.string.informazioni_prodotto) })
+            .setMessage(productPreviewText(preview))
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun lanciaSatispayLocale() {
@@ -1879,7 +1933,13 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             testo
                         }
-                        aggiungiItem(testoPayload, destinazioneSelezionata(), prefilledLink, categoriaSelezionata.id)
+                        aggiungiItem(
+                            testoPayload,
+                            destinazioneSelezionata(),
+                            prefilledLink,
+                            categoriaSelezionata.id,
+                            productPreview?.barcode
+                        )
                     }
                 }
                 dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -2052,7 +2112,7 @@ class MainActivity : AppCompatActivity() {
         return "$nomePulito & $categoriaPulita"
     }
 
-    private fun aggiungiItem(testo: String, destinazione: AddDestination, linkUrl: String? = null, categoriaId: Int? = null) {
+    private fun aggiungiItem(testo: String, destinazione: AddDestination, linkUrl: String? = null, categoriaId: Int? = null, gtin: String? = null) {
         val usaSplit = linkUrl.isNullOrBlank()
         val payloadNome = if (linkUrl.isNullOrBlank()) {
             testo
@@ -2068,6 +2128,7 @@ class MainActivity : AppCompatActivity() {
                         payloadNome,
                         userId,
                         linkUrl = linkUrl,
+                        gtin = gtin,
                         splitItems = usaSplit,
                         categoriaId = categoriaId
                     )

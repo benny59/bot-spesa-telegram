@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
@@ -52,17 +53,31 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
             result.onSuccess { acquisti ->
                 vuoto.visibility = if (acquisti.isEmpty()) View.VISIBLE else View.GONE
                 recycler.visibility = if (acquisti.isEmpty()) View.GONE else View.VISIBLE
-                recycler.adapter = StoricoAdapter(acquisti) { acquisto -> toggleItem(acquisto, recycler, vuoto) }
+                recycler.adapter = StoricoAdapter(
+                    acquisti,
+                    { acquisto -> preparaToggle(acquisto, recycler, vuoto) },
+                    ::apriProdottoStorico
+                )
             }.onFailure { errore ->
                 Toast.makeText(requireContext(), "Storico: ${errore.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    private fun toggleItem(acquisto: ApiClient.StoricoAcquisto, recycler: RecyclerView, vuoto: TextView) {
+    private fun preparaToggle(acquisto: ApiClient.StoricoAcquisto, recycler: RecyclerView, vuoto: TextView) {
+        if (!acquisto.inLista && acquisto.prodotti.size > 1) {
+            scegliProdotto(acquisto.prodotti) { prodotto ->
+                toggleItem(acquisto, recycler, vuoto, prodotto.gtin)
+            }
+        } else {
+            toggleItem(acquisto, recycler, vuoto, acquisto.prodotti.singleOrNull()?.gtin)
+        }
+    }
+
+    private fun toggleItem(acquisto: ApiClient.StoricoAcquisto, recycler: RecyclerView, vuoto: TextView, gtin: String?) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.toggleChecklistItem(gruppoId, topicId, acquisto.nome, acquisto.inLista, userId) }
+                runCatching { ApiClient.toggleChecklistItem(gruppoId, topicId, acquisto.nome, acquisto.inLista, userId, gtin) }
             }
             result.onSuccess {
                 onItemChanged?.invoke()
@@ -73,13 +88,60 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
         }
     }
 
+    private fun apriProdottoStorico(acquisto: ApiClient.StoricoAcquisto) {
+        if (acquisto.prodotti.size == 1) {
+            caricaProdotto(acquisto.prodotti.first())
+        } else {
+            scegliProdotto(acquisto.prodotti, ::caricaProdotto)
+        }
+    }
+
+    private fun scegliProdotto(
+        prodotti: List<ApiClient.StoricoProdotto>,
+        onSelected: (ApiClient.StoricoProdotto) -> Unit
+    ) {
+        val labels = prodotti.map { prodotto ->
+            prodotto.descrizione.ifBlank { prodotto.gtin }
+        }.toTypedArray()
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Scegli prodotto")
+            .setItems(labels) { _, index -> onSelected(prodotti[index]) }
+            .setNegativeButton("Annulla", null)
+            .show()
+    }
+
+    private fun caricaProdotto(prodotto: ApiClient.StoricoProdotto) {
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(prodotto.gtin) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(requireContext(), R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            android.app.AlertDialog.Builder(requireContext())
+                .setTitle(preview.displayName)
+                .setMessage(buildString {
+                    append("Open Food Facts")
+                    if (preview.nutriscoreGrade.isNotBlank()) {
+                        append(" · Nutri-Score ${preview.nutriscoreGrade.uppercase()}")
+                    }
+                    preview.novaGroup?.let { append("\nGruppo NOVA $it") }
+                    if (preview.ingredientsText.isNotBlank()) append("\nIngredienti: ${preview.ingredientsText}")
+                })
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
+    }
+
     fun setOnItemChangedListener(listener: () -> Unit) {
         onItemChanged = listener
     }
 
     private class StoricoAdapter(
         private val acquisti: List<ApiClient.StoricoAcquisto>,
-        private val onToggle: (ApiClient.StoricoAcquisto) -> Unit
+        private val onToggle: (ApiClient.StoricoAcquisto) -> Unit,
+        private val onProduct: (ApiClient.StoricoAcquisto) -> Unit
     ) :
         RecyclerView.Adapter<StoricoAdapter.ViewHolder>() {
 
@@ -90,6 +152,7 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
             val inseritoDa: TextView = view.findViewById(R.id.tvStoricoInseritoDa)
             val acquistatoDa: TextView = view.findViewById(R.id.tvStoricoAcquistatoDa)
             val conteggio: TextView = view.findViewById(R.id.tvStoricoConteggio)
+            val nutrition: ImageView = view.findViewById(R.id.ivStoricoNutrition)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -117,6 +180,9 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
             holder.conteggio.text = listOf(categoria, "${acquisto.conteggio} volte")
                 .filter { it.isNotEmpty() }
                 .joinToString(" • ")
+
+            holder.nutrition.visibility = if (acquisto.prodotti.isEmpty()) View.GONE else View.VISIBLE
+            holder.nutrition.setOnClickListener { onProduct(acquisto) }
 
             if (acquisto.inLista) {
                 holder.stato.text = "✓"

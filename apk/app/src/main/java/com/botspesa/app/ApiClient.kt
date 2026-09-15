@@ -185,6 +185,7 @@ object ApiClient {
             SpesaItem(
                 id           = (item["id"] as Double).toInt(),
                 nome         = parsedCategoria.first,
+                gtin         = item["gtin"] as? String ?: "",
                 linkUrl      = decoded.second,
                 comprato     = item["comprato"] as? String ?: "",
                 userInitials = item["user_initials"] as? String ?: "",
@@ -249,6 +250,7 @@ object ApiClient {
         nome: String,
         userId: Int,
         linkUrl: String? = null,
+        gtin: String? = null,
         splitItems: Boolean = true,
         categoriaId: Int? = null,
         telegramPhotoId: String? = null,
@@ -264,6 +266,10 @@ object ApiClient {
         val linkPulito = linkUrl?.trim().orEmpty()
         if (linkPulito.isNotEmpty()) {
             payloadMap["link_url"] = linkPulito
+        }
+        val gtinPulito = gtin?.filter(Char::isDigit).orEmpty()
+        if (gtinPulito.isNotEmpty()) {
+            payloadMap["gtin"] = gtinPulito
         }
         if (categoriaId != null && categoriaId > 0) {
             payloadMap["categoria_id"] = categoriaId
@@ -288,6 +294,20 @@ object ApiClient {
                 ?.mapNotNull { (it as? Double)?.toInt() }
                 .orEmpty()
         }
+    }
+
+    fun associateProduct(itemId: Int, gruppoId: Int, userId: Int, gtin: String): Boolean {
+        val payload = gson.toJson(mapOf(
+            "gruppo_id" to gruppoId,
+            "user_id" to userId,
+            "gtin" to gtin.filter(Char::isDigit)
+        )).toRequestBody(JSON_TYPE)
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/prodotto")
+            .patch(payload)
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
     }
 
     data class Modello(
@@ -614,6 +634,14 @@ object ApiClient {
         }
     }
 
+    data class StoricoProdotto(
+        val gtin: String,
+        val descrizione: String,
+        val utilizzi: Int,
+        val acquistiConfermati: Int,
+        val ultimoAcquisto: String
+    )
+
     data class StoricoAcquisto(
         val id: Int,
         val nome: String,
@@ -624,6 +652,7 @@ object ApiClient {
         val conteggio: Int,
         val categoriaNome: String,
         val categoriaEffimera: Boolean,
+        val prodotti: List<StoricoProdotto>,
         val inLista: Boolean
     )
 
@@ -639,6 +668,18 @@ object ApiClient {
         val raw: List<Map<String, Any>> = gson.fromJson(body, type)
         return raw.map { acquisto ->
             val nome = acquisto["nome"] as? String ?: ""
+            val prodotti = (acquisto["prodotti"] as? List<*>)
+                .orEmpty()
+                .filterIsInstance<Map<*, *>>()
+                .map { prodotto ->
+                    StoricoProdotto(
+                        gtin = prodotto["gtin"] as? String ?: "",
+                        descrizione = prodotto["descrizione"] as? String ?: "",
+                        utilizzi = (prodotto["utilizzi"] as? Double)?.toInt() ?: 0,
+                        acquistiConfermati = (prodotto["acquisti_confermati"] as? Double)?.toInt() ?: 0,
+                        ultimoAcquisto = prodotto["ultimo_acquisto"] as? String ?: ""
+                    )
+                }
             StoricoAcquisto(
                 id         = (acquisto["id"] as? Double)?.toInt() ?: 0,
                 nome       = nome,
@@ -649,14 +690,16 @@ object ApiClient {
                 conteggio  = (acquisto["conteggio"] as? Double)?.toInt() ?: 0,
                 categoriaNome = acquisto["categoria_nome"] as? String ?: "",
                 categoriaEffimera = acquisto["categoria_effimera"] as? Boolean ?: false,
+                prodotti    = prodotti,
                 inLista    = acquisto["in_lista"] as? Boolean ?: false
             )
         }
     }
 
-    fun toggleChecklistItem(gruppoId: Int, topicId: Int, nome: String, inLista: Boolean, userId: Int): Boolean {
-        val payload = mapOf("gruppo_id" to gruppoId, "topic_id" to topicId,
+    fun toggleChecklistItem(gruppoId: Int, topicId: Int, nome: String, inLista: Boolean, userId: Int, gtin: String? = null): Boolean {
+        val payload = mutableMapOf<String, Any>("gruppo_id" to gruppoId, "topic_id" to topicId,
                             "nome" to nome, "in_lista" to inLista, "user_id" to userId)
+        gtin?.takeIf { it.isNotBlank() }?.let { payload["gtin"] = it }
         val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
         val req = Request.Builder().url("$baseUrl/checklist/toggle").post(body).auth().build()
         return http.newCall(req).execute().use { it.isSuccessful }

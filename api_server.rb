@@ -226,6 +226,9 @@ get '/prodotti/:barcode/anteprima' do
   product = OpenFoodFactsClient.lookup(barcode, user_agent: user_agent)
   halt 404, { found: false, barcode: barcode }.to_json unless product
 
+  descrizione = [product[:name], product[:brand], product[:quantity]].map(&:to_s).reject(&:empty?).join(' ')
+  DataManager.upsert_prodotto(product[:barcode], descrizione)
+
   product.to_json
 end
 
@@ -363,6 +366,7 @@ get '/lista' do
       gruppo_id:     i['gruppo_id'],
       topic_id:      i['topic_id'],
       nome:          nome_ritornato,
+      gtin:          i['gtin'].to_s,
       link_url:      i['link_url'].to_s,
       categoria_id:  i['categoria_id']&.to_i,
       categoria_nome: categoria_ritornata,
@@ -537,11 +541,13 @@ post '/lista' do
   link_url  = body['link_url'].to_s.strip
   split_items = body.key?('split_items') ? !!body['split_items'] : true
   categoria_id = body['categoria_id']&.to_i
+  gtin = body['gtin'].to_s.strip
   picture_id = body['picture_id'].to_s.strip
   picture_file_name = body['picture_file_name'].to_s.strip
   user_id   = body['user_id']&.to_i || 0
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
+  halt 400, { error: 'gtin non valido' }.to_json if !gtin.empty? && DataManager.normalizza_gtin(gtin).nil?
   if gruppo_id != 0
     consentito = DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
     halt 403, { error: 'accesso negato' }.to_json unless consentito
@@ -553,6 +559,7 @@ post '/lista' do
     items_text: testo,
     topic_id: topic_id,
     link_url: link_url,
+    gtin: gtin,
     split_items: split_items,
     categoria_id: categoria_id
   )
@@ -570,6 +577,25 @@ post '/lista' do
 
   status 201
   { ok: true, item_ids: item_ids }.to_json
+end
+
+patch '/lista/:id/prodotto' do
+  item_id = params[:id].to_i
+  body = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  user_id = body['user_id']&.to_i || 0
+  gtin = DataManager.normalizza_gtin(body['gtin'])
+  halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || gtin.nil?
+
+  item = DB.get_first_row("SELECT id, nome FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+  halt 404, { error: 'item non trovato' }.to_json unless item
+  if gruppo_id != 0
+    halt 403, { error: 'accesso negato' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
+  end
+
+  DataManager.upsert_prodotto(gtin, item['nome'])
+  DB.execute("UPDATE items SET gtin = ? WHERE id = ?", [gtin, item_id])
+  { ok: true, gtin: gtin }.to_json
 end
 
 patch '/lista/:id/toggle' do
@@ -763,7 +789,23 @@ get '/storico/acquisti' do
   limite    = 20 if params[:limite].nil?
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  StoricoManager.ultimi_acquisti(gruppo_id, topic_id, limite).map { |acquisto|
+  acquisti = StoricoManager.ultimi_acquisti(gruppo_id, topic_id, limite)
+  storico_ids = acquisti.map { |acquisto| acquisto['id'] }
+  prodotti_per_storico = if storico_ids.empty?
+    {}
+  else
+    placeholders = storico_ids.map { '?' }.join(',')
+    DB.execute(<<~SQL, storico_ids).group_by { |prodotto| prodotto['storico_articolo_id'] }
+      SELECT sap.storico_articolo_id, sap.gtin, sap.utilizzi, sap.acquisti_confermati,
+             sap.ultimo_utilizzo, sap.ultimo_acquisto, p.descrizione
+      FROM storico_articolo_prodotti sap
+      JOIN prodotti p ON p.gtin = sap.gtin
+      WHERE sap.storico_articolo_id IN (#{placeholders})
+      ORDER BY sap.ultimo_acquisto DESC, sap.acquisti_confermati DESC
+    SQL
+  end
+
+  acquisti.map { |acquisto|
     categoria = DataManager.categoria_da_storico(acquisto, gruppo_id, topic_id)
     {
       id:           acquisto['id'],
@@ -777,6 +819,15 @@ get '/storico/acquisti' do
       acquirente:   acquisto['comprato_da'] ? acquisto['acquirente'] : nil,
       updated_at:   acquisto['updated_at'],
       conteggio:    acquisto['conteggio'],
+      prodotti:     Array(prodotti_per_storico[acquisto['id']]).map { |prodotto|
+        {
+          gtin: prodotto['gtin'],
+          descrizione: prodotto['descrizione'].to_s,
+          utilizzi: prodotto['utilizzi'].to_i,
+          acquisti_confermati: prodotto['acquisti_confermati'].to_i,
+          ultimo_acquisto: prodotto['ultimo_acquisto']
+        }
+      },
       in_lista:     !acquisto['in_lista'].nil?
     }
   }.to_json
@@ -895,6 +946,7 @@ post '/checklist/toggle' do
   nome      = body['nome'].to_s.strip
   in_lista  = body['in_lista'] == true
   user_id   = body['user_id']&.to_i || 0
+  gtin      = body['gtin'].to_s.strip
 
   halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || nome.empty?
 
@@ -905,7 +957,7 @@ post '/checklist/toggle' do
     )
     DataManager.rimuovi_item_diretto(item_id) if item_id
   else
-    DataManager.ripristina_da_checklist(gruppo_id, topic_id, nome, user_id)
+    DataManager.ripristina_da_checklist(gruppo_id, topic_id, nome, user_id, gtin)
   end
 
   { ok: true, in_lista: !in_lista }.to_json
@@ -1102,6 +1154,7 @@ def serializza_item(i, nome_gruppo: '')
     topic_id:      i['topic_id'],
     nome_topic:    i['nome_topic'].to_s,
     nome:          nome_ritornato,
+    gtin:          i['gtin'].to_s,
     link_url:      i['link_url'].to_s,
     categoria_id:  categoria_id.nil? ? nil : categoria_id.to_i,
     categoria_nome: categoria_nome,

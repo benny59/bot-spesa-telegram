@@ -82,6 +82,7 @@ SQL
       topic_id INTEGER DEFAULT 0,
       creato_da INTEGER,
       nome TEXT,
+      gtin TEXT,
       link_url TEXT,
       categoria_id INTEGER,
       comprato TEXT DEFAULT '',
@@ -103,6 +104,17 @@ SQL
   unless columns.include?("link_url")
     db.execute("ALTER TABLE items ADD COLUMN link_url TEXT")
   end
+  unless columns.include?("gtin")
+    db.execute("ALTER TABLE items ADD COLUMN gtin TEXT")
+  end
+
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS prodotti (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gtin TEXT NOT NULL UNIQUE,
+      descrizione TEXT
+    );
+  SQL
 
   # Recupera l'identità solo quando il valore storico individua un utente senza ambiguità.
   db.execute <<-SQL
@@ -232,6 +244,20 @@ SQL
   end
 
   db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS storico_articolo_prodotti (
+      storico_articolo_id INTEGER NOT NULL,
+      gtin TEXT NOT NULL,
+      utilizzi INTEGER NOT NULL DEFAULT 0,
+      acquisti_confermati INTEGER NOT NULL DEFAULT 0,
+      ultimo_utilizzo DATETIME,
+      ultimo_acquisto DATETIME,
+      PRIMARY KEY (storico_articolo_id, gtin),
+      FOREIGN KEY (storico_articolo_id) REFERENCES storico_articoli(id) ON DELETE CASCADE,
+      FOREIGN KEY (gtin) REFERENCES prodotti(gtin)
+    );
+  SQL
+
+  db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS gruppo_carte_collegamenti (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       gruppo_id INTEGER NOT NULL,
@@ -256,6 +282,7 @@ SQL
 
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_gruppo_topic ON items (gruppo_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_categoria ON items (categoria_id);"
+  db.execute "CREATE INDEX IF NOT EXISTS idx_items_gtin ON items (gtin);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_categorie_gruppo_topic ON categorie (gruppo_id, topic_id, nome);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_categoria_stats_group_topic ON categoria_stats (gruppo_id, topic_id, tipo, categoria_id, categoria_nome);"
   db.execute <<-SQL
@@ -516,6 +543,51 @@ class DataManager
     risultato
   end
 
+  def self.normalizza_gtin(value)
+    gtin = value.to_s.gsub(/\D/, "")
+    return nil unless [8, 12, 13, 14].include?(gtin.length)
+
+    cifre = gtin.chars.map(&:to_i)
+    somma = cifre[0...-1].reverse.each_with_index.sum do |cifra, index|
+      cifra * (index.even? ? 3 : 1)
+    end
+    ((10 - (somma % 10)) % 10) == cifre.last ? gtin : nil
+  end
+
+  def self.upsert_prodotto(gtin, descrizione = nil)
+    gtin = normalizza_gtin(gtin)
+    return nil unless gtin
+
+    descrizione = descrizione.to_s.strip
+    DB.execute(
+      "INSERT INTO prodotti (gtin, descrizione) VALUES (?, ?)
+       ON CONFLICT(gtin) DO UPDATE SET descrizione = CASE
+         WHEN TRIM(COALESCE(prodotti.descrizione, '')) = '' THEN excluded.descrizione
+         ELSE prodotti.descrizione
+       END",
+      [gtin, descrizione.empty? ? nil : descrizione]
+    )
+    DB.get_first_row("SELECT id, gtin, descrizione FROM prodotti WHERE gtin = ?", [gtin])
+  end
+
+  def self.registra_prodotto_storico(storico_articolo_id, gtin, acquistato:)
+    prodotto = upsert_prodotto(gtin)
+    return false unless prodotto
+
+    DB.execute(
+      "INSERT INTO storico_articolo_prodotti
+         (storico_articolo_id, gtin, utilizzi, acquisti_confermati, ultimo_utilizzo, ultimo_acquisto)
+       VALUES (?, ?, 1, ?, datetime('now'), CASE WHEN ? = 1 THEN datetime('now') END)
+       ON CONFLICT(storico_articolo_id, gtin) DO UPDATE SET
+         utilizzi = utilizzi + 1,
+         acquisti_confermati = acquisti_confermati + excluded.acquisti_confermati,
+         ultimo_utilizzo = datetime('now'),
+         ultimo_acquisto = CASE WHEN excluded.acquisti_confermati = 1 THEN datetime('now') ELSE ultimo_acquisto END",
+      [storico_articolo_id, prodotto["gtin"], acquistato ? 1 : 0, acquistato ? 1 : 0]
+    )
+    true
+  end
+
   # Helper DRY per UPSERT storico_articoli (consolidato da esegui_scopetta e storico_manager)
   # Parametri creato_da_id e comprato_da_id sono opzionali (usati da esegui_scopetta, nil da storico_manager)
   def self.upsert_storico_articolo(gruppo_id, topic_id, nome, creato_da_id = nil, comprato_da_id = nil, link_url = nil, file_id = nil, file_unique_id = nil, categoria_id = nil)
@@ -600,6 +672,7 @@ class DataManager
         )
       end
       puts "  ✅ [UPSERT] UPDATE completato"
+      esistente["id"]
     else
       # Inserisce il nuovo record in formato Capitalize
       puts "  ➕ [UPSERT] INSERT - Nuovo record"
@@ -615,6 +688,7 @@ class DataManager
         )
       end
       puts "  ✅ [UPSERT] INSERT completato"
+      DB.last_insert_row_id
     end
   end
 
@@ -1064,12 +1138,12 @@ class DataManager
 
     if target_ids
       if target_ids.empty?
-        query = "SELECT id, nome, categoria_id, link_url, creato_da, comprato, deleted FROM items WHERE 1 = 0"
+        query = "SELECT id, nome, categoria_id, link_url, gtin, creato_da, comprato, deleted FROM items WHERE 1 = 0"
         params = []
       else
         placeholders = target_ids.map { "?" }.join(",")
         query = <<~SQL
-          SELECT id, nome, categoria_id, link_url, creato_da, comprato, deleted
+          SELECT id, nome, categoria_id, link_url, gtin, creato_da, comprato, deleted
           FROM items
           WHERE id IN (#{placeholders})
             AND (deleted = 1 OR TRIM(COALESCE(comprato, '')) != '')
@@ -1079,7 +1153,7 @@ class DataManager
       puts "🧹 [SCOPETTA] Modalità: target_ids (#{target_ids.size} items)"
     else
       query = <<~SQL
-        SELECT id, nome, categoria_id, link_url, creato_da, comprato, deleted
+        SELECT id, nome, categoria_id, link_url, gtin, creato_da, comprato, deleted
         FROM items
         WHERE gruppo_id = ?
           AND topic_id = ?
@@ -1107,7 +1181,8 @@ class DataManager
         puts "🧹 [SCOPETTA] Elaborando: '#{item["nome"]}' (ID:#{item["id"]})"
         if item["comprato"].to_s.strip != ""
           foto = DB.get_first_row("SELECT file_id, file_unique_id FROM item_images WHERE item_id = ? ORDER BY id DESC LIMIT 1", [item["id"]])
-          self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"], item["link_url"], foto && foto["file_id"], foto && foto["file_unique_id"], item["categoria_id"])
+          storico_id = self.upsert_storico_articolo(gruppo_id, topic_id, item["nome"], item["creato_da"], item["comprato"], item["link_url"], foto && foto["file_id"], foto && foto["file_unique_id"], item["categoria_id"])
+          self.registra_prodotto_storico(storico_id, item["gtin"], acquistato: true) if storico_id && item["gtin"]
           # La categoria può essere stata assegnata dopo l'inserimento: registriamo quella effettiva.
           nome_storico = self.pulisci_nome_e_link(item["nome"], item["link_url"])[:nome]
           self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome_storico, item["categoria_id"])
@@ -1208,7 +1283,7 @@ end
 # Ripristino DRY unificato per inserimento da storico (usato da checklist e storico acquisti)
 # Instrada su aggiungi_articoli per ereditare categoria (effimera o last_categoria_id) e link,
 # poi recupera l'ultima foto nota per l'articolo se quello ripristinato non ne ha già una.
-def self.ripristina_da_checklist(g_id, t_id, nome, user_id)
+def self.ripristina_da_checklist(g_id, t_id, nome, user_id, gtin = nil)
   storico = DB.get_first_row(
     "SELECT nome, link_url, last_categoria_id, last_file_id, last_file_unique_id, metadata_json FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ?",
     [g_id, t_id, nome.to_s.strip.downcase]
@@ -1232,6 +1307,7 @@ def self.ripristina_da_checklist(g_id, t_id, nome, user_id)
     items_text: nome_da_inserire,
     topic_id: t_id,
     link_url: link_url,
+    gtin: gtin,
     split_items: false,
     categoria_id: categoria && categoria["tipo"] == "canonica" ? categoria["id"] : nil
   )
@@ -1270,7 +1346,7 @@ end
   # ----------------------------------------------------------------------------
   # PILASTRO '+': AGGIUNTA ARTICOLI
   # ----------------------------------------------------------------------------
-  def self.aggiungi_articoli(gruppo_id:, user_id:, items_text:, topic_id: 0, link_url: nil, split_items: true, categoria_id: nil)
+  def self.aggiungi_articoli(gruppo_id:, user_id:, items_text:, topic_id: 0, link_url: nil, gtin: nil, split_items: true, categoria_id: nil)
     puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{gruppo_id} | T:#{topic_id} | U:#{user_id}"
 
     nomi = if split_items
@@ -1279,6 +1355,10 @@ end
       [items_text.to_s.strip].reject(&:empty?)
     end
     return [] if nomi.empty?
+
+    gtin = normalizza_gtin(gtin)
+    gtin = nil if nomi.size != 1
+    upsert_prodotto(gtin, nomi.first) if gtin
 
     # Proprietà associativa: "A, B, C & categoria" assegna "categoria" a TUTTI gli item,
     # non solo all'ultimo segmento dove il parser "&" incontra il testo per primo.
@@ -1330,6 +1410,7 @@ end
           if categoria_effettiva
             DB.execute("UPDATE items SET categoria_id = ? WHERE id = ?", [categoria_effettiva, esiste])
           end
+          DB.execute("UPDATE items SET gtin = ? WHERE id = ?", [gtin, esiste]) if gtin
           if categoria_effettiva
             self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_effettiva)
           end
@@ -1337,8 +1418,8 @@ end
           next
         end
 
-        DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url, categoria_id) VALUES (?, ?, ?, ?, ?, ?)",
-          [gruppo_id, topic_id, user_id, nome_db, item_link_pulito, categoria_effettiva])
+        DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url, gtin, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [gruppo_id, topic_id, user_id, nome_db, item_link_pulito, gtin, categoria_effettiva])
         ids_creati << DB.last_insert_row_id
         if categoria_effettiva
           self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_effettiva)

@@ -61,7 +61,8 @@ class FavoritesStore(context: Context) {
     private fun FavoriteItem.matches(item: SpesaItem): Boolean =
         description == item.nome &&
             categoryId == item.categoriaId &&
-            yukaLink == item.linkUrl
+            yukaLink == item.linkUrl &&
+            gtin == item.gtin
 
     private fun SpesaItem.toFavorite() = FavoriteItem(
         id = UUID.randomUUID().toString(),
@@ -70,6 +71,7 @@ class FavoritesStore(context: Context) {
         categoryName = categoriaNome,
         categoryEphemeral = categoriaEffimera,
         yukaLink = linkUrl,
+        gtin = gtin,
         telegramPhotoId = telegramPhotoId,
         telegramPhotoFileName = telegramPhotoFileName,
         telegramPhotoDate = telegramPhotoDate

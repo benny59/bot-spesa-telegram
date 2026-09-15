@@ -7,6 +7,7 @@ data class FavoriteItem(
     val categoryName: String,
     val categoryEphemeral: Boolean,
     val yukaLink: String,
+    val gtin: String = "",
     val telegramPhotoId: String? = null,
     val telegramPhotoFileName: String? = null,
     val telegramPhotoDate: String? = null,

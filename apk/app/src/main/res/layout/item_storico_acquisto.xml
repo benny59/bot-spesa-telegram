@@ -31,6 +31,15 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
+        <ImageView
+            android:id="@+id/ivStoricoNutrition"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginHorizontal="8dp"
+            android:contentDescription="@string/informazioni_prodotto"
+            android:src="@drawable/ic_nutrition"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/tvStoricoData"
             android:layout_width="wrap_content"

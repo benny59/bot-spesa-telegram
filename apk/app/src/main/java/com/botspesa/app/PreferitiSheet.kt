@@ -117,6 +117,7 @@ class PreferitiSheet : BottomSheetDialogFragment() {
                         nome = favorite.description,
                         userId = userId,
                         linkUrl = favorite.yukaLink.ifBlank { null },
+                        gtin = favorite.gtin.ifBlank { null },
                         splitItems = false,
                         categoriaId = favorite.categoryId.takeIf { it > 0 },
                         telegramPhotoId = favorite.telegramPhotoId,
