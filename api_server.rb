@@ -207,6 +207,101 @@ get '/ping' do
   { status: 'ok', version: '1.0' }.to_json
 end
 
+def normalizza_ricerca_prodotto(value)
+  value.to_s.unicode_normalize(:nfd).gsub(/\p{Mn}/, '').downcase
+    .scan(/[[:alnum:]]+/).join(' ')
+end
+
+def link_yuka?(value)
+  value.to_s.match?(%r{\Ahttps://app\.yuka\.io/}i)
+end
+
+def link_yuka_per_gtin(user_id)
+  links = {}
+
+  if user_id.to_i != 0
+    config = DB.get_first_row(
+      "SELECT link_url FROM items WHERE gruppo_id = 0 AND topic_id = 0 AND creato_da = ? AND (nome = ? OR nome LIKE ?) AND deleted = 0 ORDER BY id DESC LIMIT 1",
+      [user_id, CONFIG_PREFERITI_NOME, "#{CONFIG_PREFERITI_NOME} & %"]
+    )
+    begin
+      backup = JSON.parse(config['link_url'].to_s)
+      Array(backup['favorites']).each do |favorite|
+        gtin = DataManager.normalizza_gtin(favorite['gtin'])
+        url = favorite['yukaLink'].to_s.strip
+        links[gtin] = { url: url, fonte: 'preferito' } if gtin && link_yuka?(url)
+      end
+    rescue JSON::ParserError, NoMethodError
+      nil
+    end
+  end
+
+  DB.execute("SELECT gtin, link_url FROM items WHERE gtin IS NOT NULL AND TRIM(COALESCE(link_url, '')) != '' ORDER BY id DESC").each do |item|
+    gtin = DataManager.normalizza_gtin(item['gtin'])
+    links[gtin] ||= { url: item['link_url'].to_s, fonte: 'item' } if gtin && link_yuka?(item['link_url'])
+  end
+
+  DB.execute(<<~SQL).each do |storico|
+    SELECT sap.gtin, sa.link_url
+    FROM storico_articolo_prodotti sap
+    JOIN storico_articoli sa ON sa.id = sap.storico_articolo_id
+    WHERE TRIM(COALESCE(sa.link_url, '')) != ''
+    ORDER BY sap.ultimo_acquisto DESC
+  SQL
+    gtin = DataManager.normalizza_gtin(storico['gtin'])
+    links[gtin] ||= { url: storico['link_url'].to_s, fonte: 'storico' } if gtin && link_yuka?(storico['link_url'])
+  end
+
+  links
+end
+
+get '/prodotti' do
+  query = params[:query].to_s.strip
+  user_id = params[:user_id]&.to_i || 0
+  gruppo_id = params[:gruppo_id]&.to_i
+  topic_id = params[:topic_id]&.to_i || 0
+  limite = [[params[:limit].to_i, 1].max, 30].min
+  tokens = normalizza_ricerca_prodotto(query).split
+  halt 400, { error: 'ricerca troppo breve' }.to_json if tokens.join.length < 2
+
+  yuka_links = link_yuka_per_gtin(user_id)
+  prodotti = DB.execute("SELECT gtin, descrizione FROM prodotti").filter_map do |prodotto|
+    descrizione_normalizzata = normalizza_ricerca_prodotto(prodotto['descrizione'])
+    next unless tokens.all? { |token| descrizione_normalizzata.include?(token) }
+
+    rank = if descrizione_normalizzata == tokens.join(' ')
+      0
+    elsif descrizione_normalizzata.start_with?(tokens.join(' '))
+      1
+    else
+      2
+    end
+    prodotto.merge('rank' => rank)
+  end.sort_by { |prodotto| [prodotto['rank'], prodotto['descrizione'].to_s.downcase] }.first(limite)
+
+  gtins_in_lista = if gruppo_id.nil? || prodotti.empty?
+    []
+  else
+    gtins = prodotti.map { |prodotto| prodotto['gtin'] }
+    placeholders = gtins.map { '?' }.join(',')
+    DB.execute(
+      "SELECT DISTINCT gtin FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND gtin IN (#{placeholders})",
+      [gruppo_id, topic_id, *gtins]
+    ).map { |item| item['gtin'] }
+  end
+
+  prodotti.map do |prodotto|
+    yuka = yuka_links[prodotto['gtin']]
+    {
+      gtin: prodotto['gtin'],
+      descrizione: prodotto['descrizione'].to_s,
+      yuka_url: yuka && yuka[:url],
+      yuka_source: yuka && yuka[:fonte],
+      in_lista: gtins_in_lista.include?(prodotto['gtin'])
+    }
+  end.to_json
+end
+
 get '/prodotti/:barcode/anteprima' do
   product_scan_enabled = DB.get_first_value(
     "SELECT value FROM config WHERE key = ?",
@@ -963,21 +1058,13 @@ post '/checklist/toggle' do
   { ok: true, in_lista: !in_lista }.to_json
 end
 
-get '/foto/:item_id' do
-  item_id = params[:item_id].to_i
-
-  img = DB.get_first_row(
-    "SELECT file_id, file_unique_id FROM item_images WHERE item_id = ? ORDER BY id DESC LIMIT 1",
-    [item_id]
-  )
-  halt 404, { error: 'Nessuna foto' }.to_json unless img
-
+def contenuto_foto(file_id, file_unique_id)
   cache_dir  = File.join(File.dirname(__FILE__), 'data', 'foto_cache')
-  cache_path = File.join(cache_dir, "#{img['file_unique_id']}.jpg")
+  cache_path = File.join(cache_dir, "#{file_unique_id}.jpg")
 
   unless File.exist?(cache_path)
     # I file locali non richiedono chiamate Telegram
-    if img['file_id'].to_s.start_with?('local:')
+    if file_id.to_s.start_with?('local:')
       halt 404, { error: 'foto locale non trovata' }.to_json
     end
 
@@ -991,7 +1078,7 @@ get '/foto/:item_id' do
     tg   = Faraday.new('https://api.telegram.org')
     meta = nil
     tokens.each do |tok|
-      res = JSON.parse(tg.get("/bot#{tok}/getFile", { file_id: img['file_id'] }).body)
+      res = JSON.parse(tg.get("/bot#{tok}/getFile", { file_id: file_id }).body)
       if res['ok']
         meta = res.merge('_token' => tok)
         break
@@ -1006,6 +1093,26 @@ get '/foto/:item_id' do
 
   content_type 'image/jpeg'
   File.binread(cache_path)
+end
+
+get '/foto/preferito/:file_unique_id' do
+  file_id = params[:file_id].to_s
+  file_unique_id = params[:file_unique_id].to_s
+  halt 400, { error: 'parametri mancanti' }.to_json if file_id.empty? || file_unique_id.empty?
+
+  contenuto_foto(file_id, file_unique_id)
+end
+
+get '/foto/:item_id' do
+  item_id = params[:item_id].to_i
+
+  img = DB.get_first_row(
+    "SELECT file_id, file_unique_id FROM item_images WHERE item_id = ? ORDER BY id DESC LIMIT 1",
+    [item_id]
+  )
+  halt 404, { error: 'Nessuna foto' }.to_json unless img
+
+  contenuto_foto(img['file_id'], img['file_unique_id'])
 end
 
 post '/lista/:item_id/foto' do

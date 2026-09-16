@@ -240,6 +240,21 @@ class MainActivity : AppCompatActivity() {
                         .also { it.setOnItemAddedListener { aggiornaLista() } }
                         .show(supportFragmentManager, "preferiti")
                 }
+                R.id.nav_catalogo_prodotti -> {
+                    CatalogoProdottiSheet.newInstance(gruppoId, topicId, userId)
+                        .also { sheet ->
+                            sheet.setOnInfoListener(::apriInformazioniCatalogo)
+                            sheet.setOnAddListener { prodotto ->
+                                sheet.dismiss()
+                                mostraDialogAggiungi(
+                                    prefilledText = prodotto.description,
+                                    prefilledLink = prodotto.yukaUrl.ifBlank { null },
+                                    prefilledGtin = prodotto.gtin
+                                )
+                            }
+                        }
+                        .show(supportFragmentManager, "catalogo_prodotti")
+                }
                 R.id.nav_modelli          -> {
                     ModelliSheet.newInstance(gruppoId, topicId, userId)
                         .also {
@@ -840,6 +855,19 @@ class MainActivity : AppCompatActivity() {
             .setMessage(productPreviewText(preview))
             .setPositiveButton(android.R.string.ok, null)
             .show()
+    }
+
+    private fun apriInformazioniCatalogo(prodotto: ApiClient.CatalogProduct) {
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(prodotto.gtin) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(this@MainActivity, R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+            } else {
+                mostraInformazioniProdotto(preview)
+            }
+        }
     }
 
     private fun lanciaSatispayLocale() {
@@ -1791,6 +1819,7 @@ class MainActivity : AppCompatActivity() {
         prefilledText: String? = null,
         prefilledLink: String? = null,
         productPreview: ApiClient.ProductPreview? = null,
+        prefilledGtin: String? = null,
         prefilledCategoryName: String? = null,
         destinazionePreselezionata: AddDestination? = null
     ) {
@@ -1938,7 +1967,7 @@ class MainActivity : AppCompatActivity() {
                             destinazioneSelezionata(),
                             prefilledLink,
                             categoriaSelezionata.id,
-                            productPreview?.barcode
+                            productPreview?.barcode ?: prefilledGtin
                         )
                     }
                 }

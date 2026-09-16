@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="catalogo_prodotti">Catalogo prodotti</string>
+    <string name="cerca">Cerca</string>
+    <string name="cerca_prodotti_hint">Cerca per nome, marca o descrizione</string>
+    <string name="cerca_prodotti_invito">Inserisci almeno due caratteri per cercare nel catalogo</string>
+    <string name="ricerca_minimo_due_caratteri">Inserisci almeno due caratteri</string>
+    <string name="nessun_prodotto_trovato">Nessun prodotto trovato</string>
+    <string name="errore_generico">Operazione non riuscita</string>
     <string name="app_name">Lista Spesa</string>
     <string name="app_name_version">Lista Spesa v%1$s</string>
     <string name="aggiungi_articolo">Aggiungi articolo</string>

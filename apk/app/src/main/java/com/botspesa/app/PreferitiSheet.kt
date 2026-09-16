@@ -1,5 +1,7 @@
 package com.botspesa.app
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -13,6 +15,8 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.NumberFormat
+import java.util.Locale
 
 class PreferitiSheet : BottomSheetDialogFragment() {
 
@@ -40,7 +44,68 @@ class PreferitiSheet : BottomSheetDialogFragment() {
         empty.visibility = if (favorites.isEmpty()) View.VISIBLE else View.GONE
         recycler.visibility = if (favorites.isEmpty()) View.GONE else View.VISIBLE
         recycler.layoutManager = LinearLayoutManager(requireContext())
-        recycler.adapter = PreferitiAdapter(favorites, addedIds, { favorite -> toggleFavorite(favorite, recycler) }, ::confermaEliminazionePreferito)
+        recycler.adapter = PreferitiAdapter(
+            favorites,
+            addedIds,
+            { favorite -> toggleFavorite(favorite, recycler) },
+            ::confermaEliminazionePreferito,
+            ::apriInformazioniProdotto,
+            ::apriFotoPreferito,
+            ::apriLinkPreferito
+        )
+    }
+
+    private fun apriInformazioniProdotto(favorite: FavoriteItem) {
+        val gtin = favorite.gtin.orEmpty()
+        if (gtin.isBlank()) return
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(gtin) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(requireContext(), R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            android.app.AlertDialog.Builder(requireContext())
+                .setTitle(preview.displayName.ifBlank { getString(R.string.informazioni_prodotto) })
+                .setMessage(productPreviewText(preview))
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
+    }
+
+    private fun productPreviewText(preview: ApiClient.ProductPreview): String {
+        val format = NumberFormat.getNumberInstance(Locale.ITALY).apply { maximumFractionDigits = 1 }
+        val nutrienti = buildList {
+            preview.energyKcal100g?.let { add("${format.format(it)} kcal") }
+            preview.sugars100g?.let { add("zuccheri ${format.format(it)} g") }
+            preview.saturatedFat100g?.let { add("saturi ${format.format(it)} g") }
+            preview.salt100g?.let { add("sale ${format.format(it)} g") }
+        }
+        return buildString {
+            append("Open Food Facts")
+            if (preview.nutriscoreGrade.isNotBlank()) append(" · Nutri-Score ${preview.nutriscoreGrade.uppercase()}")
+            if (nutrienti.isNotEmpty()) append("\nPer 100 g: ${nutrienti.joinToString(" · ")}")
+            preview.novaGroup?.let { append("\nGruppo NOVA $it") }
+            if (preview.allergens.isNotEmpty()) append("\nAllergeni dichiarati: ${preview.allergens.joinToString(", ")}")
+            if (preview.ingredientsText.isNotBlank()) append("\nIngredienti: ${preview.ingredientsText}")
+        }
+    }
+
+    private fun apriFotoPreferito(favorite: FavoriteItem) {
+        val fileId = favorite.telegramPhotoId ?: return
+        val fileUniqueId = favorite.telegramPhotoFileName ?: return
+        startActivity(Intent(requireContext(), FotoActivity::class.java).apply {
+            putExtra(FotoActivity.EXTRA_NOME, favorite.description)
+            putExtra(FotoActivity.EXTRA_FOTO_URL, ApiClient.getFavoriteFotoUrl(fileId, fileUniqueId))
+        })
+    }
+
+    private fun apriLinkPreferito(favorite: FavoriteItem) {
+        val raw = favorite.yukaLink.trim()
+        if (raw.isBlank()) return
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(raw))) }
+            .onFailure { Toast.makeText(requireContext(), R.string.link_non_disponibile, Toast.LENGTH_SHORT).show() }
     }
 
     private fun confermaEliminazionePreferito(favorite: FavoriteItem) {
@@ -117,7 +182,7 @@ class PreferitiSheet : BottomSheetDialogFragment() {
                         nome = favorite.description,
                         userId = userId,
                         linkUrl = favorite.yukaLink.ifBlank { null },
-                        gtin = favorite.gtin.ifBlank { null },
+                        gtin = favorite.gtin.orEmpty().ifBlank { null },
                         splitItems = false,
                         categoriaId = favorite.categoryId.takeIf { it > 0 },
                         telegramPhotoId = favorite.telegramPhotoId,
@@ -179,7 +244,10 @@ private class PreferitiAdapter(
     private val favorites: List<FavoriteItem>,
     private val addedIds: Set<String>,
     private val onAdd: (FavoriteItem) -> Unit,
-    private val onDelete: (FavoriteItem) -> Unit
+    private val onDelete: (FavoriteItem) -> Unit,
+    private val onProduct: (FavoriteItem) -> Unit,
+    private val onPhoto: (FavoriteItem) -> Unit,
+    private val onLink: (FavoriteItem) -> Unit
 ) : RecyclerView.Adapter<PreferitiAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -187,6 +255,7 @@ private class PreferitiAdapter(
         val description: TextView = view.findViewById(R.id.tvPreferitoDescrizione)
         val category: TextView = view.findViewById(R.id.tvPreferitoCategoria)
         val link: View = view.findViewById(R.id.ivPreferitoLink)
+        val nutrition: View = view.findViewById(R.id.ivPreferitoNutrition)
         val photo: View = view.findViewById(R.id.ivPreferitoFoto)
         val elimina: View = view.findViewById(R.id.tvPreferitoElimina)
     }
@@ -209,7 +278,11 @@ private class PreferitiAdapter(
         holder.category.visibility = if (category.isEmpty()) View.GONE else View.VISIBLE
         holder.category.text = category
         holder.link.visibility = if (favorite.yukaLink.isBlank()) View.GONE else View.VISIBLE
-        holder.photo.visibility = if (favorite.telegramPhotoId.isNullOrBlank()) View.GONE else View.VISIBLE
+        holder.nutrition.visibility = if (favorite.gtin.isNullOrBlank()) View.GONE else View.VISIBLE
+        holder.photo.visibility = if (favorite.telegramPhotoId.isNullOrBlank() || favorite.telegramPhotoFileName.isNullOrBlank()) View.GONE else View.VISIBLE
+        holder.link.setOnClickListener { onLink(favorite) }
+        holder.nutrition.setOnClickListener { onProduct(favorite) }
+        holder.photo.setOnClickListener { onPhoto(favorite) }
         holder.itemView.setOnClickListener { onAdd(favorite) }
         holder.elimina.setOnClickListener { onDelete(favorite) }
     }

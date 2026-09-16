@@ -13,6 +13,7 @@ class FotoActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_ITEM_ID = "extra_item_id"
         const val EXTRA_NOME    = "extra_nome"
+        const val EXTRA_FOTO_URL = "extra_foto_url"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -23,12 +24,13 @@ class FotoActivity : AppCompatActivity() {
 
         val itemId   = intent.getIntExtra(EXTRA_ITEM_ID, 0)
         val nome     = intent.getStringExtra(EXTRA_NOME) ?: ""
+        val fotoUrl  = intent.getStringExtra(EXTRA_FOTO_URL) ?: ApiClient.getFotoUrl(itemId)
         val progress = findViewById<ProgressBar>(R.id.progressFoto)
         val imgView  = findViewById<ImageView>(R.id.imgFoto)
 
         findViewById<TextView>(R.id.tvNomeFoto).text = nome
 
-        imgView.load(ApiClient.getFotoUrl(itemId), ApiClient.imageLoader(this)) {
+        imgView.load(fotoUrl, ApiClient.imageLoader(this)) {
             listener(
                 onStart   = { progress.visibility = View.VISIBLE },
                 onSuccess = { _, _ -> progress.visibility = View.GONE },

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:minHeight="64dp"
+    android:orientation="horizontal"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="8dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvCatalogoDescrizione"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/tvCatalogoGtin"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#777777"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/ivCatalogoYuka"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_marginStart="8dp"
+        android:contentDescription="@string/apri_link_prodotto"
+        android:src="@drawable/ic_yuka_logo"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/ivCatalogoNutrition"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_marginStart="8dp"
+        android:contentDescription="@string/informazioni_prodotto"
+        android:src="@drawable/ic_nutrition"
+        android:tint="#FF8C38" />
+
+    <TextView
+        android:id="@+id/tvCatalogoAggiungi"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/circle_initials"
+        android:contentDescription="@string/aggiungi"
+        android:gravity="center"
+        android:text="+"
+        android:textColor="@android:color/white"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+</LinearLayout>

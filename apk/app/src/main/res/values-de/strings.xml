@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="catalogo_prodotti">Produktkatalog</string>
+    <string name="cerca">Suchen</string>
+    <string name="cerca_prodotti_hint">Nach Name, Marke oder Beschreibung suchen</string>
+    <string name="cerca_prodotti_invito">Mindestens zwei Zeichen eingeben, um den Katalog zu durchsuchen</string>
+    <string name="ricerca_minimo_due_caratteri">Mindestens zwei Zeichen eingeben</string>
+    <string name="nessun_prodotto_trovato">Keine Produkte gefunden</string>
+    <string name="errore_generico">Vorgang fehlgeschlagen</string>
     <string name="app_name">Einkaufsliste</string>
     <string name="app_name_version">Einkaufsliste v%1$s</string>
     <string name="aggiungi_articolo">Artikel hinzufügen</string>

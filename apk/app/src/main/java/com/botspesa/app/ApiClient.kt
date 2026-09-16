@@ -5,6 +5,7 @@ import coil.ImageLoader
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -115,6 +116,14 @@ object ApiClient {
                 .joinToString(" ")
     }
 
+    data class CatalogProduct(
+        val gtin: String,
+        val description: String,
+        val yukaUrl: String,
+        val yukaSource: String,
+        val inList: Boolean
+    )
+
     fun getConteggiListe(userId: Int): ConteggiListe {
         val req = Request.Builder().url("$baseUrl/lista/conteggi?user_id=$userId").auth().build()
         val body = http.newCall(req).execute().use { it.body!!.string() }
@@ -155,6 +164,38 @@ object ApiClient {
                 salt100g = raw["salt_100g"] as? Double,
                 sourceUrl = raw["source_url"] as? String ?: ""
             )
+        }
+    }
+
+    fun searchProducts(
+        query: String,
+        userId: Int,
+        gruppoId: Int,
+        topicId: Int
+    ): List<CatalogProduct> {
+        val url = "$baseUrl/prodotti".toHttpUrl().newBuilder()
+            .addQueryParameter("query", query)
+            .addQueryParameter("user_id", userId.toString())
+            .addQueryParameter("gruppo_id", gruppoId.toString())
+            .addQueryParameter("topic_id", topicId.toString())
+            .build()
+        val req = Request.Builder().url(url).auth().build()
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("Server ${response.code}: $body")
+            val raw: List<Map<String, Any?>> = gson.fromJson(
+                body,
+                object : TypeToken<List<Map<String, Any?>>>() {}.type
+            )
+            raw.map { product ->
+                CatalogProduct(
+                    gtin = product["gtin"] as? String ?: "",
+                    description = product["descrizione"] as? String ?: "",
+                    yukaUrl = product["yuka_url"] as? String ?: "",
+                    yukaSource = product["yuka_source"] as? String ?: "",
+                    inList = product["in_lista"] as? Boolean ?: false
+                )
+            }
         }
     }
 
@@ -706,6 +747,12 @@ object ApiClient {
     }
 
     fun getFotoUrl(itemId: Int): String = "$baseUrl/foto/$itemId"
+
+    fun getFavoriteFotoUrl(fileId: String, fileUniqueId: String): String =
+        "$baseUrl/foto/preferito/$fileUniqueId".toHttpUrl().newBuilder()
+            .addQueryParameter("file_id", fileId)
+            .build()
+            .toString()
 
     fun getToken(): String = token
 

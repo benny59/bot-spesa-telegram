@@ -43,8 +43,16 @@
         android:layout_width="24dp"
         android:layout_height="24dp"
         android:contentDescription="@string/apri_link_prodotto"
-        android:src="@drawable/ic_share"
-        android:tint="#FF7A00"
+        android:src="@drawable/ic_yuka_logo"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/ivPreferitoNutrition"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="8dp"
+        android:contentDescription="@string/informazioni_prodotto"
+        android:src="@drawable/ic_nutrition"
         android:visibility="gone" />
 
     <ImageView

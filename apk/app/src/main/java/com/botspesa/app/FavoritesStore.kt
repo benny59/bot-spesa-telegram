@@ -62,7 +62,7 @@ class FavoritesStore(context: Context) {
         description == item.nome &&
             categoryId == item.categoriaId &&
             yukaLink == item.linkUrl &&
-            gtin == item.gtin
+            gtin.orEmpty() == item.gtin
 
     private fun SpesaItem.toFavorite() = FavoriteItem(
         id = UUID.randomUUID().toString(),
