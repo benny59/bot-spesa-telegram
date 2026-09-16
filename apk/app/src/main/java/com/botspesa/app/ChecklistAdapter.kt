@@ -10,7 +10,9 @@ import androidx.recyclerview.widget.RecyclerView
 
 class ChecklistAdapter(
     private val items: MutableList<ChecklistItem>,
-    private val onToggle: (ChecklistItem) -> Unit
+    private val onToggle: (ChecklistItem) -> Unit,
+    private val onProduct: (ChecklistItem) -> Unit,
+    private val onYuka: (ChecklistItem) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private sealed interface Row {
@@ -24,6 +26,8 @@ class ChecklistAdapter(
         val status: ImageView     = view.findViewById(R.id.tvCheckStatus)
         val tvNome: TextView      = view.findViewById(R.id.tvCheckNome)
         val tvConteggio: TextView = view.findViewById(R.id.tvCheckConteggio)
+        val nutrition: ImageView  = view.findViewById(R.id.ivChecklistNutrition)
+        val yuka: ImageView       = view.findViewById(R.id.ivChecklistYuka)
     }
 
     inner class CategoryViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -78,7 +82,11 @@ class ChecklistAdapter(
         }
         holder.tvNome.alpha = if (item.inLista) 0.5f else 1f
 
-        holder.itemView.setOnClickListener { onToggle(item) }
+        holder.nutrition.visibility = if (item.gtin.isBlank()) View.GONE else View.VISIBLE
+        holder.yuka.visibility = if (item.yukaUrl.isBlank()) View.GONE else View.VISIBLE
+        holder.nutrition.setOnClickListener { onProduct(item) }
+        holder.yuka.setOnClickListener { onYuka(item) }
+
         holder.status.setOnClickListener { onToggle(item) }
     }
 

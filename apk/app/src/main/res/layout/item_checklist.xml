@@ -39,4 +39,24 @@
 
     </LinearLayout>
 
+    <ImageView
+        android:id="@+id/ivChecklistYuka"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/apri_link_prodotto"
+        android:padding="8dp"
+        android:src="@drawable/ic_yuka_logo"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/ivChecklistNutrition"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/informazioni_prodotto"
+        android:padding="8dp"
+        android:src="@drawable/ic_nutrition"
+        android:visibility="gone" />
+
 </LinearLayout>

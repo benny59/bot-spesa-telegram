@@ -653,9 +653,9 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
-    fun getChecklist(gruppoId: Int, topicId: Int): List<ChecklistItem> {
+    fun getChecklist(gruppoId: Int, topicId: Int, userId: Int): List<ChecklistItem> {
         val req = Request.Builder()
-            .url("$baseUrl/checklist?gruppo_id=$gruppoId&topic_id=$topicId")
+            .url("$baseUrl/checklist?gruppo_id=$gruppoId&topic_id=$topicId&user_id=$userId")
             .auth()
             .build()
         val resp = http.newCall(req).execute()
@@ -671,6 +671,8 @@ object ApiClient {
                 conteggio = (i["conteggio"] as? Double)?.toInt() ?: 0,
                 categoriaNome = i["categoria_nome"] as? String ?: "",
                 categoriaEffimera = i["categoria_effimera"] as? Boolean ?: false,
+                gtin = i["gtin"] as? String ?: "",
+                yukaUrl = i["yuka_url"] as? String ?: "",
                 inLista   = i["in_lista"] as? Boolean ?: false
             )
         }

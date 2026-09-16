@@ -302,7 +302,8 @@ private class PreferitiAdapter(
         holder.link.setOnClickListener { onLink(favorite) }
         holder.nutrition.setOnClickListener { onProduct(favorite) }
         holder.photo.setOnClickListener { onPhoto(favorite) }
-        holder.itemView.setOnClickListener { onAdd(favorite) }
+        holder.itemView.setOnClickListener(null)
+        holder.status.setOnClickListener { onAdd(favorite) }
         holder.elimina.setOnClickListener { onDelete(favorite) }
     }
 }

@@ -1,5 +1,7 @@
 package com.botspesa.app
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -12,6 +14,8 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.NumberFormat
+import java.util.Locale
 
 class ChecklistSheet : BottomSheetDialogFragment() {
 
@@ -30,7 +34,12 @@ class ChecklistSheet : BottomSheetDialogFragment() {
         inflater.inflate(R.layout.fragment_checklist, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        adapter = ChecklistAdapter(checklistItems) { item -> toggleItem(item) }
+        adapter = ChecklistAdapter(
+            checklistItems,
+            ::toggleItem,
+            ::apriInformazioniProdotto,
+            ::apriYuka
+        )
         view.findViewById<RecyclerView>(R.id.rvChecklist).apply {
             layoutManager = LinearLayoutManager(requireContext())
             adapter = this@ChecklistSheet.adapter
@@ -47,7 +56,7 @@ class ChecklistSheet : BottomSheetDialogFragment() {
     private fun caricaChecklist() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getChecklist(gruppoId, topicId) }
+                runCatching { ApiClient.getChecklist(gruppoId, topicId, userId) }
             }
             result.onSuccess { adapter.aggiorna(it) }
                   .onFailure { e -> Toast.makeText(requireContext(), "Checklist: ${e.message}", Toast.LENGTH_LONG).show() }
@@ -57,7 +66,16 @@ class ChecklistSheet : BottomSheetDialogFragment() {
     private fun toggleItem(item: ChecklistItem) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.toggleChecklistItem(gruppoId, topicId, item.nome, item.inLista, userId) }
+                runCatching {
+                    ApiClient.toggleChecklistItem(
+                        gruppoId,
+                        topicId,
+                        item.nome,
+                        item.inLista,
+                        userId,
+                        item.gtin.ifBlank { null }
+                    )
+                }
             }
             result.onSuccess {
                 onItemChanged?.invoke()
@@ -66,6 +84,62 @@ class ChecklistSheet : BottomSheetDialogFragment() {
                 Toast.makeText(requireContext(), "Errore", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun apriInformazioniProdotto(item: ChecklistItem) {
+        if (item.gtin.isBlank()) return
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(item.gtin) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(requireContext(), R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            mostraInformazioniProdotto(preview)
+        }
+    }
+
+    private fun mostraInformazioniProdotto(preview: ApiClient.ProductPreview) {
+        val format = NumberFormat.getNumberInstance(Locale.ITALY).apply { maximumFractionDigits = 1 }
+        val nutrienti = buildList {
+            preview.energyKcal100g?.let { add("${format.format(it)} kcal") }
+            preview.sugars100g?.let { add("zuccheri ${format.format(it)} g") }
+            preview.saturatedFat100g?.let { add("saturi ${format.format(it)} g") }
+            preview.salt100g?.let { add("sale ${format.format(it)} g") }
+        }
+        val message = buildString {
+            append("Open Food Facts")
+            if (preview.nutriscoreGrade.isNotBlank()) append(" · Nutri-Score ${preview.nutriscoreGrade.uppercase()}")
+            if (nutrienti.isNotEmpty()) append("\nPer 100 g: ${nutrienti.joinToString(" · ")}")
+            preview.novaGroup?.let { append("\nGruppo NOVA $it") }
+            if (preview.ingredientsText.isNotBlank()) append("\nIngredienti: ${preview.ingredientsText}")
+        }
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle(preview.displayName.ifBlank { getString(R.string.informazioni_prodotto) })
+            .setMessage(message)
+            .setNeutralButton("Aggiorna") { _, _ -> aggiornaInformazioniProdotto(preview.barcode) }
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun aggiornaInformazioniProdotto(gtin: String) {
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(gtin, forceRefresh = true) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(requireContext(), R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+            } else {
+                mostraInformazioniProdotto(preview)
+            }
+        }
+    }
+
+    private fun apriYuka(item: ChecklistItem) {
+        if (item.yukaUrl.isBlank()) return
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.yukaUrl))) }
+            .onFailure { Toast.makeText(requireContext(), R.string.link_non_disponibile, Toast.LENGTH_SHORT).show() }
     }
 
     fun setOnItemChangedListener(listener: () -> Unit) {

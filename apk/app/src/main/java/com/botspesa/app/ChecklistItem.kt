@@ -6,5 +6,7 @@ data class ChecklistItem(
     val conteggio: Int,
     val categoriaNome: String,
     val categoriaEffimera: Boolean,
+    val gtin: String,
+    val yukaUrl: String,
     val inLista: Boolean
 )

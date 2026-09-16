@@ -1034,11 +1034,28 @@ end
 get '/checklist' do
   gruppo_id = params[:gruppo_id]&.to_i
   topic_id  = params[:topic_id]&.to_i || 0
+  user_id   = params[:user_id]&.to_i || 0
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
   items = StoricoManager.suggerimenti_per_checklist(gruppo_id, topic_id)
+  storico_ids = items.map { |item| item['id'] }
+  prodotti_per_storico = if storico_ids.empty?
+    {}
+  else
+    placeholders = storico_ids.map { '?' }.join(',')
+    DB.execute(<<~SQL, storico_ids).group_by { |prodotto| prodotto['storico_articolo_id'] }
+      SELECT sap.storico_articolo_id, sap.gtin
+      FROM storico_articolo_prodotti sap
+      WHERE sap.storico_articolo_id IN (#{placeholders})
+      ORDER BY sap.ultimo_acquisto DESC, sap.acquisti_confermati DESC, sap.utilizzi DESC
+    SQL
+  end
+  yuka_links = link_yuka_per_gtin(user_id)
   items.map { |i|
     categoria = DataManager.categoria_da_storico(i, gruppo_id, topic_id)
+    prodotto = Array(prodotti_per_storico[i['id']]).first
+    gtin = prodotto && prodotto['gtin']
+    yuka = yuka_links[gtin]
     {
       nome: i['nome'],
       nome_display: categoria[:nome],
@@ -1046,6 +1063,8 @@ get '/checklist' do
       categoria_id: categoria[:categoria_id],
       categoria_nome: categoria[:categoria_nome],
       categoria_effimera: categoria[:effimera],
+      gtin: gtin.to_s,
+      yuka_url: yuka && yuka[:url],
       in_lista: !i['in_lista'].nil?
     }
   }.to_json
