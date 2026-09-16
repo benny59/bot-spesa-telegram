@@ -38,7 +38,8 @@ class ChecklistSheet : BottomSheetDialogFragment() {
             checklistItems,
             ::toggleItem,
             ::apriInformazioniProdotto,
-            ::apriYuka
+            ::apriYuka,
+            ::modificaCategoria
         )
         view.findViewById<RecyclerView>(R.id.rvChecklist).apply {
             layoutManager = LinearLayoutManager(requireContext())
@@ -140,6 +141,29 @@ class ChecklistSheet : BottomSheetDialogFragment() {
         if (item.yukaUrl.isBlank()) return
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.yukaUrl))) }
             .onFailure { Toast.makeText(requireContext(), R.string.link_non_disponibile, Toast.LENGTH_SHORT).show() }
+    }
+
+    private fun modificaCategoria(item: ChecklistItem) {
+        CategoryPicker.show(
+            fragment = this,
+            gruppoId = gruppoId,
+            topicId = topicId,
+            userId = userId,
+            currentCategoryId = item.categoriaId,
+            currentCategoryName = item.categoriaNome,
+            currentCategoryEphemeral = item.categoriaEffimera
+        ) { category ->
+            lifecycleScope.launch {
+                val updated = withContext(Dispatchers.IO) {
+                    runCatching { ApiClient.updateChecklistCategory(item.id, userId, category) }.getOrDefault(false)
+                }
+                if (updated) {
+                    caricaChecklist()
+                } else {
+                    Toast.makeText(requireContext(), getString(R.string.modifica_non_riuscita), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     fun setOnItemChangedListener(listener: () -> Unit) {

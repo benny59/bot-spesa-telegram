@@ -49,6 +49,20 @@ class FavoritesStore(context: Context) {
         }
     }
 
+    fun updateCategory(favoriteId: String, categoryId: Int?, categoryName: String, categoryEphemeral: Boolean): Boolean {
+        val favorites = all().toMutableList()
+        val index = favorites.indexOfFirst { it.id == favoriteId }
+        if (index < 0) return false
+
+        favorites[index] = favorites[index].copy(
+            categoryId = categoryId ?: 0,
+            categoryName = categoryName,
+            categoryEphemeral = categoryEphemeral
+        )
+        save(favorites)
+        return true
+    }
+
     private fun save(favorites: List<FavoriteItem>) {
         val temporaryFile = File(file.parentFile, "$FILE_NAME.tmp")
         temporaryFile.writeText(gson.toJson(favorites))

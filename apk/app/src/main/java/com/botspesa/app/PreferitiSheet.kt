@@ -51,8 +51,33 @@ class PreferitiSheet : BottomSheetDialogFragment() {
             ::confermaEliminazionePreferito,
             ::apriInformazioniProdotto,
             ::apriFotoPreferito,
-            ::apriLinkPreferito
+            ::apriLinkPreferito,
+            ::modificaCategoria
         )
+    }
+
+    private fun modificaCategoria(favorite: FavoriteItem) {
+        CategoryPicker.show(
+            fragment = this,
+            gruppoId = gruppoId,
+            topicId = topicId,
+            userId = userId,
+            currentCategoryId = favorite.categoryId,
+            currentCategoryName = favorite.categoryName,
+            currentCategoryEphemeral = favorite.categoryEphemeral
+        ) { category ->
+            if (FavoritesStore(requireContext()).updateCategory(
+                    favorite.id,
+                    category.id,
+                    category.name,
+                    category.ephemeral
+                )
+            ) {
+                view?.let(::caricaPreferiti)
+            } else {
+                Toast.makeText(requireContext(), getString(R.string.modifica_non_riuscita), Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun apriInformazioniProdotto(favorite: FavoriteItem) {
@@ -266,7 +291,8 @@ private class PreferitiAdapter(
     private val onDelete: (FavoriteItem) -> Unit,
     private val onProduct: (FavoriteItem) -> Unit,
     private val onPhoto: (FavoriteItem) -> Unit,
-    private val onLink: (FavoriteItem) -> Unit
+    private val onLink: (FavoriteItem) -> Unit,
+    private val onCategory: (FavoriteItem) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private sealed interface Row {
@@ -350,6 +376,12 @@ private class PreferitiAdapter(
         holder.itemView.setOnClickListener(null)
         holder.status.setOnClickListener { onAdd(favorite) }
         holder.elimina.setOnClickListener { onDelete(favorite) }
+        val categoryListener = View.OnLongClickListener {
+            onCategory(favorite)
+            true
+        }
+        holder.itemView.setOnLongClickListener(categoryListener)
+        holder.description.setOnLongClickListener(categoryListener)
     }
 
     private companion object {

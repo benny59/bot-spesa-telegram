@@ -1078,6 +1078,7 @@ get '/checklist' do
     gtin = prodotto && prodotto['gtin']
     yuka = yuka_links[gtin]
     {
+      id: i['id'].to_i,
       nome: i['nome'],
       nome_display: categoria[:nome],
       conteggio: i['conteggio'].to_i,
@@ -1089,6 +1090,36 @@ get '/checklist' do
       in_lista: !i['in_lista'].nil?
     }
   }.to_json
+end
+
+patch '/checklist/:id/categoria' do
+  body = json_body
+  storico = DB.get_first_row("SELECT id, gruppo_id, topic_id FROM storico_articoli WHERE id = ?", [params[:id].to_i])
+  halt 404, { error: 'articolo storico non trovato' }.to_json unless storico
+
+  user_id = body['user_id']&.to_i || 0
+  categoria_id = body['categoria_id']&.to_i
+  categoria_nome = body['categoria_nome'].to_s.strip
+  effimera = body['categoria_effimera'] == true
+  if categoria_id.to_i > 0 || effimera
+    consentita = DataManager.categorie_assegnabili(storico['gruppo_id'], storico['topic_id'], user_id).any? do |categoria|
+      if effimera
+        categoria[:effimera] && categoria[:nome].to_s.casecmp?(categoria_nome)
+      else
+        !categoria[:effimera] && categoria[:id].to_i == categoria_id
+      end
+    end
+    halt 400, { error: 'categoria non assegnabile' }.to_json unless consentita
+  end
+
+  ok = DataManager.aggiorna_categoria_storico(
+    storico['id'],
+    categoria_id: categoria_id,
+    categoria_nome: categoria_nome,
+    effimera: effimera
+  )
+  halt 422, { error: 'categoria non aggiornata' }.to_json unless ok
+  { ok: true }.to_json
 end
 
 # Checklist toggle: aggiunge o rimuove dalla lista attiva

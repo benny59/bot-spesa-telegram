@@ -12,7 +12,8 @@ class ChecklistAdapter(
     private val items: MutableList<ChecklistItem>,
     private val onToggle: (ChecklistItem) -> Unit,
     private val onProduct: (ChecklistItem) -> Unit,
-    private val onYuka: (ChecklistItem) -> Unit
+    private val onYuka: (ChecklistItem) -> Unit,
+    private val onCategory: (ChecklistItem) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private sealed interface Row {
@@ -88,6 +89,12 @@ class ChecklistAdapter(
         holder.yuka.setOnClickListener { onYuka(item) }
 
         holder.status.setOnClickListener { onToggle(item) }
+        val categoryListener = View.OnLongClickListener {
+            onCategory(item)
+            true
+        }
+        holder.itemView.setOnLongClickListener(categoryListener)
+        holder.tvNome.setOnLongClickListener(categoryListener)
     }
 
     override fun getItemCount(): Int = rows.size

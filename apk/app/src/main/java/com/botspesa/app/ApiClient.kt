@@ -666,9 +666,11 @@ object ApiClient {
         return raw.map { i ->
             val nome = i["nome"] as? String ?: ""
             ChecklistItem(
+                id        = (i["id"] as? Double)?.toInt() ?: 0,
                 nome      = nome,
                 nomeDisplay = (i["nome_display"] as? String)?.takeIf { it.isNotBlank() } ?: nome,
                 conteggio = (i["conteggio"] as? Double)?.toInt() ?: 0,
+                categoriaId = (i["categoria_id"] as? Double)?.toInt() ?: 0,
                 categoriaNome = i["categoria_nome"] as? String ?: "",
                 categoriaEffimera = i["categoria_effimera"] as? Boolean ?: false,
                 gtin = i["gtin"] as? String ?: "",
@@ -676,6 +678,23 @@ object ApiClient {
                 inLista   = i["in_lista"] as? Boolean ?: false
             )
         }
+    }
+
+    fun updateChecklistCategory(itemId: Int, userId: Int, category: CategoryChoice): Boolean {
+        val payload = gson.toJson(
+            mapOf(
+                "user_id" to userId,
+                "categoria_id" to category.id,
+                "categoria_nome" to category.name,
+                "categoria_effimera" to category.ephemeral
+            )
+        )
+        val req = Request.Builder()
+            .url("$baseUrl/checklist/$itemId/categoria")
+            .patch(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
     }
 
     data class StoricoProdotto(

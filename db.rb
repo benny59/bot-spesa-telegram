@@ -2137,6 +2137,29 @@ end
     { nome: nome_pulito, categoria_id: 0, categoria_nome: categoria_nome, effimera: !categoria_nome.empty? }
   end
 
+  def self.aggiorna_categoria_storico(id, categoria_id: nil, categoria_nome: nil, effimera: false)
+    row = DB.get_first_row("SELECT * FROM storico_articoli WHERE id = ?", [id.to_i])
+    return false unless row
+
+    metadata = self.deserializza_storico_metadata(row, row["gruppo_id"], row["topic_id"])
+    categoria_id = categoria_id.to_i if categoria_id
+    categoria_nome = self.normalizza_categoria_nome(categoria_nome)
+    categoria = if effimera && !categoria_nome.empty?
+      { "tipo" => "effimera", "id" => nil, "nome" => categoria_nome }
+    elsif categoria_id && categoria_id > 0
+      nome = DB.get_first_value("SELECT nome FROM categorie WHERE id = ?", [categoria_id]).to_s.strip
+      return false if nome.empty?
+      { "tipo" => "canonica", "id" => categoria_id, "nome" => nome }
+    end
+
+    metadata["categoria"] = categoria
+    DB.execute(
+      "UPDATE storico_articoli SET last_categoria_id = ?, metadata_json = ?, updated_at = datetime('now') WHERE id = ?",
+      [categoria && categoria["tipo"] == "canonica" ? categoria["id"] : nil, metadata.to_json, id.to_i]
+    )
+    true
+  end
+
   def self.categoria_effettiva_nome(item)
     parsed = self.parse_nome_categoria(
       item["nome"].to_s, item["categoria_id"], item["categoria_id"], item["gruppo_id"], item["topic_id"]
