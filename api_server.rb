@@ -1037,11 +1037,11 @@ get '/checklist' do
   user_id   = params[:user_id]&.to_i || 0
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
-  items = StoricoManager.suggerimenti_per_checklist(gruppo_id, topic_id)
-  item_ids = items.map { |item| item['id'] }
+  top_items = StoricoManager.suggerimenti_per_checklist(gruppo_id, topic_id)
+  item_ids = top_items.map { |item| item['id'] }
   placeholders = item_ids.map { '?' }.join(',')
   esclusione = item_ids.empty? ? '' : "AND s.id NOT IN (#{placeholders})"
-  items.concat(DB.execute(<<~SQL, [gruppo_id, topic_id, *item_ids]))
+  product_items = DB.execute(<<~SQL, [gruppo_id, topic_id, *item_ids])
     SELECT s.id, s.nome, s.link_url, s.conteggio, s.last_categoria_id, s.metadata_json,
       (SELECT 1 FROM items i
        WHERE i.gruppo_id = s.gruppo_id
@@ -1058,6 +1058,7 @@ get '/checklist' do
     ORDER BY s.conteggio DESC, s.ultima_aggiunta DESC
     LIMIT 15
   SQL
+  items = top_items + product_items
   storico_ids = items.map { |item| item['id'] }
   prodotti_per_storico = if storico_ids.empty?
     {}
