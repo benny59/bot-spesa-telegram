@@ -267,9 +267,28 @@ private class PreferitiAdapter(
     private val onProduct: (FavoriteItem) -> Unit,
     private val onPhoto: (FavoriteItem) -> Unit,
     private val onLink: (FavoriteItem) -> Unit
-) : RecyclerView.Adapter<PreferitiAdapter.ViewHolder>() {
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    private sealed interface Row {
+        data class Category(val name: String, val ephemeral: Boolean) : Row
+        data class Favorite(val value: FavoriteItem) : Row
+    }
+
+    private val rows = favorites
+        .groupBy { it.categoryName to it.categoryEphemeral }
+        .entries
+        .sortedWith(
+            compareBy<Map.Entry<Pair<String, Boolean>, List<FavoriteItem>>>(
+                { it.key.first.isBlank() },
+                { it.key.second },
+                { it.key.first.lowercase(Locale.ITALY) }
+            )
+        )
+        .flatMap { (category, categoryFavorites) ->
+            listOf<Row>(Row.Category(category.first, category.second)) + categoryFavorites.map(Row::Favorite)
+        }
+
+    class FavoriteViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val status: TextView = view.findViewById(R.id.tvPreferitoStatus)
         val description: TextView = view.findViewById(R.id.tvPreferitoDescrizione)
         val category: TextView = view.findViewById(R.id.tvPreferitoCategoria)
@@ -279,23 +298,49 @@ private class PreferitiAdapter(
         val elimina: View = view.findViewById(R.id.tvPreferitoElimina)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder = ViewHolder(
-        LayoutInflater.from(parent.context).inflate(R.layout.item_preferito, parent, false)
-    )
+    class CategoryViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val title: TextView = view.findViewById(R.id.tvChecklistCategory)
+    }
 
-    override fun getItemCount(): Int = favorites.size
+    override fun getItemViewType(position: Int): Int = when (rows[position]) {
+        is Row.Category -> VIEW_CATEGORY
+        is Row.Favorite -> VIEW_FAVORITE
+    }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val favorite = favorites[position]
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        return if (viewType == VIEW_CATEGORY) {
+            CategoryViewHolder(inflater.inflate(R.layout.item_checklist_category, parent, false))
+        } else {
+            FavoriteViewHolder(inflater.inflate(R.layout.item_preferito, parent, false))
+        }
+    }
+
+    override fun getItemCount(): Int = rows.size
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        when (val row = rows[position]) {
+            is Row.Category -> bindCategory(holder as CategoryViewHolder, row)
+            is Row.Favorite -> bindFavorite(holder as FavoriteViewHolder, row.value)
+        }
+    }
+
+    private fun bindCategory(holder: CategoryViewHolder, row: Row.Category) {
+        val displayedName = if (row.ephemeral) row.name.lowercase(Locale.ITALY) else row.name
+        val label = if (row.name.isBlank()) {
+            holder.itemView.context.getString(R.string.nessuna_categoria)
+        } else {
+            LocalizationManager.localizedCategoryName(holder.itemView.context, displayedName)
+        }
+        holder.title.text = "${if (row.ephemeral) "◌" else "▣"} $label"
+    }
+
+    private fun bindFavorite(holder: FavoriteViewHolder, favorite: FavoriteItem) {
         val added = favorite.id in addedIds
         holder.status.text = if (added) "✓" else "+"
         holder.status.setBackgroundResource(if (added) R.drawable.circle_initials_green else R.drawable.circle_initials)
         holder.description.text = favorite.description
-        val category = if (favorite.categoryName.isNotBlank()) {
-            "${if (favorite.categoryEphemeral) "◌" else "▣"} ${LocalizationManager.localizedCategoryName(holder.itemView.context, favorite.categoryName)}"
-        } else ""
-        holder.category.visibility = if (category.isEmpty()) View.GONE else View.VISIBLE
-        holder.category.text = category
+        holder.category.visibility = View.GONE
         holder.link.visibility = if (favorite.yukaLink.isBlank()) View.GONE else View.VISIBLE
         holder.nutrition.visibility = if (favorite.gtin.isNullOrBlank()) View.GONE else View.VISIBLE
         holder.photo.visibility = if (favorite.telegramPhotoId.isNullOrBlank() || favorite.telegramPhotoFileName.isNullOrBlank()) View.GONE else View.VISIBLE
@@ -305,5 +350,10 @@ private class PreferitiAdapter(
         holder.itemView.setOnClickListener(null)
         holder.status.setOnClickListener { onAdd(favorite) }
         holder.elimina.setOnClickListener { onDelete(favorite) }
+    }
+
+    private companion object {
+        const val VIEW_CATEGORY = 0
+        const val VIEW_FAVORITE = 1
     }
 }

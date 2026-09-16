@@ -1038,6 +1038,26 @@ get '/checklist' do
   halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
 
   items = StoricoManager.suggerimenti_per_checklist(gruppo_id, topic_id)
+  item_ids = items.map { |item| item['id'] }
+  placeholders = item_ids.map { '?' }.join(',')
+  esclusione = item_ids.empty? ? '' : "AND s.id NOT IN (#{placeholders})"
+  items.concat(DB.execute(<<~SQL, [gruppo_id, topic_id, *item_ids]))
+    SELECT s.id, s.nome, s.link_url, s.conteggio, s.last_categoria_id, s.metadata_json,
+      (SELECT 1 FROM items i
+       WHERE i.gruppo_id = s.gruppo_id
+       AND i.topic_id = s.topic_id
+       AND LOWER(i.nome) = LOWER(s.nome)
+       AND (i.comprato IS NULL OR i.comprato = '')) AS in_lista
+    FROM storico_articoli s
+    WHERE s.gruppo_id = ? AND s.topic_id = ?
+      AND EXISTS (
+        SELECT 1 FROM storico_articolo_prodotti sap
+        WHERE sap.storico_articolo_id = s.id
+      )
+      #{esclusione}
+    ORDER BY s.conteggio DESC, s.ultima_aggiunta DESC
+    LIMIT 15
+  SQL
   storico_ids = items.map { |item| item['id'] }
   prodotti_per_storico = if storico_ids.empty?
     {}
