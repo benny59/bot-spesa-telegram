@@ -1,6 +1,7 @@
 # db.rb
 require "sqlite3"
 require "json"
+require "time"
 DB_PATH = "spesa.db"
 
 # ==============================================================================
@@ -112,9 +113,23 @@ SQL
     CREATE TABLE IF NOT EXISTS prodotti (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       gtin TEXT NOT NULL UNIQUE,
-      descrizione TEXT
+      descrizione TEXT,
+      metadata_json TEXT,
+      fonte TEXT,
+      ultimo_controllo DATETIME,
+      ultimo_aggiornamento DATETIME
     );
   SQL
+
+  prodotti_columns = db.execute("PRAGMA table_info(prodotti)").map { |row| row["name"] }
+  {
+    "metadata_json" => "TEXT",
+    "fonte" => "TEXT",
+    "ultimo_controllo" => "DATETIME",
+    "ultimo_aggiornamento" => "DATETIME"
+  }.each do |name, type|
+    db.execute("ALTER TABLE prodotti ADD COLUMN #{name} #{type}") unless prodotti_columns.include?(name)
+  end
 
   # Recupera l'identità solo quando il valore storico individua un utente senza ambiguità.
   db.execute <<-SQL
@@ -568,6 +583,75 @@ class DataManager
       [gtin, descrizione.empty? ? nil : descrizione]
     )
     DB.get_first_row("SELECT id, gtin, descrizione FROM prodotti WHERE gtin = ?", [gtin])
+  end
+
+  def self.scheda_prodotto(gtin)
+    gtin = normalizza_gtin(gtin)
+    return nil unless gtin
+
+    row = DB.get_first_row(
+      "SELECT gtin, descrizione, metadata_json, fonte, ultimo_controllo, ultimo_aggiornamento FROM prodotti WHERE gtin = ?",
+      [gtin]
+    )
+    return nil unless row
+
+    metadata = JSON.parse(row["metadata_json"].to_s, symbolize_names: true)
+    metadata[:cache] = {
+      source: row["fonte"].to_s,
+      checked_at: row["ultimo_controllo"],
+      updated_at: row["ultimo_aggiornamento"]
+    }
+    metadata
+  rescue JSON::ParserError
+    nil
+  end
+
+  def self.scheda_prodotto_scaduta?(gtin, now: Time.now)
+    row = DB.get_first_row("SELECT metadata_json, ultimo_controllo FROM prodotti WHERE gtin = ?", [normalizza_gtin(gtin)])
+    return true unless row && !row["metadata_json"].to_s.empty? && row["ultimo_controllo"]
+
+    metadata = JSON.parse(row["metadata_json"], symbolize_names: true)
+    completeness = metadata[:completeness]
+    max_age = if completeness.nil? || completeness.to_f < 0.6
+      86_400
+    elsif completeness.to_f <= 0.9
+      7 * 86_400
+    else
+      30 * 86_400
+    end
+    Time.parse(row["ultimo_controllo"].to_s) < now - max_age
+  rescue JSON::ParserError, ArgumentError
+    true
+  end
+
+  def self.salva_scheda_prodotto(product, fonte: "open_food_facts")
+    gtin = normalizza_gtin(product[:barcode] || product["barcode"])
+    return nil unless gtin
+
+    normalized = product.transform_keys(&:to_sym).merge(barcode: gtin)
+    descrizione = [normalized[:name], normalized[:brand], normalized[:quantity]]
+      .map(&:to_s).reject(&:empty?).join(" ")
+    payload = JSON.generate(normalized)
+    precedente = DB.get_first_value("SELECT metadata_json FROM prodotti WHERE gtin = ?", [gtin]).to_s
+    cambiato = precedente != payload
+    DB.execute(
+      "INSERT INTO prodotti
+         (gtin, descrizione, metadata_json, fonte, ultimo_controllo, ultimo_aggiornamento)
+       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(gtin) DO UPDATE SET
+         descrizione = CASE WHEN excluded.descrizione != '' THEN excluded.descrizione ELSE prodotti.descrizione END,
+         metadata_json = excluded.metadata_json,
+         fonte = excluded.fonte,
+         ultimo_controllo = datetime('now'),
+         ultimo_aggiornamento = CASE WHEN ? = 1 THEN datetime('now') ELSE prodotti.ultimo_aggiornamento END",
+      [gtin, descrizione, payload, fonte, cambiato ? 1 : 0]
+    )
+    scheda_prodotto(gtin)
+  end
+
+  def self.registra_controllo_prodotto(gtin)
+    gtin = normalizza_gtin(gtin)
+    DB.execute("UPDATE prodotti SET ultimo_controllo = datetime('now') WHERE gtin = ?", [gtin]) if gtin
   end
 
   def self.registra_prodotto_storico(storico_articolo_id, gtin, acquistato:)

@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.ProgressBar
@@ -40,6 +41,9 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
 
         fun search() {
             val query = input.text.toString().trim()
+            input.clearFocus()
+            val inputMethodManager = requireContext().getSystemService(InputMethodManager::class.java)
+            inputMethodManager.hideSoftInputFromWindow(input.windowToken, 0)
             if (query.length < 2) {
                 input.error = getString(R.string.ricerca_minimo_due_caratteri)
                 return

@@ -134,10 +134,11 @@ object ApiClient {
         )
     }
 
-    fun getProductPreview(barcode: String): ProductPreview? {
+    fun getProductPreview(barcode: String, forceRefresh: Boolean = false): ProductPreview? {
         val cleanBarcode = barcode.filter(Char::isDigit)
+        val suffix = if (forceRefresh) "?force_refresh=true" else ""
         val req = Request.Builder()
-            .url("$baseUrl/prodotti/$cleanBarcode/anteprima")
+            .url("$baseUrl/prodotti/$cleanBarcode/anteprima$suffix")
             .auth()
             .build()
         return http.newCall(req).execute().use { response ->

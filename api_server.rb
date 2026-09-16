@@ -318,13 +318,31 @@ get '/prodotti/:barcode/anteprima' do
   ).to_s.strip
   halt 503, { error: 'open_food_facts_user_agent non configurato' }.to_json if user_agent.empty?
 
+  cached = DataManager.scheda_prodotto(barcode)
+  force_refresh = params[:force_refresh].to_s == 'true'
+  stale = DataManager.scheda_prodotto_scaduta?(barcode)
+
+  if cached && !force_refresh
+    if stale
+      Thread.new do
+        product = OpenFoodFactsClient.lookup(barcode, user_agent: user_agent)
+        if product
+          DataManager.salva_scheda_prodotto(product)
+        end
+      rescue StandardError => e
+        warn "[OFF_CACHE] Aggiornamento #{barcode} fallito: #{e.message}"
+      end
+    end
+    return cached.to_json
+  end
+
   product = OpenFoodFactsClient.lookup(barcode, user_agent: user_agent)
-  halt 404, { found: false, barcode: barcode }.to_json unless product
+  unless product
+    return cached.to_json if cached
+    halt 404, { found: false, barcode: barcode }.to_json
+  end
 
-  descrizione = [product[:name], product[:brand], product[:quantity]].map(&:to_s).reject(&:empty?).join(' ')
-  DataManager.upsert_prodotto(product[:barcode], descrizione)
-
-  product.to_json
+  DataManager.salva_scheda_prodotto(product).to_json
 end
 
 get '/gruppi' do

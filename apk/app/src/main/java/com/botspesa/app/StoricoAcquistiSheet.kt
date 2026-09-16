@@ -110,10 +110,10 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
             .show()
     }
 
-    private fun caricaProdotto(prodotto: ApiClient.StoricoProdotto) {
+    private fun caricaProdotto(prodotto: ApiClient.StoricoProdotto, forceRefresh: Boolean = false) {
         lifecycleScope.launch {
             val preview = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getProductPreview(prodotto.gtin) }.getOrNull()
+                runCatching { ApiClient.getProductPreview(prodotto.gtin, forceRefresh) }.getOrNull()
             }
             if (preview == null) {
                 Toast.makeText(requireContext(), R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
@@ -129,6 +129,7 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
                     preview.novaGroup?.let { append("\nGruppo NOVA $it") }
                     if (preview.ingredientsText.isNotBlank()) append("\nIngredienti: ${preview.ingredientsText}")
                 })
+                .setNeutralButton("Aggiorna") { _, _ -> caricaProdotto(prodotto, forceRefresh = true) }
                 .setPositiveButton(android.R.string.ok, null)
                 .show()
         }

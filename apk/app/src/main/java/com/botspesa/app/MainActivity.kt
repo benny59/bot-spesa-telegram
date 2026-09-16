@@ -853,8 +853,22 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(preview.displayName.ifBlank { getString(R.string.informazioni_prodotto) })
             .setMessage(productPreviewText(preview))
+            .setNeutralButton("Aggiorna") { _, _ -> aggiornaInformazioniProdotto(preview.barcode) }
             .setPositiveButton(android.R.string.ok, null)
             .show()
+    }
+
+    private fun aggiornaInformazioniProdotto(barcode: String) {
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(barcode, forceRefresh = true) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(this@MainActivity, R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+            } else {
+                mostraInformazioniProdotto(preview)
+            }
+        }
     }
 
     private fun apriInformazioniCatalogo(prodotto: ApiClient.CatalogProduct) {
