@@ -91,12 +91,9 @@ class PreferitiSheet : BottomSheetDialogFragment() {
                 Toast.makeText(requireContext(), R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            android.app.AlertDialog.Builder(requireContext())
-                .setTitle(preview.displayName.ifBlank { getString(R.string.informazioni_prodotto) })
-                .setMessage(productPreviewText(preview))
-                .setNeutralButton("Aggiorna") { _, _ -> aggiornaInformazioniProdotto(gtin) }
-                .setPositiveButton(android.R.string.ok, null)
-                .show()
+            ProductInfoDialog.show(requireContext(), preview, productPreviewText(preview)) {
+                aggiornaInformazioniProdotto(gtin)
+            }
         }
     }
 
@@ -109,12 +106,9 @@ class PreferitiSheet : BottomSheetDialogFragment() {
                 Toast.makeText(requireContext(), R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            android.app.AlertDialog.Builder(requireContext())
-                .setTitle(preview.displayName.ifBlank { getString(R.string.informazioni_prodotto) })
-                .setMessage(productPreviewText(preview))
-                .setNeutralButton("Aggiorna") { _, _ -> aggiornaInformazioniProdotto(gtin) }
-                .setPositiveButton(android.R.string.ok, null)
-                .show()
+            ProductInfoDialog.show(requireContext(), preview, productPreviewText(preview)) {
+                aggiornaInformazioniProdotto(gtin)
+            }
         }
     }
 

@@ -27,7 +27,9 @@ payload = {
     "product_name" => "Nutella",
     "brands" => "Ferrero",
     "quantity" => "450 g",
+    "image_front_url" => "https://example.test/nutella-full.jpg",
     "image_front_small_url" => "https://example.test/nutella.jpg",
+    "manufacturing_places" => "Alba, Italia",
     "nutrition_grades" => "E",
     "nova_group" => 4,
     "additives_tags" => ["en:e322", "en:e vanillin"],
@@ -46,6 +48,8 @@ payload = {
 result = OpenFoodFactsClient.normalize(payload, "3017624010701")
 expected = {
   name: "Nutella",
+  image_url: "https://example.test/nutella-full.jpg",
+  manufacturing_places: "Alba, Italia",
   nutriscore_grade: "e",
   nova_group: 4,
   additives: ["e322", "e vanillin"],

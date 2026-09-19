@@ -119,19 +119,16 @@ class StoricoAcquistiSheet : BottomSheetDialogFragment() {
                 Toast.makeText(requireContext(), R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            android.app.AlertDialog.Builder(requireContext())
-                .setTitle(preview.displayName)
-                .setMessage(buildString {
+            ProductInfoDialog.show(requireContext(), preview, buildString {
                     append("Open Food Facts")
                     if (preview.nutriscoreGrade.isNotBlank()) {
                         append(" · Nutri-Score ${preview.nutriscoreGrade.uppercase()}")
                     }
                     preview.novaGroup?.let { append("\nGruppo NOVA $it") }
                     if (preview.ingredientsText.isNotBlank()) append("\nIngredienti: ${preview.ingredientsText}")
-                })
-                .setNeutralButton("Aggiorna") { _, _ -> caricaProdotto(prodotto, forceRefresh = true) }
-                .setPositiveButton(android.R.string.ok, null)
-                .show()
+                }) {
+                caricaProdotto(prodotto, forceRefresh = true)
+            }
         }
     }
 

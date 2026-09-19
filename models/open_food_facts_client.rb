@@ -8,7 +8,9 @@ class OpenFoodFactsClient
     product_name
     brands
     quantity
+    image_front_url
     image_front_small_url
+    manufacturing_places
     nutrition_grades
     nova_group
     additives_tags
@@ -50,7 +52,8 @@ class OpenFoodFactsClient
       name: name,
       brand: product["brands"].to_s.strip,
       quantity: product["quantity"].to_s.strip,
-      image_url: product["image_front_small_url"].to_s.strip,
+      image_url: first_present(product["image_front_url"], product["image_front_small_url"]),
+      manufacturing_places: product["manufacturing_places"].to_s.strip,
       nutriscore_grade: product["nutrition_grades"].to_s.downcase,
       nova_group: integer_value(product["nova_group"]),
       additives: tag_values(product["additives_tags"]),
@@ -78,6 +81,10 @@ class OpenFoodFactsClient
     value.is_a?(Numeric) ? value.to_i : nil
   end
 
+  def self.first_present(*values)
+    values.map { |value| value.to_s.strip }.find { |value| !value.empty? }.to_s
+  end
+
   def self.tag_values(value)
     return [] unless value.is_a?(Array)
 
@@ -87,5 +94,5 @@ class OpenFoodFactsClient
     end
   end
 
-  private_class_method :integer_value, :nutrient_value, :numeric_value, :tag_values
+  private_class_method :first_present, :integer_value, :nutrient_value, :numeric_value, :tag_values
 end

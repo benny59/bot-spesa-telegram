@@ -116,12 +116,9 @@ class ChecklistSheet : BottomSheetDialogFragment() {
             preview.novaGroup?.let { append("\nGruppo NOVA $it") }
             if (preview.ingredientsText.isNotBlank()) append("\nIngredienti: ${preview.ingredientsText}")
         }
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle(preview.displayName.ifBlank { getString(R.string.informazioni_prodotto) })
-            .setMessage(message)
-            .setNeutralButton("Aggiorna") { _, _ -> aggiornaInformazioniProdotto(preview.barcode) }
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
+        ProductInfoDialog.show(requireContext(), preview, message) {
+            aggiornaInformazioniProdotto(preview.barcode)
+        }
     }
 
     private fun aggiornaInformazioniProdotto(gtin: String) {

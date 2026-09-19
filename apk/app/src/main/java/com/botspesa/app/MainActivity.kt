@@ -850,12 +850,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostraInformazioniProdotto(preview: ApiClient.ProductPreview) {
-        AlertDialog.Builder(this)
-            .setTitle(preview.displayName.ifBlank { getString(R.string.informazioni_prodotto) })
-            .setMessage(productPreviewText(preview))
-            .setNeutralButton("Aggiorna") { _, _ -> aggiornaInformazioniProdotto(preview.barcode) }
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
+        ProductInfoDialog.show(this, preview, productPreviewText(preview)) {
+            aggiornaInformazioniProdotto(preview.barcode)
+        }
     }
 
     private fun aggiornaInformazioniProdotto(barcode: String) {
