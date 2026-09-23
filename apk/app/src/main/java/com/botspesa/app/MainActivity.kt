@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingSharedLink: String? = null
     private var pendingSharedBarcode: String? = null
     private var pendingProductItem: SpesaItem? = null
+    private var pendingProductLookup = false
     private var cameraImageUri: Uri? = null
     // "": vista normale, "tutti": tutti gli articoli, "miei": i miei articoli
     private var vistaAttuale: String = ""
@@ -106,10 +107,14 @@ class MainActivity : AppCompatActivity() {
         if (ok) launchCamera() else Toast.makeText(this, getString(R.string.permesso_fotocamera_negato), Toast.LENGTH_SHORT).show()
     }
     private val productScanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val lookupOnly = pendingProductLookup
+        pendingProductLookup = false
         result.contents?.let { barcode ->
             val item = pendingProductItem
             pendingProductItem = null
-            if (item == null) caricaAnteprimaProdotto(barcode) else associaProdotto(item, barcode)
+            if (lookupOnly) caricaSchedaProdotto(barcode)
+            else if (item == null) caricaAnteprimaProdotto(barcode)
+            else associaProdotto(item, barcode)
         }
     }
 
@@ -278,6 +283,10 @@ class MainActivity : AppCompatActivity() {
                         .show(supportFragmentManager, "storico_acquisti")
                     }
                 R.id.nav_lancia_yuka      -> lanciaYukaLocale()
+                R.id.nav_openfood         -> {
+                    pendingProductLookup = true
+                    avviaScannerInterno()
+                }
                 R.id.nav_lancia_satispay  -> lanciaSatispayLocale()
                 R.id.nav_carte_disponibili -> apriCarteDisponibili()
                 R.id.nav_gestione_carte    -> apriGestioneCarte()
@@ -380,6 +389,15 @@ class MainActivity : AppCompatActivity() {
         return if (matcher.find()) matcher.group().trim() else null
     }
 
+    private fun isMonsieurCuisineRecipeUrl(url: String?): Boolean {
+        return runCatching {
+            val uri = Uri.parse(url)
+            val host = uri.host?.lowercase(Locale.ROOT)
+            (host == "monsieur-cuisine.com" || host == "www.monsieur-cuisine.com") &&
+                uri.pathSegments.any { it.equals("recipe", ignoreCase = true) }
+        }.getOrDefault(false)
+    }
+
     private fun extractValidBarcode(raw: String): String? {
         return Regex("(?<!\\d)\\d{8,14}(?!\\d)")
             .findAll(raw)
@@ -455,6 +473,17 @@ class MainActivity : AppCompatActivity() {
         pendingSharedBarcode = null
 
         lifecycleScope.launch {
+            if (isMonsieurCuisineRecipeUrl(link)) {
+                val recipe = withContext(Dispatchers.IO) {
+                    runCatching { ApiClient.getMonsieurCuisinePreview(link!!) }
+                }
+                recipe.onSuccess(::mostraDialogImportMonsieurCuisine)
+                    .onFailure {
+                        mostraEsitoBreve(it.message ?: getString(R.string.importazione_ricetta_fallita), false)
+                    }
+                return@launch
+            }
+
             val (resolved, preview) = withContext(Dispatchers.IO) {
                 if (text.equals("Prodotto Yuka", ignoreCase = true) && !link.isNullOrBlank()) {
                     Pair(
@@ -474,6 +503,128 @@ class MainActivity : AppCompatActivity() {
                 ?: preview?.displayName
                 ?: text
             mostraDialogAggiungi(prefilledText = prefilled, prefilledLink = link, productPreview = preview)
+        }
+    }
+
+    private fun mostraDialogImportMonsieurCuisine(preview: ApiClient.MonsieurCuisinePreview) {
+        lifecycleScope.launch {
+            val destinazioni = withContext(Dispatchers.IO) {
+                runCatching {
+                    val gruppi = ApiClient.getGruppiTyped(userId).filter { it.id != 0 }
+                    buildList {
+                        add(AddDestination(0, 0, getString(R.string.lista_personale)))
+                        gruppi.forEach { gruppo ->
+                            ApiClient.getTopics(gruppo.id).forEach { topic ->
+                                add(AddDestination(gruppo.id, topic.topicId, "${gruppo.nome}: ${topic.nome}"))
+                            }
+                        }
+                    }
+                }
+            }.getOrElse {
+                mostraEsitoBreve(getString(R.string.impossibile_caricare_destinazioni), false)
+                return@launch
+            }
+
+            val dp = resources.displayMetrics.density
+            val categoriaInput = EditText(this@MainActivity).apply {
+                setText(preview.title)
+                selectAll()
+                isSingleLine = true
+            }
+            val ingredientiInput = EditText(this@MainActivity).apply {
+                setText(preview.ingredients.joinToString("\n"))
+                gravity = Gravity.TOP
+                minLines = 8
+                maxLines = 14
+            }
+            val radioGroup = android.widget.RadioGroup(this@MainActivity).apply {
+                orientation = android.widget.RadioGroup.VERTICAL
+            }
+            val currentIndex = destinazioni.indexOfFirst {
+                it.gruppoId == gruppoId && it.topicId == topicId
+            }.takeIf { it >= 0 } ?: 0
+            destinazioni.forEachIndexed { index, destinazione ->
+                radioGroup.addView(android.widget.RadioButton(this@MainActivity).apply {
+                    id = android.view.View.generateViewId()
+                    text = destinazione.label
+                    tag = index
+                    isChecked = index == currentIndex
+                })
+            }
+
+            val content = android.widget.LinearLayout(this@MainActivity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding((24 * dp).toInt(), 0, (24 * dp).toInt(), 0)
+                addView(TextView(this@MainActivity).apply {
+                    text = getString(
+                        R.string.ricetta_porzioni,
+                        preview.servings,
+                        preview.servingUnit,
+                        preview.ingredients.size
+                    )
+                    setPadding(0, 0, 0, (8 * dp).toInt())
+                })
+                addView(TextView(this@MainActivity).apply { text = getString(R.string.categoria_effimera) })
+                addView(categoriaInput)
+                addView(TextView(this@MainActivity).apply {
+                    text = getString(R.string.ingredienti_uno_per_riga)
+                    setPadding(0, (8 * dp).toInt(), 0, 0)
+                })
+                addView(ingredientiInput)
+                addView(TextView(this@MainActivity).apply {
+                    text = getString(R.string.destinazione)
+                    setPadding(0, (8 * dp).toInt(), 0, 0)
+                })
+                addView(android.widget.ScrollView(this@MainActivity).apply { addView(radioGroup) },
+                    android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        (180 * dp).toInt()
+                    ))
+            }
+            val dialog = AlertDialog.Builder(this@MainActivity)
+                .setTitle(getString(R.string.importa_ricetta, preview.title))
+                .setView(content)
+                .setPositiveButton(R.string.aggiungi, null)
+                .setNegativeButton(R.string.annulla, null)
+                .create()
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val categoria = categoriaInput.text.toString().trim()
+                    val ingredienti = ingredientiInput.text.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
+                    when {
+                        categoria.isEmpty() || categoria.contains('&') -> categoriaInput.error = getString(R.string.categoria_effimera_non_valida)
+                        ingredienti.isEmpty() -> ingredientiInput.error = getString(R.string.inserisci_almeno_un_articolo)
+                        else -> {
+                            val radio = radioGroup.findViewById<android.widget.RadioButton>(radioGroup.checkedRadioButtonId)
+                            val destinazione = destinazioni[radio.tag as Int]
+                            dialog.dismiss()
+                            lifecycleScope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        ApiClient.addMonsieurCuisineItems(
+                                            destinazione.gruppoId,
+                                            destinazione.topicId,
+                                            userId,
+                                            ingredienti,
+                                            categoria
+                                        )
+                                    }
+                                }
+                                result.onSuccess { ids ->
+                                    aggiornaLista()
+                                    mostraEsitoBreve(
+                                        getString(R.string.ingredienti_importati, ids.size, ingredienti.size - ids.size),
+                                        true
+                                    )
+                                }.onFailure {
+                                    mostraEsitoBreve(it.message ?: getString(R.string.importazione_ricetta_fallita), false)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            dialog.show()
         }
     }
 
@@ -787,7 +938,7 @@ class MainActivity : AppCompatActivity() {
     private fun avviaScannerInterno() {
         productScanLauncher.launch(
             ScanOptions()
-                .setPrompt("Inquadra il barcode del prodotto")
+                .setPrompt(getString(R.string.inquadra_barcode_prodotto))
                 .setDesiredBarcodeFormats(ScanOptions.PRODUCT_CODE_TYPES)
                 .setCaptureActivity(ProductScanActivity::class.java)
                 .setBeepEnabled(false)
@@ -805,6 +956,19 @@ class MainActivity : AppCompatActivity() {
                 mostraDialogAggiungi()
             } else {
                 mostraDialogAggiungi(prefilledText = preview.displayName, productPreview = preview)
+            }
+        }
+    }
+
+    private fun caricaSchedaProdotto(barcode: String) {
+        lifecycleScope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.getProductPreview(barcode) }.getOrNull()
+            }
+            if (preview == null) {
+                Toast.makeText(this@MainActivity, R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
+            } else {
+                mostraInformazioniProdotto(preview, allowAdd = true)
             }
         }
     }
@@ -849,10 +1013,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun mostraInformazioniProdotto(preview: ApiClient.ProductPreview) {
-        ProductInfoDialog.show(this, preview, productPreviewText(preview)) {
-            aggiornaInformazioniProdotto(preview.barcode)
-        }
+    private fun mostraInformazioniProdotto(preview: ApiClient.ProductPreview, allowAdd: Boolean = false) {
+        ProductInfoDialog.show(
+            context = this,
+            preview = preview,
+            details = productPreviewText(preview),
+            onAdd = if (allowAdd) {
+                { mostraDialogAggiungi(prefilledText = preview.displayName, productPreview = preview) }
+            } else null,
+            onRefresh = { aggiornaInformazioniProdotto(preview.barcode) }
+        )
     }
 
     private fun aggiornaInformazioniProdotto(barcode: String) {

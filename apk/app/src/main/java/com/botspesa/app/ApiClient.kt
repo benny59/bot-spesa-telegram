@@ -91,6 +91,14 @@ object ApiClient {
 
     data class CategoriaItem(val id: Int, val nome: String, val effimera: Boolean = false)
 
+    data class MonsieurCuisinePreview(
+        val title: String,
+        val servings: String,
+        val servingUnit: String,
+        val ingredients: List<String>,
+        val sourceUrl: String
+    )
+
     data class ProductPreview(
         val barcode: String,
         val name: String,
@@ -325,6 +333,62 @@ object ApiClient {
             payloadMap["picture_file_name"] = photoFileName
         }
         val payload = gson.toJson(payloadMap)
+        val req = Request.Builder()
+            .url("$baseUrl/lista")
+            .post(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("Server ${response.code}: $body")
+            val result: Map<String, Any> = gson.fromJson(body, object : TypeToken<Map<String, Any>>() {}.type)
+            (result["item_ids"] as? List<*>)
+                ?.mapNotNull { (it as? Double)?.toInt() }
+                .orEmpty()
+        }
+    }
+
+    fun getMonsieurCuisinePreview(url: String): MonsieurCuisinePreview {
+        val payload = gson.toJson(mapOf("url" to url))
+        val req = Request.Builder()
+            .url("$baseUrl/import/monsieur-cuisine/preview")
+            .post(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception("Server ${response.code}: $body")
+            val raw: Map<String, Any?> = gson.fromJson(
+                body,
+                object : TypeToken<Map<String, Any?>>() {}.type
+            )
+            MonsieurCuisinePreview(
+                title = raw["title"] as? String ?: throw Exception("Titolo ricetta mancante"),
+                servings = raw["servings"]?.toString()?.removeSuffix(".0").orEmpty(),
+                servingUnit = raw["serving_unit"] as? String ?: "",
+                ingredients = (raw["ingredients"] as? List<*>)?.filterIsInstance<String>().orEmpty(),
+                sourceUrl = raw["source_url"] as? String ?: url
+            ).also {
+                if (it.ingredients.isEmpty()) throw Exception("Ingredienti ricetta mancanti")
+            }
+        }
+    }
+
+    fun addMonsieurCuisineItems(
+        gruppoId: Int,
+        topicId: Int,
+        userId: Int,
+        ingredients: List<String>,
+        categoryName: String
+    ): List<Int> {
+        val payload = gson.toJson(mapOf(
+            "gruppo_id" to gruppoId,
+            "topic_id" to topicId,
+            "user_id" to userId,
+            "items" to ingredients,
+            "categoria_effimera" to categoryName,
+            "split_items" to false
+        ))
         val req = Request.Builder()
             .url("$baseUrl/lista")
             .post(payload.toRequestBody(JSON_TYPE))

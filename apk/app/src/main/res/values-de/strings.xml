@@ -34,6 +34,8 @@
     <string name="scegli_app_condivisione">Liste teilen mit</string>
     <string name="apri_link_prodotto">Produktlink öffnen</string>
     <string name="informazioni_prodotto">Produktinformationen</string>
+    <string name="immagine_ufficiale_prodotto">Offizielles Bild von %1$s</string>
+    <string name="aggiorna">Aktualisieren</string>
     <string name="conferma_scopetta">Alle gekauften Artikel entfernen?</string>
     <string name="nav_collega_telegram">Telegram-Konto verbinden</string>
     <string name="nav_tutti">Alle Artikel</string>
@@ -44,6 +46,7 @@
     <string name="checklist">Checkliste</string>
     <string name="nav_storico">Einkaufshistorie</string>
     <string name="nav_lancia_yuka">Yuka starten</string>
+    <string name="nav_openfood">OpenFood</string>
     <string name="notifiche_operative_attive">Operative Benachrichtigungen aktiviert</string>
     <string name="notifiche_operative_disattivate">Operative Benachrichtigungen deaktiviert</string>
     <string name="nav_lancia_satispay">Satispay öffnen</string>
@@ -118,6 +121,7 @@
     <string name="inserisci_un_articolo">Gib einen Artikel ein</string>
     <string name="con_una_foto">Mit einem Foto kannst du nur einen Artikel gleichzeitig hinzufügen</string>
     <string name="scansiona_prodotto">Produkt scannen</string>
+    <string name="inquadra_barcode_prodotto">Barcode des Produkts scannen</string>
     <string name="destinazione">Ziel</string>
     <string name="aggiungi_articoli">Artikel hinzufügen</string>
     <string name="esempio_articolo">z. B. Milch, Brot, Eier</string>
@@ -189,4 +193,11 @@
     <string name="testo_collega_telegram">1. Öffne Telegram und schreibe dem Bot:\n    /collegaapp\n\n2. Der Bot antwortet mit einer 6-stelligen PIN.\n\n3. Gib sie hier ein:</string>
     <string name="hint_api_url">http://IP:4568  oder  http://hostname:4568</string>
     <string name="hint_api_token">Token (leer lassen, wenn nicht erforderlich)</string>
+    <string name="importa_ricetta">%1$s importieren</string>
+    <string name="ricetta_porzioni">%1$s %2$s · %3$d Zutaten</string>
+    <string name="categoria_effimera">Temporäre Kategorie</string>
+    <string name="ingredienti_uno_per_riga">Zutaten, eine pro Zeile</string>
+    <string name="categoria_effimera_non_valida">Name ohne &amp; eingeben</string>
+    <string name="ingredienti_importati">%1$d Zutaten hinzugefügt, %2$d bereits vorhanden</string>
+    <string name="importazione_ricetta_fallita">Rezept konnte nicht importiert werden</string>
 </resources>

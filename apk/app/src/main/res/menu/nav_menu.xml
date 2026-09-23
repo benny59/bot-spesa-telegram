@@ -44,6 +44,10 @@
             android:icon="@drawable/ic_yuka_logo"
             android:title="@string/nav_lancia_yuka" />
         <item
+            android:id="@+id/nav_openfood"
+            android:icon="@drawable/ic_nutrition"
+            android:title="@string/nav_openfood" />
+        <item
             android:id="@+id/nav_lancia_satispay"
             android:icon="@drawable/ic_satispay_logo"
             android:title="@string/nav_lancia_satispay" />

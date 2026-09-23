@@ -53,6 +53,18 @@ Dir.mktmpdir do |dir|
     parsed_singolo = DataManager.parse_nome_categoria("Detersivo & pulizia", nil, nil, group_id, 0)
     raise "Modifica item singolo alterata" unless parsed_singolo[:categoria_nome].to_s.downcase == "pulizia"
 
+    # Un batch strutturato non deve spezzare le virgole che fanno parte del nome.
+    ids_strutturati = DataManager.aggiungi_articoli(
+      gruppo_id: group_id,
+      user_id: user_id,
+      items_text: ["Pomodori, a pezzettoni & Lasagne", "Sale per insaporire & Lasagne"]
+    )
+    raise "Attesi 2 item strutturati, trovati #{ids_strutturati.size}" unless ids_strutturati.size == 2
+    item_pomodori = DB.get_first_row("SELECT nome, categoria_id FROM items WHERE id = ?", [ids_strutturati.first])
+    parsed_pomodori = DataManager.parse_nome_categoria(item_pomodori["nome"], item_pomodori["categoria_id"], item_pomodori["categoria_id"], group_id, 0)
+    raise "Virgola nel nome persa: #{parsed_pomodori.inspect}" unless parsed_pomodori[:nome] == "Pomodori, a pezzettoni"
+    raise "Categoria batch errata: #{parsed_pomodori.inspect}" unless parsed_pomodori[:categoria_nome].to_s.downcase == "lasagne"
+
     puts "Distribuzione categoria condivisa su item multipli coerente (nuovo item e modifica item)."
   end
 end

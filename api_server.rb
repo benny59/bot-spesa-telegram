@@ -15,6 +15,7 @@ require_relative 'models/whitelist'
 require_relative 'models/barcode_scanner'
 require_relative 'models/carte_fedelta'
 require_relative 'models/open_food_facts_client'
+require_relative 'models/monsieur_cuisine_client'
 require_relative 'handlers/storico_manager'
 require_relative 'models/item_action_message'
 require_relative 'models/group_manager'
@@ -651,6 +652,9 @@ post '/lista' do
   gruppo_id = body['gruppo_id']&.to_i
   topic_id  = body['topic_id']&.to_i || 0
   testo     = body['nome'].to_s.strip
+  items     = body['items']
+  items = items.map { |item| item.to_s.strip }.reject(&:empty?) if items.is_a?(Array)
+  categoria_effimera = body['categoria_effimera'].to_s.strip
   link_url  = body['link_url'].to_s.strip
   split_items = body.key?('split_items') ? !!body['split_items'] : true
   categoria_id = body['categoria_id']&.to_i
@@ -659,17 +663,26 @@ post '/lista' do
   picture_file_name = body['picture_file_name'].to_s.strip
   user_id   = body['user_id']&.to_i || 0
 
-  halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || testo.empty?
+  halt 400, { error: 'items non validi' }.to_json unless items.nil? || items.is_a?(Array)
+  halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || (testo.empty? && !items.is_a?(Array))
+  halt 400, { error: 'items non validi' }.to_json if items.is_a?(Array) && (items.empty? || items.size > 100)
+  categoria_effimera_non_valida = categoria_effimera.length > 100 || categoria_effimera.match?(/[&\r\n]/)
+  halt 400, { error: 'categoria effimera non valida' }.to_json if categoria_effimera_non_valida
   halt 400, { error: 'gtin non valido' }.to_json if !gtin.empty? && DataManager.normalizza_gtin(gtin).nil?
   if gruppo_id != 0
     consentito = DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
     halt 403, { error: 'accesso negato' }.to_json unless consentito
   end
 
+  items_payload = items || testo
+  if items && !categoria_effimera.empty?
+    items_payload = items.map { |item| "#{item} & #{categoria_effimera}" }
+  end
+
   item_ids = DataManager.aggiungi_articoli(
     gruppo_id: gruppo_id,
     user_id: user_id,
-    items_text: testo,
+    items_text: items_payload,
     topic_id: topic_id,
     link_url: link_url,
     gtin: gtin,
@@ -685,11 +698,26 @@ post '/lista' do
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
-    notifica_gruppo(gruppo_id, topic_id, "\u2795 <b>#{nome_utente}</b> ha aggiunto: #{testo}")
+    descrizione = if items
+      CGI.escapeHTML("#{item_ids.size} ingredienti#{categoria_effimera.empty? ? '' : " per #{categoria_effimera}"}")
+    else
+      testo
+    end
+    notifica_gruppo(gruppo_id, topic_id, "\u2795 <b>#{nome_utente}</b> ha aggiunto: #{descrizione}")
   end
 
   status 201
   { ok: true, item_ids: item_ids }.to_json
+end
+
+post '/import/monsieur-cuisine/preview' do
+  body = json_body
+  url = body['url'].to_s.strip
+  halt 400, { error: 'url mancante' }.to_json if url.empty?
+
+  MonsieurCuisineClient.preview(url).to_json
+rescue MonsieurCuisineClient::Error => e
+  halt 422, { error: e.message }.to_json
 end
 
 patch '/lista/:id/prodotto' do

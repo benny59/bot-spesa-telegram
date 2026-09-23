@@ -14,6 +14,7 @@ object ProductInfoDialog {
         context: Context,
         preview: ApiClient.ProductPreview,
         details: String,
+        onAdd: (() -> Unit)? = null,
         onRefresh: () -> Unit
     ) {
         val density = context.resources.displayMetrics.density
@@ -25,7 +26,7 @@ object ProductInfoDialog {
 
         if (preview.imageUrl.isNotBlank()) {
             content.addView(ImageView(context).apply {
-                contentDescription = "Immagine ufficiale di ${preview.name}"
+                contentDescription = context.getString(R.string.immagine_ufficiale_prodotto, preview.name)
                 adjustViewBounds = true
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 load(preview.imageUrl) {
@@ -59,7 +60,8 @@ object ProductInfoDialog {
         AlertDialog.Builder(context)
             .setTitle(preview.displayName.ifBlank { context.getString(R.string.informazioni_prodotto) })
             .setView(scroll)
-            .setNeutralButton("Aggiorna") { _, _ -> onRefresh() }
+            .setNeutralButton(R.string.aggiorna) { _, _ -> onRefresh() }
+            .apply { if (onAdd != null) setNegativeButton(R.string.aggiungi) { _, _ -> onAdd() } }
             .setPositiveButton(android.R.string.ok, null)
             .show()
     }

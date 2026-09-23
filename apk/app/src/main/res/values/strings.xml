@@ -34,6 +34,8 @@
     <string name="scegli_app_condivisione">Condividi lista con</string>
     <string name="apri_link_prodotto">Apri link prodotto</string>
     <string name="informazioni_prodotto">Informazioni prodotto</string>
+    <string name="immagine_ufficiale_prodotto">Immagine ufficiale di %1$s</string>
+    <string name="aggiorna">Aggiorna</string>
     <string name="conferma_scopetta">Rimuovere tutti gli articoli comprati?</string>
     <string name="nav_collega_telegram">Collega account Telegram</string>
     <string name="nav_tutti">Tutti gli articoli</string>
@@ -44,6 +46,7 @@
     <string name="checklist">Checklist</string>
     <string name="nav_storico">Storico acquisti</string>
     <string name="nav_lancia_yuka">Lancia Yuka</string>
+    <string name="nav_openfood">OpenFood</string>
     <string name="notifiche_operative_attive">Notifiche operative attive</string>
     <string name="notifiche_operative_disattivate">Notifiche operative disattivate</string>
     <string name="nav_lancia_satispay">Apri Satispay</string>
@@ -118,6 +121,7 @@
     <string name="inserisci_un_articolo">Inserisci un articolo</string>
     <string name="con_una_foto">Con una foto puoi aggiungere un articolo alla volta</string>
     <string name="scansiona_prodotto">Scansiona prodotto</string>
+    <string name="inquadra_barcode_prodotto">Inquadra il barcode del prodotto</string>
     <string name="destinazione">Destinazione</string>
     <string name="aggiungi_articoli">Aggiungi articoli</string>
     <string name="esempio_articolo">es. Latte, Pane, Uova</string>
@@ -190,4 +194,11 @@
     <string name="testo_collega_telegram">1. Apri Telegram e scrivi al bot:\n    /collegaapp\n\n2. Il bot risponderà con un PIN a 6 cifre.\n\n3. Inseriscilo qui sotto:</string>
     <string name="hint_api_url">http://IP:4568  oppure  http://hostname:4568</string>
     <string name="hint_api_token">Token (lascia vuoto se non richiesto)</string>
+    <string name="importa_ricetta">Importa %1$s</string>
+    <string name="ricetta_porzioni">%1$s %2$s · %3$d ingredienti</string>
+    <string name="categoria_effimera">Categoria effimera</string>
+    <string name="ingredienti_uno_per_riga">Ingredienti, uno per riga</string>
+    <string name="categoria_effimera_non_valida">Inserisci un nome senza &amp;</string>
+    <string name="ingredienti_importati">%1$d ingredienti aggiunti, %2$d già presenti</string>
+    <string name="importazione_ricetta_fallita">Importazione ricetta non riuscita</string>
 </resources>

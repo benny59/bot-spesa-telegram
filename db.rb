@@ -1433,7 +1433,9 @@ end
   def self.aggiungi_articoli(gruppo_id:, user_id:, items_text:, topic_id: 0, link_url: nil, gtin: nil, split_items: true, categoria_id: nil)
     puts "[DATA_MONITOR] 📝 Scrittura Articoli -> G:#{gruppo_id} | T:#{topic_id} | U:#{user_id}"
 
-    nomi = if split_items
+    nomi = if items_text.is_a?(Array)
+      items_text.map { |nome| nome.to_s.strip }.reject(&:empty?)
+    elsif split_items
       self.separa_items(items_text)
     else
       [items_text.to_s.strip].reject(&:empty?)
