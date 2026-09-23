@@ -91,7 +91,7 @@ object ApiClient {
 
     data class CategoriaItem(val id: Int, val nome: String, val effimera: Boolean = false)
 
-    data class MonsieurCuisinePreview(
+    data class RecipePreview(
         val title: String,
         val servings: String,
         val servingUnit: String,
@@ -348,10 +348,10 @@ object ApiClient {
         }
     }
 
-    fun getMonsieurCuisinePreview(url: String): MonsieurCuisinePreview {
+    fun getRecipePreview(url: String): RecipePreview {
         val payload = gson.toJson(mapOf("url" to url))
         val req = Request.Builder()
-            .url("$baseUrl/import/monsieur-cuisine/preview")
+            .url("$baseUrl/import/recipe/preview")
             .post(payload.toRequestBody(JSON_TYPE))
             .auth()
             .build()
@@ -362,7 +362,7 @@ object ApiClient {
                 body,
                 object : TypeToken<Map<String, Any?>>() {}.type
             )
-            MonsieurCuisinePreview(
+            RecipePreview(
                 title = raw["title"] as? String ?: throw Exception("Titolo ricetta mancante"),
                 servings = raw["servings"]?.toString()?.removeSuffix(".0").orEmpty(),
                 servingUnit = raw["serving_unit"] as? String ?: "",
@@ -374,7 +374,7 @@ object ApiClient {
         }
     }
 
-    fun addMonsieurCuisineItems(
+    fun addRecipeItems(
         gruppoId: Int,
         topicId: Int,
         userId: Int,

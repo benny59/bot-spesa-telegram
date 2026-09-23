@@ -9,6 +9,13 @@ class MonsieurCuisineClient
 
   class Error < StandardError; end
 
+  def self.supports?(url)
+    validate_url(url)
+    true
+  rescue Error, URI::InvalidURIError
+    false
+  end
+
   def self.preview(url, page_connection: nil, api_connection: nil)
     uri = validate_url(url)
     language = uri.path.split("/").reject(&:empty?).first.to_s.downcase

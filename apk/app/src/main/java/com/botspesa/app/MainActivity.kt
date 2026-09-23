@@ -389,12 +389,16 @@ class MainActivity : AppCompatActivity() {
         return if (matcher.find()) matcher.group().trim() else null
     }
 
-    private fun isMonsieurCuisineRecipeUrl(url: String?): Boolean {
+    private fun isSupportedRecipeUrl(url: String?): Boolean {
         return runCatching {
             val uri = Uri.parse(url)
             val host = uri.host?.lowercase(Locale.ROOT)
-            (host == "monsieur-cuisine.com" || host == "www.monsieur-cuisine.com") &&
-                uri.pathSegments.any { it.equals("recipe", ignoreCase = true) }
+            when (host) {
+                "monsieur-cuisine.com", "www.monsieur-cuisine.com" ->
+                    uri.pathSegments.any { it.equals("recipe", ignoreCase = true) }
+                "ricette.giallozafferano.it" -> uri.path?.endsWith(".html", ignoreCase = true) == true
+                else -> false
+            }
         }.getOrDefault(false)
     }
 
@@ -473,11 +477,11 @@ class MainActivity : AppCompatActivity() {
         pendingSharedBarcode = null
 
         lifecycleScope.launch {
-            if (isMonsieurCuisineRecipeUrl(link)) {
+            if (isSupportedRecipeUrl(link)) {
                 val recipe = withContext(Dispatchers.IO) {
-                    runCatching { ApiClient.getMonsieurCuisinePreview(link!!) }
+                    runCatching { ApiClient.getRecipePreview(link!!) }
                 }
-                recipe.onSuccess(::mostraDialogImportMonsieurCuisine)
+                recipe.onSuccess(::mostraDialogImportRicetta)
                     .onFailure {
                         mostraEsitoBreve(it.message ?: getString(R.string.importazione_ricetta_fallita), false)
                     }
@@ -506,7 +510,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun mostraDialogImportMonsieurCuisine(preview: ApiClient.MonsieurCuisinePreview) {
+    private fun mostraDialogImportRicetta(preview: ApiClient.RecipePreview) {
         lifecycleScope.launch {
             val destinazioni = withContext(Dispatchers.IO) {
                 runCatching {
@@ -601,7 +605,7 @@ class MainActivity : AppCompatActivity() {
                             lifecycleScope.launch {
                                 val result = withContext(Dispatchers.IO) {
                                     runCatching {
-                                        ApiClient.addMonsieurCuisineItems(
+                                        ApiClient.addRecipeItems(
                                             destinazione.gruppoId,
                                             destinazione.topicId,
                                             userId,

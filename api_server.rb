@@ -15,7 +15,7 @@ require_relative 'models/whitelist'
 require_relative 'models/barcode_scanner'
 require_relative 'models/carte_fedelta'
 require_relative 'models/open_food_facts_client'
-require_relative 'models/monsieur_cuisine_client'
+require_relative 'models/recipe_importer'
 require_relative 'handlers/storico_manager'
 require_relative 'models/item_action_message'
 require_relative 'models/group_manager'
@@ -710,14 +710,22 @@ post '/lista' do
   { ok: true, item_ids: item_ids }.to_json
 end
 
-post '/import/monsieur-cuisine/preview' do
+def recipe_preview_response
   body = json_body
   url = body['url'].to_s.strip
   halt 400, { error: 'url mancante' }.to_json if url.empty?
 
-  MonsieurCuisineClient.preview(url).to_json
-rescue MonsieurCuisineClient::Error => e
+  RecipeImporter.preview(url).to_json
+rescue RecipeImporter::Error => e
   halt 422, { error: e.message }.to_json
+end
+
+post '/import/recipe/preview' do
+  recipe_preview_response
+end
+
+post '/import/monsieur-cuisine/preview' do
+  recipe_preview_response
 end
 
 patch '/lista/:id/prodotto' do

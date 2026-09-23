@@ -1,4 +1,4 @@
-require_relative "../models/monsieur_cuisine_client"
+require_relative "../models/recipe_importer"
 
 html = <<~HTML
   <script>window.siteConfig = JSON.parse('{"recipeId":261583}');</script>
@@ -36,4 +36,20 @@ raise "Porzioni errate" unless result[:servings] == 4 && result[:serving_unit] =
 expected = ["Cipolle 120 g", "Pomodori, a pezzettoni 400 g"]
 raise "Ingredienti errati: #{result[:ingredients].inspect}" unless result[:ingredients] == expected
 
-puts "MonsieurCuisineClient: OK"
+giallo_zafferano_html = <<~HTML
+  <script type="application/ld+json">
+    {"@type":"Recipe","name":"Tiramisù","recipeYield":10,"recipeIngredient":["Mascarpone 1 kg","Cacao amaro in polvere q.b."]}
+  </script>
+HTML
+giallo_zafferano = GialloZafferanoClient.normalize(
+  giallo_zafferano_html,
+  url: "https://ricette.giallozafferano.it/Tiramisu.html"
+)
+raise "Titolo GialloZafferano errato" unless giallo_zafferano[:title] == "Tiramisù"
+raise "Porzioni GialloZafferano errate" unless giallo_zafferano[:servings] == 10
+raise "Ingredienti GialloZafferano errati" unless giallo_zafferano[:ingredients].size == 2
+raise "Dispatcher Monsieur Cuisine non valido" unless RecipeImporter.supports?("https://www.monsieur-cuisine.com/it/recipe/lasagne")
+raise "Dispatcher GialloZafferano non valido" unless RecipeImporter.supports?("https://ricette.giallozafferano.it/Tiramisu.html")
+raise "Dominio estraneo accettato" if RecipeImporter.supports?("https://example.com/recipe/test")
+
+puts "RecipeImporter: OK"
