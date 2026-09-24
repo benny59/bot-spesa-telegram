@@ -659,6 +659,7 @@ post '/lista' do
   split_items = body.key?('split_items') ? !!body['split_items'] : true
   categoria_id = body['categoria_id']&.to_i
   gtin = body['gtin'].to_s.strip
+  split_items = false unless gtin.empty?
   picture_id = body['picture_id'].to_s.strip
   picture_file_name = body['picture_file_name'].to_s.strip
   user_id   = body['user_id']&.to_i || 0

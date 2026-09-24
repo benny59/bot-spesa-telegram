@@ -853,6 +853,14 @@ class MainActivity : AppCompatActivity() {
             super.clearView(recyclerView, viewHolder)
             viewHolder.itemView.translationX = 0f
             viewHolder.itemView.alpha = 1f
+            recyclerView.postInvalidateOnAnimation()
+        }
+
+        override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(viewHolder, actionState)
+            if (actionState == ItemTouchHelper.ACTION_STATE_IDLE) {
+                recyclerView.postInvalidateOnAnimation()
+            }
         }
 
         private val greenPaint = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#43A047") }
@@ -967,7 +975,7 @@ class MainActivity : AppCompatActivity() {
     private fun caricaSchedaProdotto(barcode: String) {
         lifecycleScope.launch {
             val preview = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getProductPreview(barcode) }.getOrNull()
+                runCatching { ApiClient.getProductPreview(barcode, forceRefresh = true) }.getOrNull()
             }
             if (preview == null) {
                 Toast.makeText(this@MainActivity, R.string.prodotto_non_trovato, Toast.LENGTH_LONG).show()
@@ -2327,7 +2335,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun aggiungiItem(testo: String, destinazione: AddDestination, linkUrl: String? = null, categoriaId: Int? = null, gtin: String? = null) {
-        val usaSplit = linkUrl.isNullOrBlank()
+        val usaSplit = linkUrl.isNullOrBlank() && gtin.isNullOrBlank()
         val payloadNome = if (linkUrl.isNullOrBlank()) {
             testo
         } else {
