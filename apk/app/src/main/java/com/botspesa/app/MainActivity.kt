@@ -2124,16 +2124,41 @@ class MainActivity : AppCompatActivity() {
                     addView(radioGroup)
                 }, android.widget.LinearLayout.LayoutParams(
                     android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                    (280 * dp).toInt()
+                    0,
+                    1f
                 ))
             }
+            // Altezza massima delle destinazioni: 280dp, ma si restringe quando appare la tastiera
+            val contentWrapper = object : android.widget.FrameLayout(this@MainActivity) {
+                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                    val fixedChildren = (0 until content.childCount - 1).sumOf { i ->
+                        val child = content.getChildAt(i)
+                        if (child.visibility == android.view.View.GONE) 0 else {
+                            child.measure(widthMeasureSpec, android.view.View.MeasureSpec.UNSPECIFIED)
+                            child.measuredHeight
+                        }
+                    }
+                    val maxHeight = fixedChildren + (280 * dp).toInt()
+                    val available = android.view.View.MeasureSpec.getSize(heightMeasureSpec)
+                    val target = if (android.view.View.MeasureSpec.getMode(heightMeasureSpec) == android.view.View.MeasureSpec.UNSPECIFIED) {
+                        maxHeight
+                    } else {
+                        minOf(maxHeight, available)
+                    }
+                    super.onMeasure(
+                        widthMeasureSpec,
+                        android.view.View.MeasureSpec.makeMeasureSpec(target, android.view.View.MeasureSpec.EXACTLY)
+                    )
+                }
+            }.apply { addView(content) }
             val dlg = AlertDialog.Builder(this@MainActivity)
                 .setTitle(R.string.aggiungi_articoli)
-                .setView(content)
+                .setView(contentWrapper)
                 .setPositiveButton(R.string.aggiungi, null)
                 .setNeutralButton(R.string.con_foto, null)
                 .setNegativeButton(R.string.annulla, null)
                 .create()
+            dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             fun destinazioneSelezionata(): AddDestination {
                 val radio = radioGroup.findViewById<android.widget.RadioButton>(radioGroup.checkedRadioButtonId)
                 return destinazioni[radio.tag as Int]
