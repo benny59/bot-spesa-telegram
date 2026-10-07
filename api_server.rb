@@ -134,6 +134,8 @@ configure do
   set :show_exceptions, false
   # In development Sinatra accetta solo localhost/IP: serve anche il nome DuckDNS (HTTPS per la PWA)
   set :host_authorization, { permitted_hosts: [] }
+  # File della PWA: il browser deve sempre ricontrollarli, così gli aggiornamenti arrivano subito
+  set :static_cache_control, [:no_cache]
   enable :logging
 end
 
