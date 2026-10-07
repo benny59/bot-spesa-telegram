@@ -949,9 +949,6 @@ document.querySelectorAll('#helper .tabs button').forEach((b) => b.addEventListe
 
 $('#btn-menu').addEventListener('click', () => {
   $('#menu-install').hidden = !state.installPrompt && !isIos();
-  $('#menu-scopetta').textContent = state.sel.vista
-    ? '🧹 Superscopetta (tutti i gruppi)'
-    : '🧹 Scopetta (togli comprati e cancellati)';
   $('#dlg-menu').showModal();
 });
 
@@ -962,32 +959,35 @@ $('#dlg-menu').addEventListener('close', async () => {
     if (confirm('Scollegare questo dispositivo?')) logout();
   } else if (action === 'install') {
     doInstall();
-  } else if (action === 'carte') {
-    openCarteDialog();
-  } else if (action === 'scopetta') {
-    const daPulire = state.items.filter((i) => i.comprato || i.deleted).length;
-    if (!daPulire) return toast('Nessun articolo comprato o cancellato');
-    const ovunque = Boolean(state.sel.vista);
-    const domanda = ovunque
-      ? 'Superscopetta: rimuovere da tutti i gruppi gli articoli comprati o già cancellati?'
-      : `Togliere dalla lista ${daPulire} articoli comprati o cancellati?`;
-    if (!confirm(domanda)) return;
-    try {
-      if (ovunque) {
-        await api('/lista/comprati/ovunque', { method: 'DELETE', query: { user_id: state.auth.userId } });
-      } else {
-        await api('/lista/comprati', {
-          method: 'DELETE',
-          query: { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId, user_id: state.auth.userId }
-        });
-      }
-      toast('🧹 Fatto');
-      await refreshLista();
-    } catch (err) {
-      handleError(err);
-    }
   }
 });
+
+async function scopetta() {
+  const daPulire = state.items.filter((i) => i.comprato || i.deleted).length;
+  if (!daPulire) return toast('Nessun articolo comprato o cancellato');
+  const ovunque = Boolean(state.sel.vista);
+  const domanda = ovunque
+    ? 'Superscopetta: rimuovere da tutti i gruppi gli articoli comprati o già cancellati?'
+    : `Togliere dalla lista ${daPulire} articoli comprati o cancellati?`;
+  if (!confirm(domanda)) return;
+  try {
+    if (ovunque) {
+      await api('/lista/comprati/ovunque', { method: 'DELETE', query: { user_id: state.auth.userId } });
+    } else {
+      await api('/lista/comprati', {
+        method: 'DELETE',
+        query: { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId, user_id: state.auth.userId }
+      });
+    }
+    toast('🧹 Fatto');
+    await refreshLista();
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+$('#btn-carte').addEventListener('click', openCarteDialog);
+$('#btn-scopetta').addEventListener('click', scopetta);
 
 $('#btn-refresh').addEventListener('click', async () => {
   await refreshLista();
