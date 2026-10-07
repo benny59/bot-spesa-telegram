@@ -1642,6 +1642,31 @@ delete '/carte/:id' do
   { ok: true }.to_json
 end
 
+# Immagine del barcode (PNG), generata al volo se mancante. Sola lettura: la
+# gestione (creazione/eliminazione/condivisione) resta su bot Telegram e app Android.
+get '/carte/:id/immagine' do
+  carta_id = params[:id].to_i
+  user_id  = params[:user_id]&.to_i || 0
+  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
+
+  carta = DB.get_first_row("SELECT id, nome, codice, formato, user_id, immagine_path FROM carte_fedelta WHERE id = ?", [carta_id])
+  halt 404, { error: 'carta non trovata' }.to_json unless carta
+  halt 403, { error: 'accesso negato' }.to_json unless DataManager.puo_visualizzare?(user_id, carta_id, user_id)
+
+  img_path = carta['immagine_path']
+  if img_path.nil? || !File.exist?(img_path) || File.size(img_path) < 100
+    result = CarteFedelta.genera_barcode_con_nome(carta['codice'], carta['nome'], carta['user_id'], carta['formato'])
+    if result && result[:img_path]
+      img_path = result[:img_path]
+      DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [img_path, carta_id])
+    end
+  end
+  halt 404, { error: 'immagine non disponibile' }.to_json unless img_path && File.exist?(img_path)
+
+  content_type 'image/png'
+  File.binread(img_path)
+end
+
 # --- Avvio: HTTP per l'app Android + HTTPS opzionale per la PWA ---
 # Se il certificato (scripts/setup_https_duckdns.sh) è presente, Puma ascolta
 # su entrambe le porte; altrimenti avvio standard Sinatra, solo HTTP.

@@ -587,6 +587,84 @@ $('#dlg-foto').addEventListener('close', () => {
   fotoItem = null;
 });
 
+// ---------- carte fedeltà: sola lettura (gestione da Telegram o app Android) ----------
+
+let carteDisponibili = [];
+let cartaBlobUrl = null;
+
+async function fetchCartaBlobUrl(cartaId) {
+  const headers = {};
+  if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
+  const res = await fetch(`/carte/${cartaId}/immagine?user_id=${state.auth.userId}`, { headers, cache: 'no-store' });
+  if (res.status === 401) throw new AuthError('Non autorizzato');
+  if (!res.ok) return null;
+  return URL.createObjectURL(await res.blob());
+}
+
+function cartaMarker(carta) {
+  if (carta.mia && carta.condivisa) return '🟢';
+  if (carta.mia) return '🟡';
+  return '🔵';
+}
+
+async function openCarteDialog() {
+  $('#carte-list').innerHTML = '';
+  $('#carte-empty').hidden = true;
+  $('#dlg-carte').showModal();
+  try {
+    carteDisponibili = await api('/carte/disponibili', { query: { user_id: state.auth.userId } });
+    $('#carte-empty').hidden = carteDisponibili.length > 0;
+    $('#carte-list').innerHTML = carteDisponibili.map((c) => (
+      `<li><button data-id="${c.id}">
+        <span>${cartaMarker(c)}</span>
+        <span class="grow">${esc(c.nome)}</span>
+      </button></li>`
+    )).join('');
+  } catch (err) {
+    $('#dlg-carte').close();
+    handleError(err);
+  }
+}
+
+$('#carte-close').addEventListener('click', () => $('#dlg-carte').close());
+
+$('#carte-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-id]');
+  if (!btn) return;
+  const carta = carteDisponibili.find((c) => c.id === Number(btn.dataset.id));
+  if (carta) openCartaDialog(carta);
+});
+
+function resetCartaPreview() {
+  if (cartaBlobUrl) { URL.revokeObjectURL(cartaBlobUrl); cartaBlobUrl = null; }
+  $('#carta-img').hidden = true;
+  $('#carta-img').src = '';
+}
+
+async function openCartaDialog(carta) {
+  $('#dlg-carte').close();
+  resetCartaPreview();
+  $('#carta-nome').textContent = carta.nome;
+  $('#carta-codice').textContent = carta.codice || '';
+  $('#carta-loading').hidden = false;
+  $('#dlg-carta').showModal();
+  try {
+    const url = await fetchCartaBlobUrl(carta.id);
+    if (url) {
+      cartaBlobUrl = url;
+      $('#carta-img').src = url;
+      $('#carta-img').hidden = false;
+    }
+  } catch (err) {
+    handleError(err);
+  } finally {
+    $('#carta-loading').hidden = true;
+  }
+}
+
+$('#carta-close').addEventListener('click', () => $('#dlg-carta').close());
+$('#dlg-carta').addEventListener('close', resetCartaPreview);
+
 // ---------- aggiunta ----------
 
 async function loadCategorie() {
@@ -884,6 +962,8 @@ $('#dlg-menu').addEventListener('close', async () => {
     if (confirm('Scollegare questo dispositivo?')) logout();
   } else if (action === 'install') {
     doInstall();
+  } else if (action === 'carte') {
+    openCarteDialog();
   } else if (action === 'scopetta') {
     const daPulire = state.items.filter((i) => i.comprato || i.deleted).length;
     if (!daPulire) return toast('Nessun articolo comprato o cancellato');

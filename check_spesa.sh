@@ -23,6 +23,11 @@ API_LOG_FILE="$BOT_DIR/api_server.log"
 API_PORT=4568
 HTTPS_PORT="${SPESA_HTTPS_PORT:-4443}"
 
+CERT_FILE="$BOT_DIR/certs/fullchain.pem"
+HEALTH_LOG="$BOT_DIR/health_check.log"
+CERT_WARN_DAYS="${CERT_WARN_DAYS:-14}"
+HEALTH_MAX_LOG_KB="${HEALTH_MAX_LOG_KB:-256}"
+
 ACTION="${1:-}"
 
 print_pid_snapshot() {
@@ -106,6 +111,74 @@ is_api_running() {
     return 0
 }
 
+rotate_health_log_if_needed() {
+    [ -f "$HEALTH_LOG" ] || return 0
+    SIZE_BYTES=$(wc -c < "$HEALTH_LOG" 2>/dev/null)
+    [ -n "$SIZE_BYTES" ] || return 0
+    [ "$SIZE_BYTES" -lt $((HEALTH_MAX_LOG_KB * 1024)) ] && return 0
+    mv "$HEALTH_LOG" "${HEALTH_LOG}.1" 2>/dev/null || true
+    : > "$HEALTH_LOG"
+}
+
+# Verifica end-to-end la catena DuckDNS -> Tailscale -> certificato -> api_server,
+# chiamando /ping sul nome pubblico esattamente come farebbe l'app Android da remoto.
+check_https_health() {
+    if [ ! -f "$CERT_FILE" ]; then
+        [ "$ACTION" = "health" ] && echo "[check_spesa][health] HTTPS non configurato (nessun certificato in $CERT_FILE)"
+        return 0
+    fi
+    OPENSSL_BIN=$(command -v openssl 2>/dev/null)
+    CURL_BIN=$(command -v curl 2>/dev/null)
+    [ -n "$OPENSSL_BIN" ] && [ -n "$CURL_BIN" ] || return 0
+
+    DOMAIN=$("$OPENSSL_BIN" x509 -in "$CERT_FILE" -noout -ext subjectAltName 2>/dev/null | grep -o 'DNS:[^,]*' | head -1 | cut -d: -f2)
+    [ -n "$DOMAIN" ] || DOMAIN="(sconosciuto)"
+
+    ENDDATE=$("$OPENSSL_BIN" x509 -in "$CERT_FILE" -noout -enddate 2>/dev/null | cut -d= -f2)
+    END_EPOCH=$(date -d "$ENDDATE" +%s 2>/dev/null)
+    NOW_EPOCH=$(date +%s)
+    if [ -n "$END_EPOCH" ]; then
+        DAYS_LEFT=$(( (END_EPOCH - NOW_EPOCH) / 86400 ))
+    else
+        DAYS_LEFT="?"
+    fi
+
+    ERR_FILE=$(mktemp 2>/dev/null || echo "/tmp/check_spesa_health_err.$$")
+    HTTP_CODE=$("$CURL_BIN" -sS --max-time 5 -o /dev/null -w '%{http_code}' "https://$DOMAIN:$HTTPS_PORT/ping" 2>"$ERR_FILE")
+    CURL_RC=$?
+    CURL_ERR=$(cat "$ERR_FILE" 2>/dev/null)
+    rm -f "$ERR_FILE" 2>/dev/null
+
+    STATUS="OK"
+    REASON=""
+    if [ "$CURL_RC" -ne 0 ] || [ "$HTTP_CODE" != "200" ]; then
+        STATUS="FAIL"
+        case "$CURL_RC" in
+            6) REASON="DNS non risolve $DOMAIN (DuckDNS giu o record non aggiornato)" ;;
+            7) REASON="connessione rifiutata/non raggiungibile (Tailscale giu?)" ;;
+            28) REASON="timeout di connessione (Tailscale giu?)" ;;
+            35|60) REASON="problema certificato TLS" ;;
+            0) REASON="HTTP $HTTP_CODE inatteso da api_server" ;;
+            *) REASON="curl rc=$CURL_RC: $CURL_ERR" ;;
+        esac
+    elif [ "$DAYS_LEFT" != "?" ] && [ "$DAYS_LEFT" -le "$CERT_WARN_DAYS" ]; then
+        STATUS="WARN"
+        REASON="certificato in scadenza tra $DAYS_LEFT giorni"
+    fi
+
+    rotate_health_log_if_needed
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [$STATUS] dominio=$DOMAIN scadenza_cert=${DAYS_LEFT}gg http=$HTTP_CODE ${REASON:+motivo=\"$REASON\"}" >> "$HEALTH_LOG"
+
+    if [ "$ACTION" = "health" ]; then
+        echo "[check_spesa][health] stato=$STATUS dominio=$DOMAIN scadenza_cert=${DAYS_LEFT}gg http=$HTTP_CODE ${REASON:+($REASON)}"
+    fi
+}
+
+if [ "$ACTION" = "health" ]; then
+    check_https_health
+    exit 0
+fi
+
 if [ "$ACTION" = "restart" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - restart richiesto: chiusura processi esistenti..." >> "$LOG_FILE"
     print_pid_snapshot "prima"
@@ -138,6 +211,7 @@ fi
 # 2. Controllo API Server
 if is_api_running; then
     print_pid_snapshot "dopo"
+    check_https_health
     exit 0
 fi
 
@@ -159,3 +233,4 @@ else
 fi
 
 echo "[check_spesa] PID dopo: bot=$(cat "$PID_FILE" 2>/dev/null || echo none) api=$(cat "$API_PID_FILE" 2>/dev/null || echo none)"
+check_https_health

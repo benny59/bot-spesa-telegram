@@ -95,10 +95,33 @@
   <dialog id="dlg-menu">
     <form method="dialog" class="menu">
       <button value="scopetta" id="menu-scopetta">🧹 Scopetta</button>
+      <button value="carte">🎟️ Carte fedeltà</button>
       <button value="install" id="menu-install" hidden>📲 Installa l'app</button>
       <button value="logout">🚪 Scollega questo dispositivo</button>
       <button value="">Annulla</button>
     </form>
+  </dialog>
+
+  <!-- Carte fedeltà: sola lettura, la gestione resta su Telegram / app Android -->
+  <dialog id="dlg-carte">
+    <div class="foto-head">
+      <h3>🎟️ Carte fedeltà</h3>
+      <button id="carte-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <p id="carte-empty" class="muted center" hidden>Nessuna carta disponibile.</p>
+    <ul id="carte-list" class="menu"></ul>
+  </dialog>
+
+  <dialog id="dlg-carta">
+    <div class="foto-head">
+      <h3 id="carta-nome"></h3>
+      <button id="carta-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <div class="carta-barcode">
+      <p id="carta-loading" class="muted center" hidden>Carico…</p>
+      <img id="carta-img" alt="" hidden>
+    </div>
+    <p id="carta-codice" class="muted center"></p>
   </dialog>
 
   <!-- Azioni sull'articolo -->
