@@ -132,6 +132,8 @@ configure do
   set :bind, '0.0.0.0'
   set :port, (ENV['SPESA_PORT'] || 4568).to_i   # 4567 è riservata a daze su Termux
   set :show_exceptions, false
+  # In development Sinatra accetta solo localhost/IP: serve anche il nome DuckDNS (HTTPS per la PWA)
+  set :host_authorization, { permitted_hosts: [] }
   enable :logging
 end
 
