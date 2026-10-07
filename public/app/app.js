@@ -8,7 +8,10 @@ const $ = (sel) => document.querySelector(sel);
 
 const state = {
   auth: load('spesa.auth'),            // { token, userId, firstName }
-  sel: load('spesa.sel') || { gruppoId: null, topicId: 0 },
+  // vista: '' = lista del gruppo/topic, 'tutti' / 'miei' = viste trasversali.
+  // gruppoId/topicId restano l'ultima lista aperta: lì vanno gli articoli aggiunti.
+  sel: { vista: '', ...(load('spesa.sel') || { gruppoId: null, topicId: 0 }) },
+  conteggi: { tutti: null, miei: null },
   gruppi: [],
   topics: {},                          // gruppoId -> [{ topic_id, nome }]
   items: [],
@@ -107,13 +110,21 @@ function logout() {
   localStorage.removeItem('spesa.auth');
   localStorage.removeItem('spesa.sel');
   state.auth = null;
-  state.sel = { gruppoId: null, topicId: 0 };
+  state.sel = { vista: '', gruppoId: null, topicId: 0 };
   state.items = [];
   render();
   showLogin();
 }
 
 // ---------- gruppi e topic ----------
+
+const VISTE = { tutti: 'Tutti gli articoli', miei: 'I miei articoli' };
+const PALETTE = ['#1976D2', '#2E7D32', '#00695C', '#E65100', '#C62828', '#6A1B9A', '#283593', '#4E342E'];
+
+function contextColor(gruppoId, topicId) {
+  if (!gruppoId) return '#455A64'; // Lista Personale, come nell'app Android
+  return PALETTE[Math.abs(gruppoId * 31 + topicId) % PALETTE.length];
+}
 
 async function loadGruppi() {
   state.gruppi = await api('/gruppi', { query: { user_id: state.auth.userId } });
@@ -129,7 +140,8 @@ async function loadGruppi() {
   if (!valid) {
     // di default il primo gruppo reale, altrimenti la Lista Personale
     const first = state.gruppi.find((g) => g.id !== 0) || state.gruppi[0];
-    selectContext(first ? first.id : 0, 0, false);
+    state.sel = { ...state.sel, gruppoId: first ? first.id : 0, topicId: 0 };
+    save('spesa.sel', state.sel);
   }
 }
 
@@ -142,7 +154,7 @@ function currentTopic() {
 }
 
 function selectContext(gruppoId, topicId, reload = true) {
-  state.sel = { gruppoId, topicId };
+  state.sel = { vista: '', gruppoId, topicId };
   save('spesa.sel', state.sel);
   document.body.classList.remove('nav-open');
   $('#nav-backdrop').hidden = true;
@@ -154,12 +166,26 @@ function selectContext(gruppoId, topicId, reload = true) {
   }
 }
 
+function selectVista(vista) {
+  state.sel = { ...state.sel, vista };
+  save('spesa.sel', state.sel);
+  toggleNav(false);
+  state.items = load(cacheKey()) || [];
+  render();
+  refreshLista();
+}
+
 function renderNav() {
   $('#nav-user').textContent = state.auth ? `Collegato come ${state.auth.firstName}` : '';
-  $('#nav-list').innerHTML = state.gruppi.map((g) => {
+  const viste = Object.entries(VISTE).map(([key, label]) => {
+    const n = state.conteggi[key];
+    const count = n === null || n === undefined ? '' : `<span class="count">${n}</span>`;
+    return `<li><button class="${state.sel.vista === key ? 'active' : ''}" data-vista="${key}">${label}${count}</button></li>`;
+  }).join('');
+  $('#nav-list').innerHTML = `<li><div class="gruppo">Viste</div><ul>${viste}</ul></li>` + state.gruppi.map((g) => {
     const topics = state.topics[g.id] || [{ topic_id: 0, nome: 'Principale' }];
     const buttons = topics.map((t) => {
-      const active = g.id === state.sel.gruppoId && t.topic_id === state.sel.topicId;
+      const active = !state.sel.vista && g.id === state.sel.gruppoId && t.topic_id === state.sel.topicId;
       return `<li><button class="${active ? 'active' : ''}" data-gruppo="${g.id}" data-topic="${t.topic_id}">${esc(t.nome)}</button></li>`;
     }).join('');
     return `<li><div class="gruppo">${esc(g.nome)}</div><ul>${buttons}</ul></li>`;
@@ -167,6 +193,8 @@ function renderNav() {
 }
 
 $('#nav-list').addEventListener('click', (e) => {
+  const vista = e.target.closest('button[data-vista]');
+  if (vista) return selectVista(vista.dataset.vista);
   const btn = e.target.closest('button[data-gruppo]');
   if (btn) selectContext(Number(btn.dataset.gruppo), Number(btn.dataset.topic));
 });
@@ -181,6 +209,7 @@ $('#nav-backdrop').addEventListener('click', () => toggleNav(false));
 // ---------- lista ----------
 
 function cacheKey() {
+  if (state.sel.vista) return `spesa.lista.${state.sel.vista}`;
   return `spesa.lista.${state.sel.gruppoId}.${state.sel.topicId}`;
 }
 
@@ -208,11 +237,14 @@ async function refreshLista() {
 
 async function doRefresh() {
   const sel = { ...state.sel };
+  const user = state.auth.userId;
   try {
-    const items = await api('/lista', {
-      query: { gruppo_id: sel.gruppoId, topic_id: sel.topicId, user_id: state.auth.userId }
-    });
-    if (sel.gruppoId !== state.sel.gruppoId || sel.topicId !== state.sel.topicId) return; // cambiato nel frattempo
+    const items = sel.vista
+      ? await api(`/lista/${sel.vista}`, { query: { user_id: user } })
+      : await api('/lista', { query: { gruppo_id: sel.gruppoId, topic_id: sel.topicId, user_id: user } });
+    loadConteggi();
+    if (sel.vista !== state.sel.vista || sel.gruppoId !== state.sel.gruppoId ||
+        sel.topicId !== state.sel.topicId) return; // cambiato nel frattempo
     state.items = items;
     save(cacheKey(), items);
     save(`${cacheKey()}.at`, Date.now());
@@ -225,6 +257,17 @@ async function doRefresh() {
       ? `Server non raggiungibile: lista aggiornata alle ${new Date(at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`
       : 'Server non raggiungibile';
     $('#offline').hidden = false;
+  }
+}
+
+async function loadConteggi() {
+  try {
+    const conteggi = await api('/lista/conteggi', { query: { user_id: state.auth.userId } });
+    if (conteggi.tutti === state.conteggi.tutti && conteggi.miei === state.conteggi.miei) return;
+    state.conteggi = conteggi;
+    renderNav();
+  } catch {
+    // i conteggi sono solo informativi
   }
 }
 
@@ -257,11 +300,15 @@ function renderItem(item) {
   const buyer = cls === 'bought'
     ? `<span class="initials buyer">${esc(item.buyer_initials || item.comprato)}</span>`
     : '';
+  // nelle viste trasversali la sezione è il gruppo/topic: la categoria va sulla riga
+  const categoria = state.sel.vista && categoriaLabel(item)
+    ? `<div class="item-cat">${item.categoria_id ? '▣' : '◌'} ${esc(categoriaLabel(item))}</div>`
+    : '';
 
   return `<li class="item ${cls} ${state.pending.has(item.id) ? 'pending' : ''}" data-id="${item.id}">
     <button class="item-main" data-action="tap">
       ${creator}
-      <span class="item-text"><div class="item-nome">${esc(item.nome)}</div></span>
+      <span class="item-text"><div class="item-nome">${esc(item.nome)}</div>${categoria}</span>
       <span class="mark">${mark}</span>
       ${buyer}
     </button>
@@ -273,10 +320,19 @@ function renderLista() {
   let html = '';
   let lastSection = null;
   for (const item of state.items) {
-    const section = sectionLabel(item);
-    if (section !== lastSection) {
-      html += `<li class="section">${esc(section)}</li>`;
-      lastSection = section;
+    if (state.sel.vista) {
+      const section = `${item.gruppo_id}.${item.topic_id}`;
+      if (section !== lastSection) {
+        const color = contextColor(item.gruppo_id, item.topic_id);
+        html += `<li><button class="context" style="background:${color}" data-gruppo="${item.gruppo_id}" data-topic="${item.topic_id}">▸ ${esc(item.nome_contesto)}</button></li>`;
+        lastSection = section;
+      }
+    } else {
+      const section = sectionLabel(item);
+      if (section !== lastSection) {
+        html += `<li class="section">${esc(section)}</li>`;
+        lastSection = section;
+      }
     }
     html += renderItem(item);
   }
@@ -287,8 +343,16 @@ function renderLista() {
 function render() {
   const gruppo = currentGruppo();
   const topic = currentTopic();
-  $('#title-main').textContent = gruppo ? gruppo.nome : 'Spesa';
-  $('#title-sub').textContent = gruppo && gruppo.id !== 0 && topic ? topic.nome : '';
+  const destinazione = gruppo ? `${gruppo.nome}${gruppo.id !== 0 && topic ? ` • ${topic.nome}` : ''}` : '';
+  if (state.sel.vista) {
+    $('#title-main').textContent = VISTE[state.sel.vista];
+    $('#title-sub').textContent = '';
+    $('#add-input').placeholder = destinazione ? `Aggiungi a ${destinazione}…` : 'Aggiungi…';
+  } else {
+    $('#title-main').textContent = gruppo ? gruppo.nome : 'Spesa';
+    $('#title-sub').textContent = gruppo && gruppo.id !== 0 && topic ? topic.nome : '';
+    $('#add-input').placeholder = 'Aggiungi… (più articoli separati da virgola)';
+  }
   renderNav();
   renderLista();
 }
@@ -364,6 +428,8 @@ $('#dlg-item').addEventListener('close', () => {
 });
 
 $('#lista').addEventListener('click', (e) => {
+  const context = e.target.closest('button.context');
+  if (context) return selectContext(Number(context.dataset.gruppo), Number(context.dataset.topic));
   const btn = e.target.closest('button[data-action]');
   const li = e.target.closest('.item');
   if (!btn || !li) return;
@@ -433,6 +499,9 @@ $('#add-form').addEventListener('submit', async (e) => {
 
 $('#btn-menu').addEventListener('click', () => {
   $('#menu-install').hidden = !state.installPrompt && !isIos();
+  $('#menu-scopetta').textContent = state.sel.vista
+    ? '🧹 Superscopetta (tutti i gruppi)'
+    : '🧹 Scopetta (togli comprati e cancellati)';
   $('#dlg-menu').showModal();
 });
 
@@ -444,14 +513,22 @@ $('#dlg-menu').addEventListener('close', async () => {
   } else if (action === 'install') {
     doInstall();
   } else if (action === 'scopetta') {
-    const comprati = state.items.filter((i) => i.comprato && !i.deleted).length;
-    if (!comprati) return toast('Nessun articolo nel carrello');
-    if (!confirm(`Togliere dalla lista ${comprati} articoli comprati?`)) return;
+    const daPulire = state.items.filter((i) => i.comprato || i.deleted).length;
+    if (!daPulire) return toast('Nessun articolo comprato o cancellato');
+    const ovunque = Boolean(state.sel.vista);
+    const domanda = ovunque
+      ? 'Superscopetta: rimuovere da tutti i gruppi gli articoli comprati o già cancellati?'
+      : `Togliere dalla lista ${daPulire} articoli comprati o cancellati?`;
+    if (!confirm(domanda)) return;
     try {
-      await api('/lista/comprati', {
-        method: 'DELETE',
-        query: { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId, user_id: state.auth.userId }
-      });
+      if (ovunque) {
+        await api('/lista/comprati/ovunque', { method: 'DELETE', query: { user_id: state.auth.userId } });
+      } else {
+        await api('/lista/comprati', {
+          method: 'DELETE',
+          query: { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId, user_id: state.auth.userId }
+        });
+      }
       toast('🧹 Fatto');
       await refreshLista();
     } catch (err) {

@@ -167,7 +167,32 @@ main {
 }
 .item-text { flex: 1; min-width: 0; }
 .item-nome { overflow-wrap: anywhere; }
+.item-cat { font-size: .8em; color: var(--muted); }
 .item-more { flex-shrink: 0; color: var(--muted); }
+
+/* intestazione gruppo • topic nelle viste Tutti / Miei: cliccabile, porta alla lista */
+.context {
+  display: block;
+  width: 100%;
+  margin: 14px 0 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+  font-size: .9em;
+  font-weight: 600;
+  color: #fff;
+}
+#nav-list .count {
+  float: right;
+  min-width: 2em;
+  padding: 0 .5em;
+  border-radius: 1em;
+  background: #e3ecf6;
+  color: var(--primary-dark);
+  font-size: .8em;
+  text-align: center;
+}
 
 .initials {
   flex-shrink: 0;
