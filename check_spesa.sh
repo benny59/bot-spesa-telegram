@@ -143,24 +143,48 @@ check_https_health() {
         DAYS_LEFT="?"
     fi
 
+    # /ping richiede il Bearer token (prima filter di api_server.rb): lo leggiamo
+    # dallo stesso spesa.db usato dall'app, così il check valida anche l'auth.
+    API_TOKEN=""
+    if [ -n "$RUBY_BIN" ] && [ -f "$BOT_DIR/spesa.db" ]; then
+        API_TOKEN=$("$RUBY_BIN" -e '
+          require "sqlite3"
+          db = SQLite3::Database.new(ARGV[0])
+          row = db.execute("SELECT value FROM config WHERE key = ?", ["api_token"]).first
+          print row ? row[0] : ""
+        ' "$BOT_DIR/spesa.db" 2>/dev/null)
+    fi
+
     ERR_FILE=$(mktemp 2>/dev/null || echo "/tmp/check_spesa_health_err.$$")
-    HTTP_CODE=$("$CURL_BIN" -sS --max-time 5 -o /dev/null -w '%{http_code}' "https://$DOMAIN:$HTTPS_PORT/ping" 2>"$ERR_FILE")
+    if [ -n "$API_TOKEN" ]; then
+        HTTP_CODE=$("$CURL_BIN" -sS --max-time 5 -H "Authorization: Bearer $API_TOKEN" -o /dev/null -w '%{http_code}' "https://$DOMAIN:$HTTPS_PORT/ping" 2>"$ERR_FILE")
+    else
+        HTTP_CODE=$("$CURL_BIN" -sS --max-time 5 -o /dev/null -w '%{http_code}' "https://$DOMAIN:$HTTPS_PORT/ping" 2>"$ERR_FILE")
+    fi
     CURL_RC=$?
     CURL_ERR=$(cat "$ERR_FILE" 2>/dev/null)
     rm -f "$ERR_FILE" 2>/dev/null
 
     STATUS="OK"
     REASON=""
-    if [ "$CURL_RC" -ne 0 ] || [ "$HTTP_CODE" != "200" ]; then
+    if [ "$CURL_RC" -ne 0 ] || { [ "$HTTP_CODE" != "200" ] && [ -n "$API_TOKEN" ]; }; then
         STATUS="FAIL"
         case "$CURL_RC" in
             6) REASON="DNS non risolve $DOMAIN (DuckDNS giu o record non aggiornato)" ;;
             7) REASON="connessione rifiutata/non raggiungibile (Tailscale giu?)" ;;
             28) REASON="timeout di connessione (Tailscale giu?)" ;;
             35|60) REASON="problema certificato TLS" ;;
-            0) REASON="HTTP $HTTP_CODE inatteso da api_server" ;;
+            0) REASON="HTTP $HTTP_CODE inatteso da api_server (token letto ma rifiutato?)" ;;
             *) REASON="curl rc=$CURL_RC: $CURL_ERR" ;;
         esac
+    elif [ "$HTTP_CODE" = "401" ]; then
+        # Token non recuperabile da spesa.db, ma la risposta 401 conferma comunque
+        # che DNS, Tailscale e certificato TLS funzionano fino all'app.
+        STATUS="WARN"
+        REASON="token api non recuperato da spesa.db: connettivita' verificata ma auth non testata"
+    elif [ "$HTTP_CODE" != "200" ]; then
+        STATUS="FAIL"
+        REASON="HTTP $HTTP_CODE inatteso da api_server"
     elif [ "$DAYS_LEFT" != "?" ] && [ "$DAYS_LEFT" -le "$CERT_WARN_DAYS" ]; then
         STATUS="WARN"
         REASON="certificato in scadenza tra $DAYS_LEFT giorni"
