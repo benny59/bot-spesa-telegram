@@ -21,6 +21,7 @@
       <div id="title-main">Spesa</div>
       <div id="title-sub" class="muted"></div>
     </div>
+    <button id="btn-helper" class="icon-btn" aria-label="Aiuto compilazione" title="Suggeriti, storico e preferiti (c)">📋</button>
     <button id="btn-refresh" class="icon-btn" aria-label="Aggiorna" title="Aggiorna">↻</button>
     <button id="btn-menu" class="icon-btn" aria-label="Menu" title="Menu">⋮</button>
   </header>
@@ -37,6 +38,22 @@
       <ul id="lista"></ul>
       <p id="empty" class="muted center" hidden>Lista vuota 🎉</p>
     </main>
+
+    <!-- Aiuto compilazione: suggeriti (checklist), storico acquisti, preferiti -->
+    <aside id="helper" hidden aria-label="Aiuto compilazione">
+      <div class="helper-head">
+        <div class="tabs" role="tablist">
+          <button role="tab" data-tab="checklist">Suggeriti</button>
+          <button role="tab" data-tab="storico">Storico</button>
+          <button role="tab" data-tab="preferiti">Preferiti</button>
+        </div>
+        <button id="helper-close" class="icon-btn" aria-label="Chiudi">✕</button>
+      </div>
+      <div id="helper-dest" class="muted"></div>
+      <div id="helper-note" class="muted" hidden></div>
+      <ul id="helper-list"></ul>
+    </aside>
+    <div id="helper-backdrop" hidden></div>
   </div>
 
   <form id="add-form" class="addbar" autocomplete="off">

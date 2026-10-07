@@ -112,6 +112,8 @@ function logout() {
   state.auth = null;
   state.sel = { vista: '', gruppoId: null, topicId: 0 };
   state.items = [];
+  localStorage.removeItem('spesa.preferiti');
+  setHelperOpen(false);
   render();
   showLogin();
 }
@@ -163,6 +165,7 @@ function selectContext(gruppoId, topicId, reload = true) {
   if (reload) {
     refreshLista();
     loadCategorie();
+    if (helper.open) loadHelper();
   }
 }
 
@@ -340,10 +343,18 @@ function renderLista() {
   $('#empty').hidden = state.items.length > 0 || !state.auth;
 }
 
+// Lista in cui finiscono gli articoli aggiunti (anche dalle viste Tutti / Miei)
+function destinazioneLabel() {
+  const gruppo = currentGruppo();
+  const topic = currentTopic();
+  if (!gruppo) return '';
+  return `${gruppo.nome}${gruppo.id !== 0 && topic ? ` • ${topic.nome}` : ''}`;
+}
+
 function render() {
   const gruppo = currentGruppo();
   const topic = currentTopic();
-  const destinazione = gruppo ? `${gruppo.nome}${gruppo.id !== 0 && topic ? ` • ${topic.nome}` : ''}` : '';
+  const destinazione = destinazioneLabel();
   if (state.sel.vista) {
     $('#title-main').textContent = VISTE[state.sel.vista];
     $('#title-sub').textContent = '';
@@ -495,6 +506,230 @@ $('#add-form').addEventListener('submit', async (e) => {
   }
 });
 
+// ---------- aiuto compilazione: suggeriti, storico, preferiti ----------
+// Suggeriti (checklist) e storico condividono riga e toggle (POST /checklist/toggle).
+// I preferiti sono in sola lettura: arrivano dall'ultimo backup fatto dall'app Android.
+
+const helper = {
+  open: false,
+  tab: load('spesa.helperTab') || 'checklist',
+  rows: [],              // righe normalizzate della scheda attiva
+  pending: new Set(),
+  note: ''
+};
+
+function formatData(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(value || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` : (value || '');
+}
+
+function categoriaRow(nome, effimera) {
+  if (!nome) return 'Senza categoria';
+  return `${effimera ? '◌' : '▣'} ${effimera ? nome.toLowerCase() : nome}`;
+}
+
+// articoli ancora da comprare nella lista di destinazione (per i preferiti)
+async function itemsDestinazione() {
+  if (!state.sel.vista) return state.items;
+  return api('/lista', {
+    query: { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId, user_id: state.auth.userId }
+  });
+}
+
+function storicoMeta(a) {
+  const parts = [formatData(a.updated_at)];
+  if (a.creatore) parts.push(`↳ ${a.creatore}`);
+  if (a.acquirente) parts.push(`↗ ${a.acquirente}`);
+  parts.push(`${a.conteggio} volte`);
+  return parts.join(' · ');
+}
+
+async function fetchHelperRows(tab) {
+  const dest = { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId };
+  if (tab === 'checklist') {
+    const items = await api('/checklist', { query: { ...dest, user_id: state.auth.userId } });
+    return {
+      rows: items.map((i) => ({
+        key: `c${i.id}`,
+        nome: i.nome,
+        label: i.nome_display || i.nome,
+        meta: i.conteggio > 0 ? `acquistato ${i.conteggio}×` : '',
+        section: categoriaRow(i.categoria_nome, i.categoria_effimera),
+        inLista: i.in_lista,
+        gtin: i.gtin
+      }))
+    };
+  }
+  if (tab === 'storico') {
+    const acquisti = await api('/storico/acquisti', { query: { ...dest, limite: 50 } });
+    return {
+      rows: acquisti.map((a) => ({
+        key: `s${a.id}`,
+        nome: a.nome,
+        label: a.nome_display || a.nome,
+        meta: [a.categoria_nome ? categoriaRow(a.categoria_nome, a.categoria_effimera) : '', storicoMeta(a)]
+          .filter(Boolean).join(' · '),
+        inLista: a.in_lista,
+        // come l'app Android: se ci sono più prodotti si usa il più recente
+        gtin: a.prodotti?.[0]?.gtin || ''
+      }))
+    };
+  }
+
+  // preferiti: ultimo backup, ordinati per categoria come nell'app Android
+  let backup;
+  try {
+    backup = await api('/utente/config/preferiti', { query: { user_id: state.auth.userId } });
+    save('spesa.preferiti', backup);
+  } catch (err) {
+    if (err instanceof AuthError) throw err;
+    backup = load('spesa.preferiti');
+    if (!backup) {
+      return { rows: [], note: 'Nessun backup dei preferiti: dall\'app Android apri Preferiti → Backup.' };
+    }
+  }
+  const inLista = new Map((await itemsDestinazione())
+    .filter((i) => !i.comprato && !i.deleted)
+    .map((i) => [i.nome.trim().toLowerCase(), i.id]));
+  const favorites = [...(backup.favorites || [])].sort((a, b) => (
+    (!a.categoryName - !b.categoryName) ||
+    (Number(a.categoryEphemeral) - Number(b.categoryEphemeral)) ||
+    (a.categoryName || '').localeCompare(b.categoryName || '', 'it') ||
+    a.description.localeCompare(b.description, 'it')
+  ));
+  return {
+    note: `Backup dall'app Android del ${formatData((backup.lastBackupAt || '').replace('T', ' '))} · si modificano dall'app`,
+    rows: favorites.map((f) => {
+      const itemId = inLista.get(f.description.trim().toLowerCase());
+      return {
+        key: `p${f.id}`,
+        nome: f.description,
+        label: f.description,
+        meta: '',
+        section: categoriaRow(f.categoryName, f.categoryEphemeral),
+        inLista: itemId !== undefined,
+        itemId,
+        favorite: f
+      };
+    })
+  };
+}
+
+let helperLoad = 0;
+async function loadHelper() {
+  if (!state.auth || state.sel.gruppoId === null) return;
+  const ticket = ++helperLoad;
+  const tab = helper.tab;
+  $('#helper-dest').textContent = `Aggiungi a: ${destinazioneLabel()}`;
+  try {
+    const { rows, note } = await fetchHelperRows(tab);
+    if (ticket !== helperLoad) return; // nel frattempo è cambiata scheda o lista
+    helper.rows = rows;
+    helper.note = note || '';
+  } catch (err) {
+    if (ticket !== helperLoad) return;
+    if (err instanceof AuthError) return handleError(err);
+    helper.rows = [];
+    helper.note = navigator.onLine ? `Errore: ${err.message}` : 'Sei offline';
+  }
+  renderHelper();
+}
+
+function renderHelper() {
+  document.querySelectorAll('#helper .tabs button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tab === helper.tab);
+    b.setAttribute('aria-selected', b.dataset.tab === helper.tab);
+  });
+  $('#helper-note').textContent = helper.note;
+  $('#helper-note').hidden = !helper.note;
+
+  let html = '';
+  let lastSection = null;
+  for (const row of helper.rows) {
+    if (row.section && row.section !== lastSection) {
+      html += `<li class="section">${esc(row.section)}</li>`;
+      lastSection = row.section;
+    }
+    const cls = `${row.inLista ? 'in-lista' : ''} ${helper.pending.has(row.key) ? 'pending' : ''}`;
+    html += `<li><button class="sugg ${cls}" data-key="${esc(row.key)}">
+      <span class="status">${row.inLista ? '✓' : '+'}</span>
+      <span class="sugg-text">
+        <div class="sugg-nome">${esc(row.label)}</div>
+        ${row.meta ? `<div class="sugg-meta">${esc(row.meta)}</div>` : ''}
+      </span>
+    </button></li>`;
+  }
+  if (!helper.rows.length && !helper.note) html = '<li class="muted center">Nessun articolo</li>';
+  $('#helper-list').innerHTML = html;
+}
+
+function toggleHelperRow(row) {
+  const dest = { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId };
+  const user = state.auth.userId;
+  if (!row.favorite) {
+    return api('/checklist/toggle', {
+      method: 'POST',
+      body: { ...dest, user_id: user, nome: row.nome, in_lista: row.inLista, gtin: row.gtin || '' }
+    });
+  }
+  if (row.inLista) {
+    return api(`/lista/${row.itemId}/rimuovi`, { method: 'DELETE', query: { ...dest, user_id: user } });
+  }
+  const f = row.favorite;
+  const body = { ...dest, user_id: user, nome: f.description, split_items: false };
+  if (f.yukaLink) body.link_url = f.yukaLink;
+  if (f.gtin) body.gtin = f.gtin;
+  if (f.categoryId > 0) body.categoria_id = f.categoryId;
+  if (f.telegramPhotoId && f.telegramPhotoFileName) {
+    body.picture_id = f.telegramPhotoId;
+    body.picture_file_name = f.telegramPhotoFileName;
+  }
+  return api('/lista', { method: 'POST', body });
+}
+
+$('#helper-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button.sugg');
+  if (!btn) return;
+  const row = helper.rows.find((r) => r.key === btn.dataset.key);
+  if (!row || helper.pending.has(row.key)) return;
+  helper.pending.add(row.key);
+  renderHelper();
+  try {
+    await toggleHelperRow(row);
+    await refreshLista(); // prima la lista: i preferiti la usano per lo stato ✓
+  } catch (err) {
+    handleError(err);
+  } finally {
+    helper.pending.delete(row.key);
+    await loadHelper();
+  }
+});
+
+function isWide() {
+  return matchMedia('(min-width: 1200px)').matches;
+}
+
+function setHelperOpen(open) {
+  helper.open = open;
+  $('#helper').hidden = !open;
+  $('#helper-backdrop').hidden = !open || isWide();
+  document.body.classList.toggle('helper-open', open);
+  save('spesa.helperOpen', open);
+  if (open) loadHelper();
+}
+
+$('#btn-helper').addEventListener('click', () => setHelperOpen(!helper.open));
+$('#helper-close').addEventListener('click', () => setHelperOpen(false));
+$('#helper-backdrop').addEventListener('click', () => setHelperOpen(false));
+document.querySelectorAll('#helper .tabs button').forEach((b) => b.addEventListener('click', () => {
+  helper.tab = b.dataset.tab;
+  save('spesa.helperTab', helper.tab);
+  helper.rows = [];
+  helper.note = '';
+  renderHelper();
+  loadHelper();
+}));
+
 // ---------- menu generale ----------
 
 $('#btn-menu').addEventListener('click', () => {
@@ -611,8 +846,11 @@ document.addEventListener('keydown', (e) => {
     $('#add-input').focus();
   } else if (e.key === 'r') {
     refreshLista();
+  } else if (e.key === 'c') {
+    setHelperOpen(!helper.open);
   } else if (e.key === 'Escape') {
     toggleNav(false);
+    if (!isWide()) setHelperOpen(false);
   }
 });
 
@@ -628,6 +866,7 @@ async function start() {
     await loadGruppi();
     render();
     await Promise.all([refreshLista(), loadCategorie()]);
+    if (load('spesa.helperOpen') && isWide()) setHelperOpen(true);
   } catch (err) {
     if (err instanceof AuthError) return handleError(err);
     await refreshLista(); // mostra l'avviso offline

@@ -320,3 +320,98 @@ dialog ol { padding-left: 1.2em; }
   padding: 12px;
 }
 .menu button:hover { background: #eef4fb; }
+
+/* --- Aiuto compilazione (suggeriti / storico / preferiti) --- */
+#helper {
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+}
+.helper-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 0 8px;
+}
+.tabs { flex: 1; display: flex; gap: 2px; }
+.tabs button {
+  flex: 1;
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 10px 4px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.tabs button.active { color: var(--primary); border-bottom-color: var(--primary); }
+#helper-dest, #helper-note { padding: 6px 12px 0; }
+#helper-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 6px 8px calc(84px + var(--safe-bottom));
+}
+#helper-list .section { margin-top: 12px; }
+.sugg {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 6px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+}
+.sugg:hover { background: #f5f9fd; }
+.sugg .status {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 700;
+  background: var(--primary);
+}
+.sugg.in-lista .status { background: var(--green); }
+.sugg.in-lista .sugg-nome { text-decoration: line-through; opacity: .5; }
+.sugg.pending { opacity: .5; }
+.sugg-text { flex: 1; min-width: 0; }
+.sugg-nome { overflow-wrap: anywhere; }
+.sugg-meta { font-size: .8em; color: var(--muted); }
+
+@media (min-width: 1200px) {
+  #helper {
+    position: sticky;
+    top: 52px;
+    width: 360px;
+    height: calc(100vh - 52px);
+    flex-shrink: 0;
+  }
+  #helper-backdrop { display: none !important; }
+  body.helper-open .addbar { right: 360px; }
+}
+
+@media (max-width: 1199px) {
+  #helper {
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(100vw, 420px);
+    padding-top: env(safe-area-inset-top, 0px);
+    box-shadow: -2px 0 8px rgba(0, 0, 0, .2);
+  }
+  #helper-list { padding-bottom: calc(16px + var(--safe-bottom)); }
+  #helper-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, .35);
+  }
+}
