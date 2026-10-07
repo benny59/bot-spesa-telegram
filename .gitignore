@@ -46,3 +46,6 @@ apk/app/release/
 *.apk
 *.aab
 
+
+# Certificati HTTPS (scripts/setup_https_duckdns.sh)
+certs/

@@ -20,6 +20,8 @@ LOG_FILE="$BOT_DIR/bot_spesa.log"
 PID_FILE="$BOT_DIR/bot_spesa.pid"
 API_PID_FILE="$BOT_DIR/api_server.pid"
 API_LOG_FILE="$BOT_DIR/api_server.log"
+API_PORT=4568
+HTTPS_PORT="${SPESA_HTTPS_PORT:-4443}"
 
 ACTION="${1:-}"
 
@@ -34,23 +36,16 @@ list_matching_pids() {
     ps -eo pid,args 2>/dev/null | grep -E "$1" | grep -v grep | awk '{print $1}' | sort -u
 }
 
-# Funzione per liberare forzatamente la porta 4568
-free_port_4568() {
+# Funzione per liberare forzatamente le porte dell'API (HTTP app Android + HTTPS PWA)
+free_api_ports() {
     if [ -n "$FUSER_BIN" ]; then
-        # Uccide qualsiasi processo stia occupando la porta 4568
-        "$FUSER_BIN" -k 4568/tcp 2>/dev/null || true
+        # Uccide qualsiasi processo stia occupando le porte
+        "$FUSER_BIN" -k "$API_PORT/tcp" "$HTTPS_PORT/tcp" 2>/dev/null || true
     fi
 }
 
-kill_existing_processes() {
-    BOT_PIDS=$(list_matching_pids "ruby .*bot_spesa\.rb|bot_spesa\.rb")
-    API_PIDS=$(list_matching_pids "ruby .*api_server\.rb|puma .*4568|puma .*\[spesa\]")
-
-    if [ -n "$BOT_PIDS" ]; then
-        echo "$BOT_PIDS" | while IFS= read -r pid; do
-            [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
-        done
-    fi
+kill_api_processes() {
+    API_PIDS=$(list_matching_pids "ruby .*api_server\.rb|puma .*$API_PORT|puma .*\[spesa\]")
 
     if [ -n "$API_PIDS" ]; then
         echo "$API_PIDS" | while IFS= read -r pid; do
@@ -58,13 +53,26 @@ kill_existing_processes() {
         done
     fi
 
-    # Pulizia preventiva della porta di rete
-    free_port_4568
+    # Pulizia preventiva delle porte di rete
+    free_api_ports
 
     sleep 1
 
-    [ -f "$PID_FILE" ] && rm -f "$PID_FILE"
     [ -f "$API_PID_FILE" ] && rm -f "$API_PID_FILE"
+}
+
+kill_existing_processes() {
+    BOT_PIDS=$(list_matching_pids "ruby .*bot_spesa\.rb|bot_spesa\.rb")
+
+    if [ -n "$BOT_PIDS" ]; then
+        echo "$BOT_PIDS" | while IFS= read -r pid; do
+            [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+        done
+    fi
+
+    kill_api_processes
+
+    [ -f "$PID_FILE" ] && rm -f "$PID_FILE"
 }
 
 is_bot_running() {
@@ -101,6 +109,10 @@ if [ "$ACTION" = "restart" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - restart richiesto: chiusura processi esistenti..." >> "$LOG_FILE"
     print_pid_snapshot "prima"
     kill_existing_processes
+elif [ "$ACTION" = "restart-api" ]; then
+    # Usato dal rinnovo del certificato HTTPS (acme.sh --reloadcmd): il bot resta attivo
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - restart-api richiesto: chiusura api_server..." >> "$API_LOG_FILE"
+    kill_api_processes
 fi
 
 # 1. Controllo Bot
@@ -130,9 +142,9 @@ fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - api_server non attivo, riavvio..." >> "$API_LOG_FILE"
 
-# *** AGGIUNTA CHIAVE ***: Libera la porta 4568 prima di riavviare, 
+# *** AGGIUNTA CHIAVE ***: Libera le porte dell'API prima di riavviare,
 # così da evitare errori "Address already in use" se il PID file era saltato ma Puma era ancora attivo.
-free_port_4568
+free_api_ports
 
 [ -f "$API_PID_FILE" ] && rm -f "$API_PID_FILE"
 [ -n "$WAKELOCK_BIN" ] && "$WAKELOCK_BIN"

@@ -1612,3 +1612,36 @@ delete '/carte/:id' do
   DataManager.elimina_carta(carta_id, user_id)
   { ok: true }.to_json
 end
+
+# --- Avvio: HTTP per l'app Android + HTTPS opzionale per la PWA ---
+# Se il certificato (scripts/setup_https_duckdns.sh) è presente, Puma ascolta
+# su entrambe le porte; altrimenti avvio standard Sinatra, solo HTTP.
+HTTPS_PORT = (ENV['SPESA_HTTPS_PORT'] || 4443).to_i
+HTTPS_CERT = ENV['SPESA_HTTPS_CERT'] || File.join(__dir__, 'certs', 'fullchain.pem')
+HTTPS_KEY  = ENV['SPESA_HTTPS_KEY']  || File.join(__dir__, 'certs', 'key.pem')
+
+def https_disponibile?
+  return false unless File.readable?(HTTPS_CERT) && File.readable?(HTTPS_KEY)
+
+  require 'puma'
+  return true if Puma.ssl?
+
+  puts "⚠️  Certificato presente ma Puma è compilato senza SSL: avvio solo HTTP"
+  false
+end
+
+if __FILE__ == $0 && https_disponibile?
+  require 'puma/configuration'
+  require 'puma/launcher'
+  require 'puma/log_writer'
+
+  set :run, false  # evita il secondo avvio di Sinatra all'uscita
+
+  conf = Puma::Configuration.new do |user_config|
+    user_config.bind "tcp://#{settings.bind}:#{settings.port}"
+    user_config.ssl_bind settings.bind, HTTPS_PORT, cert: HTTPS_CERT, key: HTTPS_KEY
+    user_config.app Sinatra::Application
+  end
+  puts "\u{1F512} HTTPS attivo sulla porta #{HTTPS_PORT}"
+  Puma::Launcher.new(conf, log_writer: Puma::LogWriter.stdio).run
+end

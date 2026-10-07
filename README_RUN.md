@@ -88,3 +88,26 @@ Notes:
 - `90-runit-guard.sh` is additive and short-lived (default window: 90s), used to mitigate boot races.
 - Duplicate `runsvdir` processes are filtered by matching the expected `SVDIR` argument, not by blindly keeping the first PID.
 - `10-daze-start` should be symlinked to the Daze repository source file.
+
+6) HTTPS for the PWA (DuckDNS + acme.sh + Puma)
+
+Service workers, PWA install and camera access require HTTPS. `api_server.rb` keeps plain HTTP on 4568 for the Android app and, when a certificate is present in `certs/`, also serves HTTPS on 4443 (`SPESA_HTTPS_PORT`). Without a certificate it starts HTTP-only, exactly as before.
+
+One-time setup on the production shell:
+
+1. Create a subdomain on duckdns.org and note the token.
+2. Find the A51 Tailscale IP (Tailscale app, `100.x.y.z`).
+3. Run:
+
+```bash
+cd /data/data/com.termux/files/home/spesa
+DUCKDNS_TOKEN=<token> sh scripts/setup_https_duckdns.sh <subdomain> <tailscale_ip>
+```
+
+The script checks that Puma has SSL support, points `<subdomain>.duckdns.org` to the Tailscale IP, installs acme.sh (with its own cron entry), issues a Let's Encrypt certificate via DNS challenge and copies it to `certs/` (gitignored). It then restarts only the API (`check_spesa.sh restart-api`), the same command acme.sh runs after each automatic renewal.
+
+Notes:
+- The name resolves to a Tailscale IP, so the API is reachable only from devices in the tailnet.
+- The DuckDNS token is stored by acme.sh in `~/.acme.sh/account.conf`, not in the repo.
+- If a router/DNS filters names resolving to private IPs (DNS rebinding protection), set global nameservers in the Tailscale admin DNS settings.
+- Check renewal status: `~/.acme.sh/acme.sh --list`.
