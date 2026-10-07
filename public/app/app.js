@@ -70,6 +70,32 @@ async function api(path, { method = 'GET', body, query } = {}) {
   return data;
 }
 
+// Upload foto: multipart, niente Content-Type manuale (lo imposta il browser col boundary).
+async function apiUpload(path, { query, file } = {}) {
+  const url = new URL(path, location.origin);
+  Object.entries(query || {}).forEach(([k, v]) => url.searchParams.set(k, v));
+  const headers = {};
+  if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
+  const form = new FormData();
+  form.append('file', file, file.name || 'foto.jpg');
+
+  const res = await fetch(url, { method: 'POST', headers, body: form, cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) throw new AuthError('Non autorizzato');
+  if (!res.ok) throw new Error(data.error || `Errore ${res.status}`);
+  return data;
+}
+
+// Le foto richiedono il bearer token: niente <img src> diretto, si scarica come blob.
+async function fetchFotoBlobUrl(itemId) {
+  const headers = {};
+  if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
+  const res = await fetch(`/foto/${itemId}`, { headers, cache: 'no-store' });
+  if (res.status === 401) throw new AuthError('Non autorizzato');
+  if (!res.ok) return null;
+  return URL.createObjectURL(await res.blob());
+}
+
 function handleError(err) {
   if (err instanceof AuthError) {
     logout();
@@ -315,6 +341,7 @@ function renderItem(item) {
       <span class="mark">${mark}</span>
       ${buyer}
     </button>
+    ${item.has_foto ? '<button class="icon-btn item-foto" data-action="foto" aria-label="Foto">🖼️</button>' : ''}
     <button class="icon-btn item-more" data-action="more" aria-label="Azioni">⋯</button>
   </li>`;
 }
@@ -410,6 +437,7 @@ let menuItem = null;
 function openItemMenu(item) {
   menuItem = item;
   $('#item-title').textContent = item.nome;
+  $('#item-foto').textContent = item.has_foto ? '🖼️ Vedi/cambia foto' : '📷 Aggiungi foto';
   $('#item-disponibile').textContent = item.disponibile ? '🚫 Segna non disponibile' : '✅ Segna disponibile';
   $('#item-delete').textContent = item.deleted ? '↺ Rimetti in lista' : '🗑️ Elimina';
   $('#dlg-item').showModal();
@@ -426,6 +454,8 @@ $('#dlg-item').addEventListener('close', () => {
     const nome = prompt('Nuovo nome', item.nome);
     if (!nome || !nome.trim() || nome.trim() === item.nome) return;
     runOnItem(item, () => api(`/lista/${item.id}`, { method: 'PATCH', body: { nome: nome.trim(), user_id: user } }));
+  } else if (action === 'foto') {
+    openFotoDialog(item);
   } else if (action === 'disponibile') {
     runOnItem(item, () => api(`/lista/${item.id}/disponibile`, {
       method: 'PATCH', body: { gruppo_id: item.gruppo_id, user_id: user, disponibile: !item.disponibile }
@@ -447,7 +477,114 @@ $('#lista').addEventListener('click', (e) => {
   const item = findItem(Number(li.dataset.id));
   if (!item || state.pending.has(item.id)) return;
   if (btn.dataset.action === 'tap') tapItem(item);
+  else if (btn.dataset.action === 'foto') openFotoDialog(item);
   else openItemMenu(item);
+});
+
+// ---------- foto articolo: carica da file, trascina o incolla ----------
+
+let fotoItem = null;
+let fotoBlobUrl = null;
+
+function resetFotoPreview() {
+  if (fotoBlobUrl) { URL.revokeObjectURL(fotoBlobUrl); fotoBlobUrl = null; }
+  $('#foto-img').hidden = true;
+  $('#foto-img').src = '';
+}
+
+async function openFotoDialog(item) {
+  fotoItem = item;
+  resetFotoPreview();
+  $('#foto-title').textContent = item.nome;
+  $('#foto-delete').hidden = !item.has_foto;
+  $('#foto-loading').hidden = !item.has_foto;
+  $('#dlg-foto').showModal();
+  if (item.has_foto) await showFotoPreview(item.id);
+}
+
+async function showFotoPreview(itemId) {
+  $('#foto-loading').hidden = false;
+  try {
+    const url = await fetchFotoBlobUrl(itemId);
+    if (!fotoItem || fotoItem.id !== itemId) return; // dialog chiuso o cambiato nel frattempo
+    if (url) {
+      fotoBlobUrl = url;
+      $('#foto-img').src = url;
+      $('#foto-img').hidden = false;
+    }
+  } catch (err) {
+    handleError(err);
+  } finally {
+    $('#foto-loading').hidden = true;
+  }
+}
+
+async function uploadFoto(file) {
+  if (!fotoItem || !file.type.startsWith('image/')) return;
+  const item = fotoItem;
+  $('#foto-loading').hidden = false;
+  try {
+    await apiUpload(`/lista/${item.id}/foto`, { query: { user_id: state.auth.userId }, file });
+    item.has_foto = true;
+    resetFotoPreview();
+    await showFotoPreview(item.id);
+    $('#foto-delete').hidden = false;
+    toast('📷 Foto salvata');
+    refreshLista();
+  } catch (err) {
+    $('#foto-loading').hidden = true;
+    handleError(err);
+  }
+}
+
+$('#foto-input').addEventListener('change', () => {
+  const file = $('#foto-input').files[0];
+  $('#foto-input').value = '';
+  if (file) uploadFoto(file);
+});
+
+const fotoDrop = $('#foto-drop');
+['dragenter', 'dragover'].forEach((ev) => fotoDrop.addEventListener(ev, (e) => {
+  e.preventDefault();
+  fotoDrop.classList.add('drag');
+}));
+['dragleave', 'drop'].forEach((ev) => fotoDrop.addEventListener(ev, (e) => {
+  e.preventDefault();
+  fotoDrop.classList.remove('drag');
+}));
+fotoDrop.addEventListener('drop', (e) => {
+  const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith('image/'));
+  if (file) uploadFoto(file);
+});
+
+// incolla con Ctrl+V mentre il dialog foto è aperto
+document.addEventListener('paste', (e) => {
+  if (!$('#dlg-foto').open || !fotoItem) return;
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
+  if (!item) return;
+  e.preventDefault();
+  const file = item.getAsFile();
+  if (file) uploadFoto(file);
+});
+
+$('#foto-delete').addEventListener('click', async () => {
+  if (!fotoItem || !confirm('Rimuovere la foto?')) return;
+  try {
+    await api(`/lista/${fotoItem.id}/foto`, { method: 'DELETE', query: { user_id: state.auth.userId } });
+    fotoItem.has_foto = false;
+    resetFotoPreview();
+    $('#foto-delete').hidden = true;
+    toast('🗑️ Foto rimossa');
+    refreshLista();
+  } catch (err) {
+    handleError(err);
+  }
+});
+
+$('#foto-close').addEventListener('click', () => $('#dlg-foto').close());
+$('#dlg-foto').addEventListener('close', () => {
+  resetFotoPreview();
+  fotoItem = null;
 });
 
 // ---------- aggiunta ----------

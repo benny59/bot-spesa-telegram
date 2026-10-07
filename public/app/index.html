@@ -106,10 +106,31 @@
     <form method="dialog" class="menu">
       <h3 id="item-title"></h3>
       <button value="rename">✏️ Modifica nome</button>
+      <button value="foto" id="item-foto"></button>
       <button value="disponibile" id="item-disponibile"></button>
       <button value="delete" id="item-delete"></button>
       <button value="">Annulla</button>
     </form>
+  </dialog>
+
+  <!-- Foto articolo: carica da file, trascina o incolla (Ctrl+V) -->
+  <dialog id="dlg-foto">
+    <div class="foto-head">
+      <h3 id="foto-title"></h3>
+      <button id="foto-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <div id="foto-drop" class="foto-drop">
+      <p id="foto-loading" class="muted center" hidden>Carico…</p>
+      <img id="foto-img" alt="" hidden>
+      <p id="foto-hint" class="muted center">Trascina un'immagine qui, incollala con Ctrl+V oppure scegli un file.</p>
+    </div>
+    <div class="foto-actions">
+      <label class="primary foto-pick">
+        Scegli file
+        <input id="foto-input" type="file" accept="image/*" hidden>
+      </label>
+      <button id="foto-delete" class="danger" hidden>🗑️ Rimuovi foto</button>
+    </div>
   </dialog>
 
   <!-- Istruzioni installazione iPhone/iPad -->
