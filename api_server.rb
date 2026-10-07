@@ -154,6 +154,7 @@ before do
   content_type :json
   next if request.path_info == '/collega'  # bootstrap: nessun token richiesto
   next if request.path_info.start_with?('/me')  # recupero nome utente
+  next if request.path_info == '/app' || request.path_info.start_with?('/app/')  # PWA statica
 
   tokens = api_tokens_compatibili
   next if tokens.empty?
@@ -1459,7 +1460,31 @@ post '/collega' do
   halt 404, { error: 'PIN non valido o scaduto' }.to_json unless row
 
   DB.execute("DELETE FROM link_pins WHERE pin = ?", [pin])
-  { user_id: row['user_id'], first_name: row['first_name'] }.to_json
+  { user_id: row['user_id'], first_name: row['first_name'], api_token: api_token_per_collegamento }.to_json
+end
+
+# Token restituito a /collega così la PWA si collega con il solo PIN.
+# Se l'auth è attiva (bot token presenti) ma manca 'api_token' ne genera uno:
+# non si restituisce mai il token del bot Telegram.
+def api_token_per_collegamento
+  return nil if api_tokens_compatibili.empty?  # auth disattivata
+
+  token = api_token.to_s.strip
+  return token unless token.empty?
+
+  token = SecureRandom.hex(24)
+  DB.execute("INSERT OR REPLACE INTO config (key, value) VALUES ('api_token', ?)", [token])
+  token
+end
+
+# --- PWA (public/app) ---
+get '/app' do
+  redirect '/app/'
+end
+
+get '/app/' do
+  cache_control :no_cache
+  send_file File.join(settings.public_folder, 'app', 'index.html'), type: :html
 end
 
 get '/carte' do

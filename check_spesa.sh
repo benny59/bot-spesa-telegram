@@ -100,7 +100,8 @@ is_api_running() {
 
     if [ -r "/proc/$PID/cmdline" ]; then
         CMDLINE=$(tr '\000' ' ' < "/proc/$PID/cmdline")
-        echo "$CMDLINE" | grep -q "api_server.rb" || return 1
+        # Puma rinomina il processo in "puma X.Y.Z (tcp://...) [spesa]"
+        echo "$CMDLINE" | grep -qE "api_server\.rb|puma " || return 1
     fi
     return 0
 }

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Spesa</title>
+  <meta name="theme-color" content="#1976D2">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Spesa">
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <button id="btn-nav" class="icon-btn only-mobile" aria-label="Liste">☰</button>
+    <div class="title">
+      <div id="title-main">Spesa</div>
+      <div id="title-sub" class="muted"></div>
+    </div>
+    <button id="btn-refresh" class="icon-btn" aria-label="Aggiorna" title="Aggiorna">↻</button>
+    <button id="btn-menu" class="icon-btn" aria-label="Menu" title="Menu">⋮</button>
+  </header>
+
+  <div id="layout">
+    <nav id="nav" aria-label="Gruppi e topic">
+      <div id="nav-user" class="muted"></div>
+      <ul id="nav-list"></ul>
+    </nav>
+    <div id="nav-backdrop" hidden></div>
+
+    <main>
+      <div id="offline" class="notice" hidden></div>
+      <ul id="lista"></ul>
+      <p id="empty" class="muted center" hidden>Lista vuota 🎉</p>
+    </main>
+  </div>
+
+  <form id="add-form" class="addbar" autocomplete="off">
+    <input id="add-input" type="text" enterkeyhint="send"
+           placeholder="Aggiungi… (più articoli separati da virgola)" aria-label="Nuovo articolo">
+    <select id="add-categoria" aria-label="Categoria"></select>
+    <button type="submit" class="primary" aria-label="Aggiungi">＋</button>
+  </form>
+
+  <div id="install-banner" class="banner" hidden>
+    <img src="icons/icon-192.png" alt="" width="40" height="40">
+    <div class="grow">
+      <strong>Installa Spesa</strong>
+      <div class="muted" id="install-text">Aggiungila alla schermata Home per aprirla come un'app.</div>
+    </div>
+    <button id="install-btn" class="primary">Installa</button>
+    <button id="install-close" class="icon-btn" aria-label="Chiudi">✕</button>
+  </div>
+
+  <div id="toast" role="status" hidden></div>
+
+  <!-- Login con PIN da Telegram -->
+  <dialog id="dlg-login">
+    <form id="login-form" method="dialog">
+      <h2>Collega l'app</h2>
+      <ol>
+        <li>Su Telegram scrivi al bot <code>/collegaapp</code></li>
+        <li>Il bot ti risponde con un PIN di 6 cifre</li>
+        <li>Inseriscilo qui entro 10 minuti</li>
+      </ol>
+      <input id="login-pin" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+             placeholder="PIN" autocomplete="one-time-code" required>
+      <p id="login-error" class="error" hidden></p>
+      <button type="submit" class="primary wide">Collega</button>
+    </form>
+  </dialog>
+
+  <!-- Menu generale -->
+  <dialog id="dlg-menu">
+    <form method="dialog" class="menu">
+      <button value="scopetta">🧹 Scopetta (togli i comprati)</button>
+      <button value="install" id="menu-install" hidden>📲 Installa l'app</button>
+      <button value="logout">🚪 Scollega questo dispositivo</button>
+      <button value="">Annulla</button>
+    </form>
+  </dialog>
+
+  <!-- Azioni sull'articolo -->
+  <dialog id="dlg-item">
+    <form method="dialog" class="menu">
+      <h3 id="item-title"></h3>
+      <button value="rename">✏️ Modifica nome</button>
+      <button value="disponibile" id="item-disponibile"></button>
+      <button value="delete" id="item-delete"></button>
+      <button value="">Annulla</button>
+    </form>
+  </dialog>
+
+  <!-- Istruzioni installazione iPhone/iPad -->
+  <dialog id="dlg-ios">
+    <form method="dialog">
+      <h2>Aggiungi a iPhone / iPad</h2>
+      <ol>
+        <li>In Safari tocca <strong>Condividi</strong> <span aria-hidden="true">⬆︎</span> nella barra in basso</li>
+        <li>Scorri e scegli <strong>Aggiungi alla schermata Home</strong></li>
+        <li>Conferma con <strong>Aggiungi</strong></li>
+      </ol>
+      <button class="primary wide">Ho capito</button>
+    </form>
+  </dialog>
+</body>
+</html>
