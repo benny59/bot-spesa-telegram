@@ -23,6 +23,7 @@
     </div>
     <button id="btn-helper" class="icon-btn" aria-label="Aiuto compilazione" title="Suggeriti, storico e preferiti (c)">📋</button>
     <button id="btn-carte" class="icon-btn" aria-label="Carte fedeltà" title="Carte fedeltà">🎟️</button>
+    <button id="btn-modelli" class="icon-btn" aria-label="Modelli" title="Modelli">📑</button>
     <button id="btn-scopetta" class="icon-btn" aria-label="Scopetta" title="Scopetta (togli comprati e cancellati)">🧹</button>
     <button id="btn-refresh" class="icon-btn" aria-label="Aggiorna" title="Aggiorna">↻</button>
     <button id="btn-menu" class="icon-btn" aria-label="Menu" title="Menu">⋮</button>
@@ -122,6 +123,38 @@
       <img id="carta-img" alt="" hidden>
     </div>
     <p id="carta-codice" class="muted center"></p>
+  </dialog>
+
+  <!-- Modelli di lista: CRUD completo, salvati nel DB (liste_modello) -->
+  <dialog id="dlg-modelli">
+    <div class="foto-head">
+      <h3>📑 Modelli</h3>
+      <div class="foto-head-actions">
+        <button id="modelli-new" class="icon-btn" aria-label="Nuovo modello" title="Nuovo modello">➕</button>
+        <button id="modelli-close" class="icon-btn" aria-label="Chiudi">✕</button>
+      </div>
+    </div>
+    <p id="modelli-empty" class="muted center" hidden>Nessun modello salvato in questa lista.</p>
+    <ul id="modelli-list" class="modelli-list"></ul>
+  </dialog>
+
+  <dialog id="dlg-modello-edit">
+    <div class="foto-head">
+      <h3 id="modello-edit-title"></h3>
+      <button id="modello-edit-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <form id="modello-edit-form">
+      <input id="modello-nome" type="text" placeholder="Nome modello" maxlength="100" required>
+      <ul id="modello-items" class="modello-items"></ul>
+      <div class="modello-add-row">
+        <input id="modello-nuovo-item" type="text" placeholder="Aggiungi articolo…">
+        <button id="modello-add-item" type="button" class="icon-btn" aria-label="Aggiungi articolo">＋</button>
+      </div>
+      <div class="foto-actions">
+        <button id="modello-edit-cancel" type="button">Annulla</button>
+        <button type="submit" class="primary wide">Salva</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- Azioni sull'articolo -->

@@ -796,6 +796,163 @@ async function openInfoDialog(item) {
 $('#info-close').addEventListener('click', () => $('#dlg-info').close());
 $('#dlg-info').addEventListener('close', resetInfoPanel);
 
+// ---------- modelli di lista: CRUD completo (salvati nel DB) ----------
+
+let modelli = [];
+let modelloEditId = null; // null = nuovo modello
+let modelloEditItems = [];
+
+// POST/PUT non passano sempre 'error': normalizziamo qui il messaggio da mostrare.
+async function saveModello({ id, nome, items }) {
+  const user = state.auth.userId;
+  const path = id ? `/modelli/${id}` : '/modelli';
+  const body = id
+    ? { user_id: user, nome, items }
+    : { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId, user_id: user, nome, items };
+  const headers = { 'Content-Type': 'application/json' };
+  if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
+
+  const res = await fetch(path, { method: id ? 'PUT' : 'POST', headers, body: JSON.stringify(body), cache: 'no-store' });
+  if (res.status === 401) throw new AuthError('Non autorizzato');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = data.messaggio ||
+      (res.status === 409 ? 'Esiste già un modello con questo nome in questo contesto.' : (data.error || `Errore ${res.status}`));
+    return { ok: false, message };
+  }
+  return { ok: true };
+}
+
+async function openModelliDialog() {
+  $('#modelli-list').innerHTML = '';
+  $('#modelli-empty').hidden = true;
+  $('#dlg-modelli').showModal();
+  try {
+    modelli = await api('/modelli', {
+      query: { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId, user_id: state.auth.userId }
+    });
+    renderModelliList();
+  } catch (err) {
+    $('#dlg-modelli').close();
+    handleError(err);
+  }
+}
+
+function renderModelliList() {
+  $('#modelli-empty').hidden = modelli.length > 0;
+  $('#modelli-list').innerHTML = modelli.map((m) => `
+    <li class="modello-row">
+      <button class="modello-main" data-action="richiama" data-id="${m.id}">
+        <div class="modello-nome">${esc(m.nome)}</div>
+        <div class="modello-articoli muted">${esc(m.items.join(', '))}</div>
+      </button>
+      <button class="icon-btn" data-action="modifica" data-id="${m.id}" aria-label="Modifica modello">✏️</button>
+      <button class="icon-btn" data-action="elimina" data-id="${m.id}" aria-label="Elimina modello">🗑️</button>
+    </li>
+  `).join('');
+}
+
+$('#modelli-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const modello = modelli.find((m) => m.id === Number(btn.dataset.id));
+  if (!modello) return;
+  if (btn.dataset.action === 'richiama') await richiamaModello(modello);
+  else if (btn.dataset.action === 'modifica') openModelloEdit(modello);
+  else if (btn.dataset.action === 'elimina') await eliminaModello(modello);
+});
+
+async function richiamaModello(modello) {
+  try {
+    const res = await api(`/modelli/${modello.id}/richiama`, {
+      method: 'POST',
+      body: { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId, user_id: state.auth.userId }
+    });
+    $('#dlg-modelli').close();
+    toast(res.ids?.length ? `📑 "${modello.nome}" aggiunto alla lista` : 'Nessun articolo inserito');
+    await refreshLista();
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+async function eliminaModello(modello) {
+  if (!confirm(`Eliminare il modello "${modello.nome}"?`)) return;
+  try {
+    await api(`/modelli/${modello.id}`, { method: 'DELETE', query: { user_id: state.auth.userId } });
+    modelli = modelli.filter((m) => m.id !== modello.id);
+    renderModelliList();
+    toast('🗑️ Modello eliminato');
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+$('#modelli-close').addEventListener('click', () => $('#dlg-modelli').close());
+$('#modelli-new').addEventListener('click', () => openModelloEdit(null));
+
+function renderModelloEditItems() {
+  $('#modello-items').innerHTML = modelloEditItems.map((item, i) => (
+    `<li><span class="grow">${esc(item)}</span><button type="button" class="icon-btn" data-idx="${i}" aria-label="Rimuovi articolo">✕</button></li>`
+  )).join('');
+}
+
+function openModelloEdit(modello) {
+  modelloEditId = modello ? modello.id : null;
+  modelloEditItems = modello ? [...modello.items] : [];
+  $('#modello-edit-title').textContent = modello ? 'Modifica modello' : 'Nuovo modello';
+  $('#modello-nome').value = modello ? modello.nome : '';
+  $('#modello-nuovo-item').value = '';
+  renderModelloEditItems();
+  $('#dlg-modelli').close();
+  $('#dlg-modello-edit').showModal();
+}
+
+function aggiungiModelloItem() {
+  const input = $('#modello-nuovo-item');
+  const value = input.value.trim();
+  if (!value) return;
+  modelloEditItems.push(value);
+  input.value = '';
+  renderModelloEditItems();
+  input.focus();
+}
+
+$('#modello-add-item').addEventListener('click', aggiungiModelloItem);
+$('#modello-nuovo-item').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  aggiungiModelloItem();
+});
+
+$('#modello-items').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-idx]');
+  if (!btn) return;
+  modelloEditItems.splice(Number(btn.dataset.idx), 1);
+  renderModelloEditItems();
+});
+
+$('#modello-edit-close').addEventListener('click', () => $('#dlg-modello-edit').close());
+$('#modello-edit-cancel').addEventListener('click', () => $('#dlg-modello-edit').close());
+
+$('#modello-edit-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nome = $('#modello-nome').value.trim();
+  if (!nome) return toast('Inserisci un nome modello');
+  if (!modelloEditItems.length) return toast('Il modello deve avere almeno un articolo');
+  try {
+    const result = await saveModello({ id: modelloEditId, nome, items: modelloEditItems });
+    if (!result.ok) return toast(result.message);
+    $('#dlg-modello-edit').close();
+    toast('📑 Modello salvato');
+    await openModelliDialog();
+  } catch (err) {
+    handleError(err);
+  }
+});
+
+$('#btn-modelli').addEventListener('click', openModelliDialog);
+
 // ---------- aggiunta ----------
 
 async function loadCategorie() {

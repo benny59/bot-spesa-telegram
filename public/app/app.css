@@ -341,6 +341,7 @@ dialog ol { padding-left: 1.2em; }
   margin-bottom: 8px;
 }
 .foto-head h3 { margin: 0; overflow-wrap: anywhere; }
+.foto-head-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .foto-drop {
   display: flex;
   flex-direction: column;
@@ -356,6 +357,12 @@ dialog ol { padding-left: 1.2em; }
 .foto-drop.drag { border-color: var(--primary); background: #eef4fb; }
 .foto-drop img { max-width: 100%; max-height: 50vh; border-radius: 8px; }
 .foto-actions { display: flex; gap: 8px; margin-top: 12px; }
+.foto-actions button:not(.primary):not(.danger) {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .6em 1em;
+}
 .foto-pick { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 
 /* --- Carte fedeltà (sola lettura) --- */
@@ -369,6 +376,39 @@ dialog ol { padding-left: 1.2em; }
   padding: 12px;
 }
 .carta-barcode img { max-width: 100%; max-height: 40vh; background: #fff; border-radius: 8px; }
+
+/* --- Modelli di lista (CRUD) --- */
+#dlg-modelli { width: min(92vw, 480px); }
+.modelli-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
+.modello-row { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid #f0f0f0; }
+.modello-main { flex: 1; min-width: 0; display: block; text-align: left; background: none; border: 0; padding: 10px 8px; }
+.modello-nome { font-weight: 600; overflow-wrap: anywhere; }
+.modello-articoli { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dlg-modello-edit { width: min(92vw, 420px); }
+#modello-nome {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: .6em .8em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.modello-items { list-style: none; margin: 0 0 8px; padding: 0; max-height: 30vh; overflow-y: auto; }
+.modello-items li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.modello-items li span { overflow-wrap: anywhere; }
+.modello-add-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.modello-add-row input {
+  flex: 1;
+  min-width: 0;
+  padding: .6em .8em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
 
 /* --- Info prodotto (Yuka / OpenFoodFacts, sola lettura) --- */
 #dlg-info { width: min(92vw, 480px); max-height: 85vh; overflow-y: auto; }
