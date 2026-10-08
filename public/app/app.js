@@ -467,10 +467,8 @@ $('#dlg-item').addEventListener('close', () => {
   if (!item || !action) return;
   const user = state.auth.userId;
 
-  if (action === 'rename') {
-    const nome = prompt('Nuovo nome', item.nome);
-    if (!nome || !nome.trim() || nome.trim() === item.nome) return;
-    runOnItem(item, () => api(`/lista/${item.id}`, { method: 'PATCH', body: { nome: nome.trim(), user_id: user } }));
+  if (action === 'modifica') {
+    openEditItemDialog(item);
   } else if (action === 'foto') {
     openFotoDialog(item);
   } else if (action === 'info') {
@@ -499,6 +497,116 @@ $('#lista').addEventListener('click', (e) => {
   else if (btn.dataset.action === 'foto') openFotoDialog(item);
   else if (btn.dataset.action === 'info') openInfoDialog(item);
   else openItemMenu(item);
+});
+
+// ---------- modifica articolo: nome, categoria, sposta gruppo/topic ----------
+
+let editItem = null;
+
+function populateEditGruppi() {
+  $('#edit-item-gruppo').innerHTML = state.gruppi.map((g) => (
+    `<option value="${g.id}">${esc(g.nome)}</option>`
+  )).join('');
+}
+
+function populateEditTopics(gruppoId) {
+  const topics = state.topics[gruppoId] || [{ topic_id: 0, nome: 'Principale' }];
+  $('#edit-item-topic').innerHTML = topics.map((t) => (
+    `<option value="${t.topic_id}">${esc(t.nome)}</option>`
+  )).join('');
+  $('#edit-item-topic-row').hidden = Number(gruppoId) === 0; // la Lista Personale non ha topic
+}
+
+async function populateEditCategorie(gruppoId, topicId, selected) {
+  const sel = $('#edit-item-categoria');
+  sel.innerHTML = '<option value="">Nessuna categoria</option>';
+  try {
+    const categorie = await api('/categorie', { query: { gruppo_id: gruppoId, topic_id: topicId, user_id: state.auth.userId } });
+    sel.innerHTML += categorie.sort((a, b) => a.nome.localeCompare(b.nome, 'it')).map((c) => (
+      c.effimera
+        ? `<option value="e:${esc(c.nome)}">◌ ${esc(c.nome.toLowerCase())}</option>`
+        : `<option value="${c.id}">${esc(c.nome)}</option>`
+    )).join('');
+  } catch {
+    // il selettore resta con la sola opzione "Nessuna categoria"
+  }
+  sel.value = selected || '';
+}
+
+// Nessuna categoria selezionata = non si invia categoria_id (come l'app Android):
+// l'endpoint non supporta la rimozione esplicita di una categoria già assegnata.
+function categoriaValueDiItem(item) {
+  if (item.categoria_id) return String(item.categoria_id);
+  if (item.categoria_nome) return `e:${item.categoria_nome}`;
+  return '';
+}
+
+async function openEditItemDialog(item) {
+  editItem = item;
+  $('#edit-item-nome').value = item.nome;
+  populateEditGruppi();
+  $('#edit-item-gruppo').value = String(item.gruppo_id);
+  populateEditTopics(item.gruppo_id);
+  $('#edit-item-topic').value = String(item.topic_id);
+  await populateEditCategorie(item.gruppo_id, item.topic_id, categoriaValueDiItem(item));
+  $('#dlg-edit-item').showModal();
+}
+
+$('#edit-item-gruppo').addEventListener('change', async () => {
+  const gruppoId = Number($('#edit-item-gruppo').value);
+  populateEditTopics(gruppoId);
+  await populateEditCategorie(gruppoId, Number($('#edit-item-topic').value));
+});
+
+$('#edit-item-topic').addEventListener('change', async () => {
+  await populateEditCategorie(Number($('#edit-item-gruppo').value), Number($('#edit-item-topic').value));
+});
+
+$('#edit-item-close').addEventListener('click', () => $('#dlg-edit-item').close());
+$('#edit-item-cancel').addEventListener('click', () => $('#dlg-edit-item').close());
+
+$('#edit-item-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const item = editItem;
+  if (!item) return;
+  const user = state.auth.userId;
+
+  const nomeNuovo = $('#edit-item-nome').value.trim();
+  if (!nomeNuovo) return toast('Inserisci un nome');
+  const gruppoNuovo = Number($('#edit-item-gruppo').value);
+  const topicNuovo = gruppoNuovo === 0 ? 0 : Number($('#edit-item-topic').value);
+  const categoriaValue = $('#edit-item-categoria').value;
+
+  let nomeBody = nomeNuovo;
+  let categoriaIdBody;
+  if (categoriaValue.startsWith('e:')) {
+    nomeBody = `${nomeNuovo} & ${categoriaValue.slice(2)}`;
+  } else if (categoriaValue) {
+    categoriaIdBody = Number(categoriaValue);
+  }
+
+  const spostato = gruppoNuovo !== item.gruppo_id || topicNuovo !== item.topic_id;
+  const rinominato = nomeNuovo !== item.nome || categoriaValue !== categoriaValueDiItem(item);
+  if (!spostato && !rinominato) {
+    $('#dlg-edit-item').close();
+    return;
+  }
+
+  $('#dlg-edit-item').close();
+  await runOnItem(item, async () => {
+    if (spostato) {
+      await api(`/lista/${item.id}/topic`, {
+        method: 'PATCH', body: { gruppo_id: gruppoNuovo, topic_id: topicNuovo, user_id: user }
+      });
+      item.gruppo_id = gruppoNuovo;
+      item.topic_id = topicNuovo;
+    }
+    if (rinominato) {
+      const body = { nome: nomeBody, user_id: user };
+      if (categoriaIdBody !== undefined) body.categoria_id = categoriaIdBody;
+      await api(`/lista/${item.id}`, { method: 'PATCH', body });
+    }
+  });
 });
 
 // ---------- foto articolo: carica da file, trascina o incolla ----------
@@ -1031,6 +1139,13 @@ function categoriaRow(nome, effimera) {
   return `${effimera ? '◌' : '▣'} ${effimera ? nome.toLowerCase() : nome}`;
 }
 
+// Una categoria effimera esiste solo finché almeno un articolo attivo la usa (vedi /categorie).
+function categoriaEffimeraEsiste(nome) {
+  const norm = String(nome || '').trim().toLowerCase();
+  if (!norm) return false;
+  return state.categorie.some((c) => c.effimera && c.nome.trim().toLowerCase() === norm);
+}
+
 // articoli ancora da comprare nella lista di destinazione (per i preferiti)
 async function itemsDestinazione() {
   if (!state.sel.vista) return state.items;
@@ -1094,12 +1209,21 @@ async function fetchHelperRows(tab) {
   const inLista = new Map((await itemsDestinazione())
     .filter((i) => !i.comprato && !i.deleted)
     .map((i) => [i.nome.trim().toLowerCase(), i.id]));
-  const favorites = [...(backup.favorites || [])].sort((a, b) => (
-    (!a.categoryName - !b.categoryName) ||
-    (Number(a.categoryEphemeral) - Number(b.categoryEphemeral)) ||
-    (a.categoryName || '').localeCompare(b.categoryName || '', 'it') ||
-    a.description.localeCompare(b.description, 'it')
-  ));
+  // Una categoria effimera esiste solo finché c'è un articolo che la usa: se il preferito
+  // ne ha una ormai non istanziata in questo contesto, va trattato come "Senza categoria".
+  const effettivaCategoria = (f) => (
+    f.categoryEphemeral && !categoriaEffimeraEsiste(f.categoryName)
+      ? { nome: '', effimera: false }
+      : { nome: f.categoryName || '', effimera: f.categoryEphemeral }
+  );
+  const favorites = [...(backup.favorites || [])]
+    .map((f) => ({ ...f, _categoria: effettivaCategoria(f) }))
+    .sort((a, b) => (
+      (!a._categoria.nome - !b._categoria.nome) ||
+      (Number(a._categoria.effimera) - Number(b._categoria.effimera)) ||
+      a._categoria.nome.localeCompare(b._categoria.nome, 'it') ||
+      a.description.localeCompare(b.description, 'it')
+    ));
   return {
     note: `Backup dall'app Android del ${formatData((backup.lastBackupAt || '').replace('T', ' '))} · si modificano dall'app`,
     rows: favorites.map((f) => {
@@ -1109,7 +1233,7 @@ async function fetchHelperRows(tab) {
         nome: f.description,
         label: f.description,
         meta: '',
-        section: categoriaRow(f.categoryName, f.categoryEphemeral),
+        section: categoriaRow(f._categoria.nome, f._categoria.effimera),
         inLista: itemId !== undefined,
         itemId,
         favorite: f

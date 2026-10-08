@@ -410,6 +410,26 @@ dialog ol { padding-left: 1.2em; }
   border-radius: 8px;
 }
 
+/* --- Modifica articolo (nome, categoria, sposta gruppo/topic) --- */
+#dlg-edit-item { width: min(92vw, 420px); }
+#edit-item-nome {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: .6em .8em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.edit-item-label { display: block; margin: 0 0 10px; font-size: .85em; }
+.edit-item-label select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: .6em .8em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
 /* --- Info prodotto (Yuka / OpenFoodFacts, sola lettura) --- */
 #dlg-info { width: min(92vw, 480px); max-height: 85vh; overflow-y: auto; }
 .info-yuka { margin-bottom: 12px; }

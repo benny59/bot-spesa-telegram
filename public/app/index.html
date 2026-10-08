@@ -161,12 +161,36 @@
   <dialog id="dlg-item">
     <form method="dialog" class="menu">
       <h3 id="item-title"></h3>
-      <button value="rename">✏️ Modifica nome</button>
+      <button value="modifica">✏️ Modifica articolo</button>
       <button value="foto" id="item-foto"></button>
       <button value="info">ℹ️ Info prodotto (Yuka/OpenFood)</button>
       <button value="disponibile" id="item-disponibile"></button>
       <button value="delete" id="item-delete"></button>
       <button value="">Annulla</button>
+    </form>
+  </dialog>
+
+  <!-- Modifica articolo: nome, categoria e spostamento gruppo/topic -->
+  <dialog id="dlg-edit-item">
+    <div class="foto-head">
+      <h3>✏️ Modifica articolo</h3>
+      <button id="edit-item-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <form id="edit-item-form">
+      <input id="edit-item-nome" type="text" placeholder="Nome articolo" maxlength="200" required>
+      <label class="edit-item-label muted">Lista
+        <select id="edit-item-gruppo"></select>
+      </label>
+      <label id="edit-item-topic-row" class="edit-item-label muted">Topic
+        <select id="edit-item-topic"></select>
+      </label>
+      <label class="edit-item-label muted">Categoria
+        <select id="edit-item-categoria"></select>
+      </label>
+      <div class="foto-actions">
+        <button id="edit-item-cancel" type="button">Annulla</button>
+        <button type="submit" class="primary wide">Salva</button>
+      </div>
     </form>
   </dialog>
 
