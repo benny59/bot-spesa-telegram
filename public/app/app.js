@@ -487,7 +487,18 @@ $('#dlg-item').addEventListener('close', () => {
 
 $('#lista').addEventListener('click', (e) => {
   const context = e.target.closest('button.context');
-  if (context) return selectContext(Number(context.dataset.gruppo), Number(context.dataset.topic));
+  if (context) {
+    const gruppoId = Number(context.dataset.gruppo), topicId = Number(context.dataset.topic);
+    if (state.sel.vista) {
+      // in Tutti/Miei: solo destinazione di default per i nuovi articoli, vista invariata
+      state.sel = { ...state.sel, gruppoId, topicId };
+      save('spesa.sel', state.sel);
+      loadCategorie();
+      render();
+      return;
+    }
+    return selectContext(gruppoId, topicId);
+  }
   const btn = e.target.closest('button[data-action]');
   const li = e.target.closest('.item');
   if (!btn || !li) return;
