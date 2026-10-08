@@ -170,6 +170,7 @@ main {
 .item-cat { font-size: .8em; color: var(--muted); }
 .item-more { flex-shrink: 0; color: var(--muted); }
 .item-foto { flex-shrink: 0; color: var(--primary); font-size: 1.1em; }
+.item-info { flex-shrink: 0; color: var(--primary); font-size: 1.1em; }
 
 /* intestazione gruppo • topic nelle viste Tutti / Miei: cliccabile, porta alla lista */
 .context {
@@ -372,6 +373,7 @@ dialog ol { padding-left: 1.2em; }
 /* --- Info prodotto (Yuka / OpenFoodFacts, sola lettura) --- */
 #dlg-info { width: min(92vw, 480px); max-height: 85vh; overflow-y: auto; }
 .info-yuka { margin-bottom: 12px; }
+.info-yuka-hint { margin-top: 6px; }
 .info-off-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .info-off-head img { width: 64px; height: 64px; object-fit: contain; border-radius: 8px; background: #fff; }
 .info-off-nome { font-weight: 600; overflow-wrap: anywhere; }

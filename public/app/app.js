@@ -358,6 +358,7 @@ function renderItem(item) {
       ${buyer}
     </button>
     ${item.has_foto ? '<button class="icon-btn item-foto" data-action="foto" aria-label="Foto">🖼️</button>' : ''}
+    ${(item.gtin || isYukaLink(item.link_url)) ? '<button class="icon-btn item-info" data-action="info" aria-label="Info prodotto">ℹ️</button>' : ''}
     <button class="icon-btn item-more" data-action="more" aria-label="Azioni">⋯</button>
   </li>`;
 }
@@ -496,6 +497,7 @@ $('#lista').addEventListener('click', (e) => {
   if (!item || state.pending.has(item.id)) return;
   if (btn.dataset.action === 'tap') tapItem(item);
   else if (btn.dataset.action === 'foto') openFotoDialog(item);
+  else if (btn.dataset.action === 'info') openInfoDialog(item);
   else openItemMenu(item);
 });
 
