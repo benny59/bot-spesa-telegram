@@ -503,18 +503,22 @@ $('#lista').addEventListener('click', (e) => {
 
 let editItem = null;
 
-function populateEditGruppi() {
-  $('#edit-item-gruppo').innerHTML = state.gruppi.map((g) => (
-    `<option value="${g.id}">${esc(g.nome)}</option>`
-  )).join('');
+// Un solo menu con tutti i record "Gruppo · Topic" visibili dall'utente (niente cascata gruppo->topic).
+function populateEditDestinazioni(gruppoIdSelezionato, topicIdSelezionato) {
+  $('#edit-item-destinazione').innerHTML = state.gruppi.map((g) => {
+    if (g.id === 0) return `<option value="0:0">${esc(g.nome)}</option>`;
+    const topics = state.topics[g.id] || [{ topic_id: 0, nome: 'Principale' }];
+    const options = topics.map((t) => (
+      `<option value="${g.id}:${t.topic_id}">${esc(t.nome)}</option>`
+    )).join('');
+    return `<optgroup label="${esc(g.nome)}">${options}</optgroup>`;
+  }).join('');
+  $('#edit-item-destinazione').value = `${gruppoIdSelezionato}:${topicIdSelezionato}`;
 }
 
-function populateEditTopics(gruppoId) {
-  const topics = state.topics[gruppoId] || [{ topic_id: 0, nome: 'Principale' }];
-  $('#edit-item-topic').innerHTML = topics.map((t) => (
-    `<option value="${t.topic_id}">${esc(t.nome)}</option>`
-  )).join('');
-  $('#edit-item-topic-row').hidden = Number(gruppoId) === 0; // la Lista Personale non ha topic
+function destinazioneEditSelezionata() {
+  const [gruppoId, topicId] = $('#edit-item-destinazione').value.split(':').map(Number);
+  return { gruppoId, topicId };
 }
 
 async function populateEditCategorie(gruppoId, topicId, selected) {
@@ -544,22 +548,15 @@ function categoriaValueDiItem(item) {
 async function openEditItemDialog(item) {
   editItem = item;
   $('#edit-item-nome').value = item.nome;
-  populateEditGruppi();
-  $('#edit-item-gruppo').value = String(item.gruppo_id);
-  populateEditTopics(item.gruppo_id);
-  $('#edit-item-topic').value = String(item.topic_id);
-  await populateEditCategorie(item.gruppo_id, item.topic_id, categoriaValueDiItem(item));
+  populateEditDestinazioni(item.gruppo_id, item.topic_id);
+  const { gruppoId, topicId } = destinazioneEditSelezionata();
+  await populateEditCategorie(gruppoId, topicId, categoriaValueDiItem(item));
   $('#dlg-edit-item').showModal();
 }
 
-$('#edit-item-gruppo').addEventListener('change', async () => {
-  const gruppoId = Number($('#edit-item-gruppo').value);
-  populateEditTopics(gruppoId);
-  await populateEditCategorie(gruppoId, Number($('#edit-item-topic').value));
-});
-
-$('#edit-item-topic').addEventListener('change', async () => {
-  await populateEditCategorie(Number($('#edit-item-gruppo').value), Number($('#edit-item-topic').value));
+$('#edit-item-destinazione').addEventListener('change', async () => {
+  const { gruppoId, topicId } = destinazioneEditSelezionata();
+  await populateEditCategorie(gruppoId, topicId);
 });
 
 $('#edit-item-close').addEventListener('click', () => $('#dlg-edit-item').close());
@@ -573,8 +570,7 @@ $('#edit-item-form').addEventListener('submit', async (e) => {
 
   const nomeNuovo = $('#edit-item-nome').value.trim();
   if (!nomeNuovo) return toast('Inserisci un nome');
-  const gruppoNuovo = Number($('#edit-item-gruppo').value);
-  const topicNuovo = gruppoNuovo === 0 ? 0 : Number($('#edit-item-topic').value);
+  const { gruppoId: gruppoNuovo, topicId: topicNuovo } = destinazioneEditSelezionata();
   const categoriaValue = $('#edit-item-categoria').value;
 
   let nomeBody = nomeNuovo;
