@@ -130,10 +130,47 @@
       <h3 id="item-title"></h3>
       <button value="rename">✏️ Modifica nome</button>
       <button value="foto" id="item-foto"></button>
+      <button value="info">ℹ️ Info prodotto (Yuka/OpenFood)</button>
       <button value="disponibile" id="item-disponibile"></button>
       <button value="delete" id="item-delete"></button>
       <button value="">Annulla</button>
     </form>
+  </dialog>
+
+  <!-- Info prodotto: Yuka / OpenFoodFacts, sola lettura -->
+  <dialog id="dlg-info">
+    <div class="foto-head">
+      <h3 id="info-title"></h3>
+      <button id="info-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <div id="info-yuka" class="info-yuka" hidden>
+      <a id="info-yuka-link" href="#" target="_blank" rel="noopener" class="primary wide">🥕 Apri su Yuka ↗</a>
+    </div>
+    <p id="info-loading" class="muted center" hidden>Carico…</p>
+    <p id="info-empty" class="muted center" hidden></p>
+    <div id="info-off" class="info-off" hidden>
+      <div class="info-off-head">
+        <img id="info-off-img" alt="" hidden>
+        <div class="grow">
+          <div id="info-off-nome" class="info-off-nome"></div>
+          <div id="info-off-brand" class="muted"></div>
+        </div>
+      </div>
+      <div class="info-badges">
+        <span id="info-nutriscore" class="badge nutriscore" hidden></span>
+        <span id="info-nova" class="badge nova" hidden></span>
+      </div>
+      <ul id="info-nutrienti" class="info-nutrienti"></ul>
+      <div id="info-allergeni" class="info-section" hidden>
+        <strong>Allergeni</strong>
+        <p id="info-allergeni-text"></p>
+      </div>
+      <div id="info-ingredienti" class="info-section" hidden>
+        <strong>Ingredienti</strong>
+        <p id="info-ingredienti-text"></p>
+      </div>
+      <a id="info-off-link" href="#" target="_blank" rel="noopener" class="muted">Vedi su OpenFoodFacts ↗</a>
+    </div>
   </dialog>
 
   <!-- Foto articolo: carica da file, trascina o incolla (Ctrl+V) -->

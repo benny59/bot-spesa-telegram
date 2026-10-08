@@ -369,6 +369,32 @@ dialog ol { padding-left: 1.2em; }
 }
 .carta-barcode img { max-width: 100%; max-height: 40vh; background: #fff; border-radius: 8px; }
 
+/* --- Info prodotto (Yuka / OpenFoodFacts, sola lettura) --- */
+#dlg-info { width: min(92vw, 480px); max-height: 85vh; overflow-y: auto; }
+.info-yuka { margin-bottom: 12px; }
+.info-off-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.info-off-head img { width: 64px; height: 64px; object-fit: contain; border-radius: 8px; background: #fff; }
+.info-off-nome { font-weight: 600; overflow-wrap: anywhere; }
+.info-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.badge {
+  display: inline-block;
+  padding: .3em .7em;
+  border-radius: 1em;
+  font-size: .8em;
+  font-weight: 600;
+  color: #fff;
+  background: var(--muted);
+}
+.nutriscore-a { background: #038141; }
+.nutriscore-b { background: #85BB2F; }
+.nutriscore-c { background: #FECB02; color: #212121; }
+.nutriscore-d { background: #EE8100; }
+.nutriscore-e { background: #E63E11; }
+.info-nutrienti { list-style: none; margin: 0 0 8px; padding: 0; font-size: .9em; }
+.info-nutrienti li { padding: 2px 0; border-bottom: 1px solid #f0f0f0; }
+.info-section { margin-top: 8px; font-size: .9em; }
+.info-section p { margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+
 /* --- Aiuto compilazione (suggeriti / storico / preferiti) --- */
 #helper {
   display: flex;

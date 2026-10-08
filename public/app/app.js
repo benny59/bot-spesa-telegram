@@ -96,6 +96,22 @@ async function fetchFotoBlobUrl(itemId) {
   return URL.createObjectURL(await res.blob());
 }
 
+// Scheda prodotto OpenFoodFacts (sola lettura): niente eccezione sui 404, solo un messaggio da mostrare.
+async function fetchProductInfo(gtin) {
+  const headers = {};
+  if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
+  const res = await fetch(`/prodotti/${encodeURIComponent(gtin)}/anteprima`, { headers, cache: 'no-store' });
+  if (res.status === 401) throw new AuthError('Non autorizzato');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = data.found === false
+      ? 'Prodotto non trovato su OpenFoodFacts.'
+      : (data.error || `Errore ${res.status}`);
+    return { ok: false, message };
+  }
+  return { ok: true, data };
+}
+
 function handleError(err) {
   if (err instanceof AuthError) {
     logout();
@@ -456,6 +472,8 @@ $('#dlg-item').addEventListener('close', () => {
     runOnItem(item, () => api(`/lista/${item.id}`, { method: 'PATCH', body: { nome: nome.trim(), user_id: user } }));
   } else if (action === 'foto') {
     openFotoDialog(item);
+  } else if (action === 'info') {
+    openInfoDialog(item);
   } else if (action === 'disponibile') {
     runOnItem(item, () => api(`/lista/${item.id}/disponibile`, {
       method: 'PATCH', body: { gruppo_id: item.gruppo_id, user_id: user, disponibile: !item.disponibile }
@@ -664,6 +682,117 @@ async function openCartaDialog(carta) {
 
 $('#carta-close').addEventListener('click', () => $('#dlg-carta').close());
 $('#dlg-carta').addEventListener('close', resetCartaPreview);
+
+// ---------- info prodotto: Yuka / OpenFoodFacts (sola lettura) ----------
+
+function isYukaLink(url) {
+  return /^https:\/\/app\.yuka\.io\//i.test(String(url || ''));
+}
+
+const NUTRISCORE_LABEL = { a: 'A', b: 'B', c: 'C', d: 'D', e: 'E' };
+const NOVA_LABEL = {
+  1: 'NOVA 1 · non trasformato o minimo',
+  2: 'NOVA 2 · ingrediente culinario trasformato',
+  3: 'NOVA 3 · alimento trasformato',
+  4: 'NOVA 4 · alimento ultra-trasformato'
+};
+
+function fmtNum(n) {
+  return Number(n).toLocaleString('it-IT', { maximumFractionDigits: 1 });
+}
+
+function resetInfoPanel() {
+  $('#info-yuka').hidden = true;
+  $('#info-loading').hidden = true;
+  $('#info-empty').hidden = true;
+  $('#info-off').hidden = true;
+  $('#info-off-img').hidden = true;
+  $('#info-off-img').src = '';
+  $('#info-nutriscore').hidden = true;
+  $('#info-nutriscore').className = 'badge nutriscore';
+  $('#info-nova').hidden = true;
+  $('#info-allergeni').hidden = true;
+  $('#info-ingredienti').hidden = true;
+  $('#info-nutrienti').innerHTML = '';
+}
+
+function renderProductInfo(p) {
+  $('#info-off').hidden = false;
+  if (p.image_url) {
+    $('#info-off-img').src = p.image_url;
+    $('#info-off-img').hidden = false;
+  }
+  $('#info-off-nome').textContent = p.name || '';
+  $('#info-off-brand').textContent = [p.brand, p.quantity].filter(Boolean).join(' · ');
+
+  if (p.nutriscore_grade && NUTRISCORE_LABEL[p.nutriscore_grade]) {
+    $('#info-nutriscore').textContent = `Nutri-Score ${NUTRISCORE_LABEL[p.nutriscore_grade]}`;
+    $('#info-nutriscore').className = `badge nutriscore nutriscore-${p.nutriscore_grade}`;
+    $('#info-nutriscore').hidden = false;
+  }
+  if (p.nova_group && NOVA_LABEL[p.nova_group]) {
+    $('#info-nova').textContent = NOVA_LABEL[p.nova_group];
+    $('#info-nova').hidden = false;
+  }
+
+  const nutrienti = [
+    p.energy_kcal_100g != null ? `Energia: ${fmtNum(p.energy_kcal_100g)} kcal/100g` : null,
+    p.sugars_100g != null ? `Zuccheri: ${fmtNum(p.sugars_100g)} g/100g` : null,
+    p.saturated_fat_100g != null ? `Grassi saturi: ${fmtNum(p.saturated_fat_100g)} g/100g` : null,
+    p.salt_100g != null ? `Sale: ${fmtNum(p.salt_100g)} g/100g` : null
+  ].filter(Boolean);
+  $('#info-nutrienti').innerHTML = nutrienti.map((n) => `<li>${esc(n)}</li>`).join('');
+
+  if (p.allergens?.length) {
+    $('#info-allergeni-text').textContent = p.allergens.map((a) => a.replace(/^[a-z]{2}:/, '')).join(', ');
+    $('#info-allergeni').hidden = false;
+  }
+  if (p.ingredients_text) {
+    $('#info-ingredienti-text').textContent = p.ingredients_text;
+    $('#info-ingredienti').hidden = false;
+  }
+  $('#info-off-link').href = p.source_url || `https://world.openfoodfacts.org/product/${encodeURIComponent(p.barcode || '')}`;
+}
+
+async function openInfoDialog(item) {
+  resetInfoPanel();
+  $('#info-title').textContent = item.nome;
+  $('#dlg-info').showModal();
+
+  const yuka = isYukaLink(item.link_url);
+  if (yuka) {
+    $('#info-yuka-link').href = item.link_url;
+    $('#info-yuka').hidden = false;
+  }
+
+  const gtin = (item.gtin || '').trim();
+  if (!gtin) {
+    if (!yuka) {
+      $('#info-empty').textContent = 'Nessuna informazione disponibile per questo articolo.';
+      $('#info-empty').hidden = false;
+    }
+    return;
+  }
+
+  $('#info-loading').hidden = false;
+  try {
+    const result = await fetchProductInfo(gtin);
+    if (!$('#dlg-info').open) return; // chiuso nel frattempo
+    if (!result.ok) {
+      $('#info-empty').textContent = result.message;
+      $('#info-empty').hidden = false;
+      return;
+    }
+    renderProductInfo(result.data);
+  } catch (err) {
+    handleError(err);
+  } finally {
+    $('#info-loading').hidden = true;
+  }
+}
+
+$('#info-close').addEventListener('click', () => $('#dlg-info').close());
+$('#dlg-info').addEventListener('close', resetInfoPanel);
 
 // ---------- aggiunta ----------
 
