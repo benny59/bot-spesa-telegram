@@ -82,12 +82,17 @@ object ApiClient {
         return parseItems(http.newCall(req).execute().use { it.body!!.string() })
     }
 
+    fun getOggi(userId: Int): List<SpesaItem> {
+        val req = Request.Builder().url("$baseUrl/lista/oggi?user_id=$userId").auth().build()
+        return parseItems(http.newCall(req).execute().use { it.body!!.string() })
+    }
+
     fun getTutti(userId: Int): List<SpesaItem> {
         val req = Request.Builder().url("$baseUrl/lista/tutti?user_id=$userId").auth().build()
         return parseItems(http.newCall(req).execute().use { it.body!!.string() })
     }
 
-    data class ConteggiListe(val tutti: Int, val miei: Int)
+    data class ConteggiListe(val tutti: Int, val miei: Int, val oggi: Int = 0)
 
     data class CategoriaItem(val id: Int, val nome: String, val effimera: Boolean = false)
 
@@ -139,7 +144,8 @@ object ApiClient {
         val raw: Map<String, Any> = gson.fromJson(body, object : TypeToken<Map<String, Any>>() {}.type)
         return ConteggiListe(
             tutti = (raw["tutti"] as? Double)?.toInt() ?: 0,
-            miei = (raw["miei"] as? Double)?.toInt() ?: 0
+            miei = (raw["miei"] as? Double)?.toInt() ?: 0,
+            oggi = (raw["oggi"] as? Double)?.toInt() ?: 0
         )
     }
 
@@ -234,6 +240,12 @@ object ApiClient {
                 is String -> disponibileValue.equals("true", ignoreCase = true) || disponibileValue == "1"
                 else -> true
             }
+            val oggi = when (val oggiValue = item["oggi"]) {
+                is Boolean -> oggiValue
+                is Double -> oggiValue.toInt() != 0
+                is String -> oggiValue.equals("true", ignoreCase = true) || oggiValue == "1"
+                else -> false
+            }
             SpesaItem(
                 id           = (item["id"] as Double).toInt(),
                 nome         = parsedCategoria.first,
@@ -255,7 +267,8 @@ object ApiClient {
                 categoriaNome = parsedCategoria.second,
                 categoriaEffimera = categoriaEffimera,
                 deleted      = deleted,
-                disponibile  = disponibile
+                disponibile  = disponibile,
+                oggi         = oggi
             )
         }
     }
@@ -647,6 +660,20 @@ object ApiClient {
         ))
         val req = Request.Builder()
             .url("$baseUrl/lista/$itemId/disponibile")
+            .patch(payload.toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    fun setOggi(gruppoId: Int, itemId: Int, userId: Int, oggi: Boolean): Boolean {
+        val payload = gson.toJson(mapOf(
+            "gruppo_id" to gruppoId,
+            "user_id" to userId,
+            "oggi" to oggi
+        ))
+        val req = Request.Builder()
+            .url("$baseUrl/lista/$itemId/oggi")
             .patch(payload.toRequestBody(JSON_TYPE))
             .auth()
             .build()

@@ -21,7 +21,8 @@ data class SpesaItem(
     val categoriaNome: String = "",
     val categoriaEffimera: Boolean = false,
     val deleted: Boolean = false,
-    val disponibile: Boolean = true
+    val disponibile: Boolean = true,
+    val oggi: Boolean = false
 ) {
     val isBought: Boolean get() = comprato.isNotEmpty()
     val isDeleted: Boolean get() = deleted

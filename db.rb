@@ -295,6 +295,22 @@ SQL
     );
   SQL
 
+  # "Oggi" = item urgenti per la giornata: flag condiviso nel gruppo, senza toccare items.
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS oggi (
+      item_id INTEGER PRIMARY KEY,
+      impostato_da INTEGER,
+      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
+  # Qualunque cancellazione di un item (scopetta, undo, cleanup) toglie anche il marcatore.
+  db.execute <<-SQL
+    CREATE TRIGGER IF NOT EXISTS trg_items_delete_oggi AFTER DELETE ON items
+    BEGIN
+      DELETE FROM oggi WHERE item_id = OLD.id;
+    END;
+  SQL
+
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_gruppo_topic ON items (gruppo_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_categoria ON items (categoria_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_items_gtin ON items (gtin);"
@@ -409,6 +425,26 @@ class DataManager
     available = (disponibile == true || disponibile == 1 || disponibile.to_s == "true") ? 1 : 0
     DB.execute("UPDATE items SET disponibile = ? WHERE id = ?", [available, item_id])
     DB.changes > 0
+  end
+
+  def self.set_oggi(item_id, oggi, user_id = nil)
+    item_id = item_id.to_i
+    return false if item_id <= 0
+
+    if oggi == true || oggi == 1 || oggi.to_s == "true"
+      DB.execute("INSERT OR IGNORE INTO oggi (item_id, impostato_da) VALUES (?, ?)", [item_id, user_id])
+    else
+      DB.execute("DELETE FROM oggi WHERE item_id = ?", [item_id])
+    end
+    true
+  end
+
+  # Valorizza row['oggi'] (1/0) sugli item già caricati, con una sola query.
+  def self.annota_oggi(items)
+    ids = items.map { |i| i['id'] }.compact
+    marcati = ids.empty? ? [] : DB.execute("SELECT item_id FROM oggi WHERE item_id IN (#{ids.map { '?' }.join(',')})", ids).map { |r| r['item_id'] }
+    items.each { |i| i['oggi'] = marcati.include?(i['id']) ? 1 : 0 }
+    items
   end
 
   def self.toggle_disponibile(item_id)

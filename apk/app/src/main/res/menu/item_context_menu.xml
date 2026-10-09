@@ -17,6 +17,9 @@
         android:id="@+id/action_disponibile"
         android:title="@string/action_disponibile" />
     <item
+        android:id="@+id/action_oggi"
+        android:title="@string/action_segna_oggi" />
+    <item
         android:id="@+id/action_elimina"
         android:title="@string/elimina_articolo" />
 </menu>

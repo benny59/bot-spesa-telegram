@@ -440,6 +440,7 @@ get '/lista' do
   items = (gruppo_id == 0 && user_id_q != 0) \
     ? Lista.personale(user_id_q) \
     : Lista.tutti(gruppo_id, topic_id)
+  DataManager.annota_oggi(items)
 
   # Recupera i metadati dell'ultima foto senza trasferire alcuna immagine.
   item_ids = items.map { |i| i['id'] }
@@ -485,6 +486,7 @@ get '/lista' do
       creato_il:     i['creato_il'],
       deleted:       i['deleted'].to_i == 1,
       disponibile:   i['disponibile'].to_i != 0,
+      oggi:          i['oggi'].to_i == 1,
       has_foto:      !foto.nil?,
       picture_id:    foto && foto['file_id'],
       picture_date:  foto && foto['creato_il'],
@@ -1061,6 +1063,25 @@ patch '/lista/:id/disponibile' do
   { ok: true, disponibile: value }.to_json
 end
 
+patch '/lista/:id/oggi' do
+  item_id = params[:id].to_i
+  body = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  user_id = body['user_id']&.to_i || 0
+  oggi = body['oggi']
+
+  halt 400, { error: 'gruppo_id mancante' }.to_json unless gruppo_id
+  halt 400, { error: 'stato mancante' }.to_json if oggi.nil?
+
+  item = DB.get_first_row("SELECT id FROM items WHERE id = ? AND gruppo_id = ?", [item_id, gruppo_id])
+  halt 404, { error: 'item non trovato' }.to_json unless item
+
+  value = (oggi == true || oggi == 1 || oggi.to_s == 'true')
+  DataManager.set_oggi(item_id, value, user_id)
+
+  { ok: true, oggi: value }.to_json
+end
+
 # Checklist: suggerimenti dallo storico (top articoli del gruppo)
 get '/checklist' do
   gruppo_id = params[:gruppo_id]&.to_i
@@ -1392,6 +1413,7 @@ def serializza_item(i, nome_gruppo: '')
     creato_il:     i['creato_il'],
     deleted:       i['deleted'].to_i == 1,
     disponibile:   i['disponibile'].to_i != 0,
+    oggi:          i['oggi'].to_i == 1,
     has_foto:      i['ha_foto'].to_i > 0,
     nome_gruppo:   gruppo_label,
     nome_contesto: gruppo_label.empty? ? 'Lista Personale' : gruppo_label
@@ -1418,14 +1440,22 @@ get '/lista/conteggi' do
       ))
   SQL
 
-  { tutti: tutti, miei: miei }.to_json
+  oggi = DB.get_first_value(<<~SQL, [user_id, user_id, CONFIG_PREFERITI_NOME]).to_i
+    SELECT COUNT(*) FROM items i
+    JOIN oggi o ON o.item_id = i.id
+    WHERE (i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
+       OR (i.gruppo_id = 0 AND i.creato_da = ?)
+    ) AND i.nome != ? AND i.deleted = 0 AND TRIM(COALESCE(i.comprato, '')) = ''
+  SQL
+
+  { tutti: tutti, miei: miei, oggi: oggi }.to_json
 end
 
 # Vista trasversale: tutti gli articoli dei gruppi dell'utente (riusa DataManager)
 get '/lista/tutti' do
   user_id = params[:user_id]&.to_i
   halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
-  items = DataManager.prendi_tutto_ovunque(user_id).reject { |item| item['nome'] == CONFIG_PREFERITI_NOME }
+  items = DataManager.annota_oggi(DataManager.prendi_tutto_ovunque(user_id).reject { |item| item['nome'] == CONFIG_PREFERITI_NOME })
   items.map { |i| serializza_item(i, nome_gruppo: i['nome_gruppo'].to_s) }.to_json
 end
 
@@ -1433,8 +1463,16 @@ end
 get '/lista/miei' do
   user_id = params[:user_id]&.to_i
   halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
-  items = DataManager.prendi_miei_ovunque(user_id).reject { |item| item['nome'] == CONFIG_PREFERITI_NOME }
+  items = DataManager.annota_oggi(DataManager.prendi_miei_ovunque(user_id).reject { |item| item['nome'] == CONFIG_PREFERITI_NOME })
   items.map { |i| serializza_item(i, nome_gruppo: i['nome_gruppo'].to_s) }.to_json
+end
+
+# Vista trasversale: solo gli articoli marcati "Oggi" (urgenti) in tutti i gruppi
+get '/lista/oggi' do
+  user_id = params[:user_id]&.to_i
+  halt 400, { error: 'user_id mancante' }.to_json unless user_id && user_id != 0
+  items = DataManager.annota_oggi(DataManager.prendi_tutto_ovunque(user_id).reject { |item| item['nome'] == CONFIG_PREFERITI_NOME })
+  items.select { |i| i['oggi'] == 1 }.map { |i| serializza_item(i, nome_gruppo: i['nome_gruppo'].to_s) }.to_json
 end
 
 # Collega account Telegram tramite PIN generato dal bot

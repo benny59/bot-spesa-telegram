@@ -238,6 +238,7 @@ class MainActivity : AppCompatActivity() {
             drawerLayout.closeDrawers()
             when (item.itemId) {
                 R.id.nav_lista            -> { vistaAttuale = ""; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
+                R.id.nav_oggi             -> { vistaAttuale = "oggi"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_tutti            -> { vistaAttuale = "tutti"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_miei             -> { vistaAttuale = "miei"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_preferiti        -> {
@@ -1357,6 +1358,7 @@ class MainActivity : AppCompatActivity() {
             menuInflater.inflate(R.menu.item_context_menu, menu)
             menu.findItem(R.id.action_elimina_foto).isVisible = item.hasFoto
             menu.findItem(R.id.action_sposta_topic).isVisible = true
+            menu.findItem(R.id.action_oggi).title = getString(if (item.oggi) R.string.action_togli_oggi else R.string.action_segna_oggi)
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     R.id.action_modifica -> mostraDialogModificaItem(item)
@@ -1364,6 +1366,7 @@ class MainActivity : AppCompatActivity() {
                     R.id.action_elimina_foto -> eliminaFotoConferma(item)
                     R.id.action_sposta_topic -> mostraDialogSpostaItem(item)
                     R.id.action_disponibile -> toggleDisponibilita(item)
+                    R.id.action_oggi -> toggleOggi(item)
                     R.id.action_elimina  -> eliminaConferma(item)
                 }
                 true
@@ -1872,6 +1875,7 @@ class MainActivity : AppCompatActivity() {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     when (vistaAttuale) {
+                        "oggi"  -> ApiClient.getOggi(userId)
                         "tutti" -> ApiClient.getTutti(userId)
                         "miei"  -> ApiClient.getMiei(userId)
                         else    -> ApiClient.getLista(gruppoId, topicId, userId)
@@ -1911,6 +1915,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching { ApiClient.getConteggiListe(userId) }.getOrNull()
             } ?: return@launch
             val menu = findViewById<NavigationView>(R.id.navView).menu
+            menu.findItem(R.id.nav_oggi).title = getString(R.string.nav_oggi_count, conteggi.oggi)
             menu.findItem(R.id.nav_tutti).title = getString(R.string.nav_tutti_count, conteggi.tutti)
             menu.findItem(R.id.nav_miei).title = getString(R.string.nav_miei_count, conteggi.miei)
         }
@@ -2005,6 +2010,16 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this@MainActivity, getString(R.string.aggiornamento_disponibilita_non_riuscito), Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    private fun toggleOggi(item: SpesaItem) {
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.setOggi(item.gruppoId, item.id, userId, !item.oggi) }.getOrDefault(false)
+            }
+            if (ok) aggiornaLista()
+            else Toast.makeText(this@MainActivity, getString(R.string.aggiornamento_oggi_non_riuscito), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2449,6 +2464,12 @@ class MainActivity : AppCompatActivity() {
                 notificheOperazioniPerGruppo.putAll(info.notifichePerGruppo)
                 adapter.notifyDataSetChanged()
                 when (vistaAttuale) {
+                    "oggi" -> {
+                        tvGruppo.text = getString(R.string.vista_oggi)
+                        tvTopic.visibility = android.view.View.GONE
+                        ivToolbarNotification.visibility = android.view.View.GONE
+                        applicaColoreToolbar(0, "")
+                    }
                     "tutti" -> {
                         tvGruppo.text = getString(R.string.vista_tutti)
                         tvTopic.visibility = android.view.View.GONE

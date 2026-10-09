@@ -38,6 +38,12 @@
     <string name="aggiorna">Aktualisieren</string>
     <string name="conferma_scopetta">Alle gekauften Artikel entfernen?</string>
     <string name="nav_collega_telegram">Telegram-Konto verbinden</string>
+    <string name="nav_oggi">\uD83D\uDD25 Heute</string>
+    <string name="nav_oggi_count">\uD83D\uDD25 Heute (%1$d)</string>
+    <string name="vista_oggi">\uD83D\uDD25 Heute</string>
+    <string name="action_segna_oggi">\uD83D\uDD25 Für heute markieren (dringend)</string>
+    <string name="action_togli_oggi">Von Heute entfernen</string>
+    <string name="aggiornamento_oggi_non_riuscito">Aktualisierung von Heute fehlgeschlagen</string>
     <string name="nav_tutti">Alle Artikel</string>
     <string name="nav_miei">Meine Artikel</string>
     <string name="preferiti">Favoriten</string>

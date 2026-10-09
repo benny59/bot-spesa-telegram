@@ -8,6 +8,10 @@
             android:title="@string/nav_lista"
             android:checked="true" />
         <item
+            android:id="@+id/nav_oggi"
+            android:icon="@drawable/ic_nav_lista"
+            android:title="@string/nav_oggi" />
+        <item
             android:id="@+id/nav_tutti"
             android:icon="@drawable/ic_nav_lista"
             android:title="@string/nav_tutti" />

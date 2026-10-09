@@ -106,7 +106,7 @@ class SpesaAdapter(
             onSectionLongPress(item, v, separatoreLista)
             true
         }
-        holder.tvNome.text = item.nome
+        holder.tvNome.text = if (item.oggi) "\uD83D\uDD25 ${item.nome}" else item.nome
 
         val labels = mutableListOf<String>()
         val simboloCategoria = if (item.categoriaEffimera) "◌" else "▣"

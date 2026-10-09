@@ -208,6 +208,7 @@ main {
   color: #fff;
   background: var(--primary);
 }
+.oggi-badge { font-size: .9em; }
 .initials.buyer { background: var(--green); }
 .mark { flex-shrink: 0; font-size: 1.2em; color: var(--green); }
 

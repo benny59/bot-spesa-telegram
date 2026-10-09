@@ -38,6 +38,12 @@
     <string name="aggiorna">Aggiorna</string>
     <string name="conferma_scopetta">Rimuovere tutti gli articoli comprati?</string>
     <string name="nav_collega_telegram">Collega account Telegram</string>
+    <string name="nav_oggi">\uD83D\uDD25 Oggi</string>
+    <string name="nav_oggi_count">\uD83D\uDD25 Oggi (%1$d)</string>
+    <string name="vista_oggi">\uD83D\uDD25 Oggi</string>
+    <string name="action_segna_oggi">\uD83D\uDD25 Segna Oggi (urgente)</string>
+    <string name="action_togli_oggi">Togli da Oggi</string>
+    <string name="aggiornamento_oggi_non_riuscito">Aggiornamento Oggi non riuscito</string>
     <string name="nav_tutti">Tutti gli articoli</string>
     <string name="nav_miei">I miei articoli</string>
     <string name="preferiti">Preferiti</string>

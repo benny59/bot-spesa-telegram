@@ -8,10 +8,10 @@ const $ = (sel) => document.querySelector(sel);
 
 const state = {
   auth: load('spesa.auth'),            // { token, userId, firstName }
-  // vista: '' = lista del gruppo/topic, 'tutti' / 'miei' = viste trasversali.
+  // vista: '' = lista del gruppo/topic, 'oggi' / 'tutti' / 'miei' = viste trasversali.
   // gruppoId/topicId restano l'ultima lista aperta: lì vanno gli articoli aggiunti.
   sel: { vista: '', ...(load('spesa.sel') || { gruppoId: null, topicId: 0 }) },
-  conteggi: { tutti: null, miei: null },
+  conteggi: { oggi: null, tutti: null, miei: null },
   gruppi: [],
   topics: {},                          // gruppoId -> [{ topic_id, nome }]
   items: [],
@@ -162,7 +162,7 @@ function logout() {
 
 // ---------- gruppi e topic ----------
 
-const VISTE = { tutti: 'Tutti gli articoli', miei: 'I miei articoli' };
+const VISTE = { oggi: '🔥 Oggi', tutti: 'Tutti gli articoli', miei: 'I miei articoli' };
 const PALETTE = ['#1976D2', '#2E7D32', '#00695C', '#E65100', '#C62828', '#6A1B9A', '#283593', '#4E342E'];
 
 function contextColor(gruppoId, topicId) {
@@ -308,7 +308,7 @@ async function doRefresh() {
 async function loadConteggi() {
   try {
     const conteggi = await api('/lista/conteggi', { query: { user_id: state.auth.userId } });
-    if (conteggi.tutti === state.conteggi.tutti && conteggi.miei === state.conteggi.miei) return;
+    if (conteggi.oggi === state.conteggi.oggi && conteggi.tutti === state.conteggi.tutti && conteggi.miei === state.conteggi.miei) return;
     state.conteggi = conteggi;
     renderNav();
   } catch {
@@ -353,7 +353,7 @@ function renderItem(item) {
   return `<li class="item ${cls} ${state.pending.has(item.id) ? 'pending' : ''}" data-id="${item.id}">
     <button class="item-main" data-action="tap">
       ${creator}
-      <span class="item-text"><div class="item-nome">${esc(item.nome)}</div>${categoria}</span>
+      <span class="item-text"><div class="item-nome">${item.oggi ? '<span class="oggi-badge" title="Oggi">🔥</span> ' : ''}${esc(item.nome)}</div>${categoria}</span>
       <span class="mark">${mark}</span>
       ${buyer}
     </button>
@@ -456,6 +456,7 @@ function openItemMenu(item) {
   $('#item-title').textContent = item.nome;
   $('#item-foto').textContent = item.has_foto ? '🖼️ Vedi/cambia foto' : '📷 Aggiungi foto';
   $('#item-disponibile').textContent = item.disponibile ? '🚫 Segna non disponibile' : '✅ Segna disponibile';
+  $('#item-oggi').textContent = item.oggi ? '❎ Togli da Oggi' : '🔥 Segna Oggi (urgente)';
   $('#item-delete').textContent = item.deleted ? '↺ Rimetti in lista' : '🗑️ Elimina';
   $('#dlg-item').showModal();
 }
@@ -476,6 +477,10 @@ $('#dlg-item').addEventListener('close', () => {
   } else if (action === 'disponibile') {
     runOnItem(item, () => api(`/lista/${item.id}/disponibile`, {
       method: 'PATCH', body: { gruppo_id: item.gruppo_id, user_id: user, disponibile: !item.disponibile }
+    }));
+  } else if (action === 'oggi') {
+    runOnItem(item, () => api(`/lista/${item.id}/oggi`, {
+      method: 'PATCH', body: { gruppo_id: item.gruppo_id, user_id: user, oggi: !item.oggi }
     }));
   } else if (action === 'delete') {
     const path = item.deleted ? `/lista/${item.id}/restore` : `/lista/${item.id}`;
