@@ -176,17 +176,7 @@ class CarteFedelta
 
   def self.add_card_from_photo(bot, user_id, nome, codice, image_path, formato_originale = nil)
     begin
-      codice_da_salvare = codice.to_s.strip
-      formato_final = formato_originale
-
-      # Correzione specifica per UPC-A (12 cifre)
-      if codice_da_salvare.length == 12
-        puts " [RE-ENCODE] 🚨 Trasformo UPC-A in EAN-13 (aggiunta zero iniziale)"
-        codice_da_salvare = "0" + codice_da_salvare
-        formato_final = "ean13"
-      end
-
-      f_barby = formato_final ? mappa_formato_per_barby(formato_final) : identifica_formato(codice_da_salvare)
+      codice_da_salvare, f_barby = prepara_codice(codice, formato_originale)
 
       # Generazione immagine
       result = genera_barcode_con_nome(codice_da_salvare, nome, user_id, f_barby)
@@ -205,6 +195,23 @@ class CarteFedelta
       bot.api.send_message(chat_id: user_id, text: "❌ Errore nella creazione: #{e.message}")
     end
   end
+
+  # Unico punto di normalizzazione di codice e formato (bot Telegram e API).
+  # Un UPC-A a 12 cifre diventa EAN-13 anteponendo lo zero; il formato viene
+  # dedotto dal codice se non noto. Restituisce [codice, formato_barby (Symbol)].
+  def self.prepara_codice(codice, formato = nil)
+    codice = codice.to_s.gsub(/[^[:print:]]/, "").strip
+    formato = formato.to_s.strip
+
+    if codice.match?(/\A\d{12}\z/)
+      puts " [RE-ENCODE] 🚨 Trasformo UPC-A in EAN-13 (aggiunta zero iniziale)"
+      codice = "0" + codice
+      formato = "ean13"
+    end
+
+    [codice, formato.empty? ? mappa_formato_per_barby(identifica_formato(codice)) : mappa_formato_per_barby(formato)]
+  end
+
   # Logica privata di identificazione e generazione (invariata)
   private
 

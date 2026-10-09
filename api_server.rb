@@ -196,17 +196,6 @@ end
 
 CONFIG_PREFERITI_NOME = Lista::CONFIG_PREFERITI_NOME
 
-# Rileva il formato barcode dal codice (stesso logic del bot, senza dipendenze barby)
-def identifica_formato_codice(codice)
-  c = codice.to_s.gsub(/\s/, '')
-  return 'NESSUNO' if c.empty?
-  return 'EAN13'  if c =~ /^\d{13}$/
-  return 'EAN8'   if c =~ /^\d{8}$/
-  return 'UPCA'   if c =~ /^\d{12}$/
-  return 'ITF'    if c =~ /^\d{14}$/
-  'CODE128'
-end
-
 # --- Endpoints ---
 
 get '/ping' do
@@ -1593,18 +1582,19 @@ post '/carte' do
   codice  = body['codice'].to_s.strip
   halt 400, { error: 'parametri mancanti' }.to_json if user_id.nil? || nome.empty? || codice.empty?
 
-  formato = identifica_formato_codice(codice)
+  codice, formato = CarteFedelta.prepara_codice(codice)
   DB.execute("INSERT INTO carte_fedelta (user_id, nome, codice, formato) VALUES (?, ?, ?, ?)",
-             [user_id, nome, codice, formato])
+             [user_id, nome, codice, formato.to_s])
   carta_id = DB.last_insert_row_id
 
   result = CarteFedelta.genera_barcode_con_nome(codice, nome, user_id, formato)
   if result && result[:img_path]
-    DB.execute("UPDATE carte_fedelta SET immagine_path = ? WHERE id = ?", [result[:img_path], carta_id])
+    formato = result[:formato]
+    DB.execute("UPDATE carte_fedelta SET immagine_path = ?, formato = ? WHERE id = ?", [result[:img_path], formato.to_s, carta_id])
   end
 
   status 201
-  { ok: true, id: carta_id, formato: formato }.to_json
+  { ok: true, id: carta_id, formato: formato.to_s }.to_json
 end
 
 delete '/carte/:id/collega' do

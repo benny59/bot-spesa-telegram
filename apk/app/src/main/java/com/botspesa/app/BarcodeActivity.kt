@@ -42,10 +42,11 @@ class BarcodeActivity : AppCompatActivity() {
     private fun generaBarcode(codice: String, formato: String): Bitmap? = runCatching {
         val fmt = when (formato.lowercase()) {
             "ean13"         -> BarcodeFormat.EAN_13
+            "upca", "upc_a" -> BarcodeFormat.UPC_A
             "ean8"          -> BarcodeFormat.EAN_8
             "code39"        -> BarcodeFormat.CODE_39
             "code128"       -> BarcodeFormat.CODE_128
-            "itf", "code25" -> BarcodeFormat.ITF
+            "itf", "code25", "code25interleaved" -> BarcodeFormat.ITF
             else            -> BarcodeFormat.QR_CODE
         }
         val isLinear = fmt != BarcodeFormat.QR_CODE
