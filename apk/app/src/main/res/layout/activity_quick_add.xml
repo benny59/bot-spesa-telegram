@@ -1,17 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@android:color/white"
+    android:orientation="vertical"
     android:padding="12dp">
 
     <EditText
         android:id="@+id/quick_add_input"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Aggiungi alla lista personale…"
+        android:hint="Aggiungi…"
         android:imeOptions="actionSend"
         android:inputType="textCapSentences"
         android:maxLines="1"
         android:singleLine="true" />
-</FrameLayout>
+
+    <TextView
+        android:id="@+id/quick_add_dest"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:paddingTop="10dp"
+        android:paddingBottom="6dp"
+        android:textColor="#1976D2"
+        android:textSize="14sp" />
+</LinearLayout>
