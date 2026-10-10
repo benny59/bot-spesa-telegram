@@ -52,6 +52,10 @@ class QuickAddActivity : AppCompatActivity() {
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         )
 
+        window.setLayout(
+            (resources.displayMetrics.widthPixels * 0.96f).toInt(),
+            WindowManager.LayoutParams.WRAP_CONTENT
+        )
         input = findViewById(R.id.quick_add_input)
         input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND || actionId == EditorInfo.IME_ACTION_DONE) {
