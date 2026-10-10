@@ -7,4 +7,11 @@
         <item name="colorSecondary">@color/colorAccent</item>
         <item name="android:windowBackground">@color/background</item>
     </style>
+
+    <style name="Theme.BotSpesa.QuickAdd" parent="Theme.MaterialComponents.Light.Dialog">
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
+    </style>
 </resources>
