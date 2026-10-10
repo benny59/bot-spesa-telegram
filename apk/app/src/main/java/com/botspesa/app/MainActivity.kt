@@ -1190,6 +1190,16 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 16, 0, 0)
         }.also { layout.addView(it) }
         layout.addView(etToken)
+        val etPwa = EditText(this).apply {
+            hint = "https://nome.duckdns.org:4443/app/"
+            setText(p.getString("pwa_url", ""))
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+        }
+        android.widget.TextView(this).apply {
+            text = "URL PWA (icona del widget)"
+            setPadding(0, 16, 0, 0)
+        }.also { layout.addView(it) }
+        layout.addView(etPwa)
         val dlg = AlertDialog.Builder(this)
             .setTitle(getString(R.string.nav_config_rete))
             .setView(layout)
@@ -1213,7 +1223,8 @@ class MainActivity : AppCompatActivity() {
                         etUrl.error = getString(R.string.server_non_raggiungibile)
                         return@launch
                     }
-                    p.edit().putString("api_url", url).putString("api_token", token).apply()
+                    p.edit().putString("api_url", url).putString("api_token", token)
+                        .putString("pwa_url", etPwa.text.toString().trim()).apply()
                     dlg.dismiss()
                     aggiornaLista()
                     caricaInfoGruppo()
