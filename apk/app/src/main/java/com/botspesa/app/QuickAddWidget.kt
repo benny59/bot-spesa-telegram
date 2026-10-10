@@ -23,7 +23,12 @@ class QuickAddWidget : AppWidgetProvider() {
             R.id.widget_label,
             if (label == null || label == "Lista Personale") "Aggiungi alla spesa…" else "Aggiungi a $label…"
         )
-        views.setOnClickPendingIntent(R.id.widget_root, pending)
+        views.setOnClickPendingIntent(R.id.widget_bar, pending)
+        val pwa = PendingIntent.getActivity(
+            context, 1, Intent(context, PwaLaunchActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        views.setOnClickPendingIntent(R.id.widget_pwa, pwa)
         ids.forEach { manager.updateAppWidget(it, views) }
     }
 }
