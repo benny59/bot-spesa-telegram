@@ -47,11 +47,6 @@ class QuickAddActivity : AppCompatActivity() {
             finish()
             return
         }
-        ApiClient.configure(
-            url = prefs.getString("api_url", "") ?: "",
-            tok = prefs.getString("api_token", "") ?: ""
-        )
-
         setContentView(R.layout.activity_quick_add)
         window.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
@@ -75,14 +70,12 @@ class QuickAddActivity : AppCompatActivity() {
             prefs.getInt(KEY_TOPIC, 0),
             prefs.getString(KEY_LABEL, PERSONALE) ?: PERSONALE
         )
-        cache = leggiCache()
         mostraDest()
         destView.setOnClickListener { sceglieDestinazione() }
         catView = findViewById(R.id.quick_add_cat)
         soloView = findViewById(R.id.quick_add_solo)
         catView.setOnClickListener { sceglieCategoria() }
         soloView.setOnClickListener { impostaSolo(!soloPerMe) }
-        catCache = leggiCatCache()
         // "*" iniziale (come in Telegram) = solo per me
         input.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -94,11 +87,28 @@ class QuickAddActivity : AppCompatActivity() {
                 }
             }
         })
-        aggiornaEffettiva()
+        aggiornaEffettiva(ricarica = false)
         input.requestFocus()
 
-        // aggiornamento elenco in parallelo alla digitazione
-        aggiornaElenco(userId)
+        // Tutto ciò che è pesante (client HTTP, parsing delle cache, rete) parte dopo la prima
+        // schermata, in parallelo alla digitazione: la finestra si apre subito.
+        lifecycleScope.launch {
+            val (dest0, cat0) = withContext(Dispatchers.IO) {
+                configuraApi()
+                leggiCache() to leggiCatCache()
+            }
+            if (cache.isEmpty()) cache = dest0
+            catCache.putAll(cat0)
+            aggiornaCategorie(effettiva())
+            aggiornaElenco(userId)
+        }
+    }
+
+    private fun configuraApi() {
+        ApiClient.configure(
+            url = prefs.getString("api_url", "") ?: "",
+            tok = prefs.getString("api_token", "") ?: ""
+        )
     }
 
     private fun effettiva(): Dest = if (soloPerMe) Dest(0, 0, PERSONALE) else dest
@@ -115,13 +125,13 @@ class QuickAddActivity : AppCompatActivity() {
     }
 
     /** Destinazione effettiva cambiata: categoria torna a "Nessuna" e si ricarica l'elenco. */
-    private fun aggiornaEffettiva() {
+    private fun aggiornaEffettiva(ricarica: Boolean = true) {
         soloView.isSelected = soloPerMe
         destView.isEnabled = !soloPerMe
         mostraDest()
         categoria = null
         mostraCat()
-        aggiornaCategorie(effettiva())
+        if (ricarica) aggiornaCategorie(effettiva())
     }
 
     private fun mostraCat() {
@@ -140,7 +150,7 @@ class QuickAddActivity : AppCompatActivity() {
     private fun aggiornaCategorie(d: Dest) {
         lifecycleScope.launch {
             val nuove = withContext(Dispatchers.IO) {
-                runCatching { ApiClient.getCategorie(d.gruppoId, d.topicId, userId) }.getOrNull()
+                runCatching { configuraApi(); ApiClient.getCategorie(d.gruppoId, d.topicId, userId) }.getOrNull()
             } ?: return@launch
             catCache[chiaveCat(d)] = nuove
             prefs.edit().putString(KEY_CAT_CACHE, gson.toJson(catCache)).apply()
@@ -174,6 +184,7 @@ class QuickAddActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val nuovo = withContext(Dispatchers.IO) {
                 runCatching {
+                    configuraApi()
                     buildList {
                         add(Dest(0, 0, PERSONALE))
                         ApiClient.getGruppiTyped(userId).filter { it.id != 0 }.forEach { g ->
@@ -230,6 +241,7 @@ class QuickAddActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val errore = withContext(Dispatchers.IO) {
                 try {
+                    configuraApi()
                     ApiClient.addItem(
                         gruppoId = eff.gruppoId, topicId = eff.topicId, nome = testo,
                         userId = userId, categoriaId = categoria?.id
