@@ -338,7 +338,7 @@ function itemClass(item) {
 
 function renderItem(item) {
   const cls = itemClass(item);
-  const mark = { deleted: '↺', unavailable: '✕', bought: '✓' }[cls] || '';
+  const mark = { deleted: '↺', unavailable: '✕', bought: '✓' }[cls] || '🗑️';
   const sameUser = item.user_initials === item.buyer_initials;
   const showCreator = cls !== 'bought' || !sameUser;
   const creator = showCreator ? `<span class="initials">${esc(item.user_initials || '?')}</span>` : '';
@@ -354,7 +354,7 @@ function renderItem(item) {
     <button class="item-main" data-action="tap">
       ${creator}
       <span class="item-text"><div class="item-nome">${item.oggi ? '<span class="oggi-badge" title="Oggi">🔥</span> ' : ''}${esc(item.nome)}</div>${categoria}</span>
-      <span class="mark">${mark}</span>
+      <span class="mark${cls === 'deleted' || cls === '' ? ' mark-del' : ''}">${mark}</span>
       ${buyer}
     </button>
     ${item.has_foto ? '<button class="icon-btn item-foto" data-action="foto" aria-label="Foto">🖼️</button>' : ''}
@@ -509,7 +509,12 @@ $('#lista').addEventListener('click', (e) => {
   if (!btn || !li) return;
   const item = findItem(Number(li.dataset.id));
   if (!item || state.pending.has(item.id)) return;
-  if (btn.dataset.action === 'tap') tapItem(item);
+  if (btn.dataset.action === 'tap' && e.target.closest('.mark-del')) {
+    // icona cestino/ripristino: toggle cancellazione
+    runOnItem(item, () => item.deleted
+      ? api(`/lista/${item.id}/restore`, { method: 'POST', query: { gruppo_id: item.gruppo_id, user_id: state.auth.userId } })
+      : api(`/lista/${item.id}`, { method: 'DELETE', query: { gruppo_id: item.gruppo_id, user_id: state.auth.userId } }));
+  } else if (btn.dataset.action === 'tap') tapItem(item);
   else if (btn.dataset.action === 'foto') openFotoDialog(item);
   else if (btn.dataset.action === 'info') openInfoDialog(item);
   else openItemMenu(item);

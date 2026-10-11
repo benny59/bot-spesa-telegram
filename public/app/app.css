@@ -221,6 +221,8 @@ main {
 .item.deleted .item-text,
 .item.deleted .initials { opacity: .6; }
 .item.deleted .mark { color: var(--muted); }
+.item:not(.deleted):not(.bought):not(.unavailable) .mark-del { opacity: .45; font-size: 1em; }
+.mark-del { padding: 4px 6px; }
 .item.pending { opacity: .6; }
 
 .notice {
