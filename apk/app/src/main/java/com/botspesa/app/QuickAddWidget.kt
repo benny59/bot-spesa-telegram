@@ -34,7 +34,7 @@ class QuickAddWidget : AppWidgetProvider() {
             context, 1, apri,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        views.setOnClickPendingIntent(R.id.widget_pwa, pendingApri)
+        views.setOnClickPendingIntent(R.id.widget_apri_app, pendingApri)
         ids.forEach { manager.updateAppWidget(it, views) }
     }
 }
