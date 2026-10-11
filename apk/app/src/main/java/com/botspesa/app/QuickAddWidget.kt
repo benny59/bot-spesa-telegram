@@ -24,11 +24,17 @@ class QuickAddWidget : AppWidgetProvider() {
             if (label == null || label == "Lista Personale") "Aggiungi alla spesa…" else "Aggiungi a $label…"
         )
         views.setOnClickPendingIntent(R.id.widget_bar, pending)
-        val pwa = PendingIntent.getActivity(
-            context, 1, Intent(context, PwaLaunchActivity::class.java),
+        val prefs = context.getSharedPreferences("botspesa_prefs", Context.MODE_PRIVATE)
+        val apri = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("ctx_gruppo", prefs.getInt("widget_dest_gruppo", 0))
+            .putExtra("ctx_topic", prefs.getInt("widget_dest_topic", 0))
+        // FLAG_UPDATE_CURRENT: gli extra vengono aggiornati a ogni refresh del widget
+        val pendingApri = PendingIntent.getActivity(
+            context, 1, apri,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        views.setOnClickPendingIntent(R.id.widget_pwa, pwa)
+        views.setOnClickPendingIntent(R.id.widget_pwa, pendingApri)
         ids.forEach { manager.updateAppWidget(it, views) }
     }
 }

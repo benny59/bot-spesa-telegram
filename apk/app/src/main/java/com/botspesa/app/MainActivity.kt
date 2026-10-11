@@ -73,6 +73,8 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val LINK_MARKER = "[YUKA_LINK]"
         const val PREF_CHECKOUT_TAP = "checkout_tap_enabled"
+        const val EXTRA_CTX_GRUPPO = "ctx_gruppo"
+        const val EXTRA_CTX_TOPIC = "ctx_topic"
     }
 
     private lateinit var recyclerView: RecyclerView
@@ -173,6 +175,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         queueIncomingShareIntent(intent)
+        applicaContestoDaIntent(intent)
 
         val prefs = prefs()
         favoritesStore = FavoritesStore(this)
@@ -339,7 +342,27 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         queueIncomingShareIntent(intent)
+        if (applicaContestoDaIntent(intent)) {
+            findViewById<NavigationView>(R.id.navView).setCheckedItem(R.id.nav_lista)
+            aggiornaLista()
+            caricaInfoGruppo()
+            invalidateOptionsMenu()
+        }
         tryConsumePendingShare()
+    }
+
+    /** Contesto gruppo-topic passato dal widget: lo rende quello corrente dell'app. */
+    private fun applicaContestoDaIntent(intent: Intent?): Boolean {
+        if (intent == null || !intent.hasExtra(EXTRA_CTX_GRUPPO)) return false
+        prefs().edit()
+            .putInt("gruppo_id", intent.getIntExtra(EXTRA_CTX_GRUPPO, 0))
+            .putInt("topic_id", intent.getIntExtra(EXTRA_CTX_TOPIC, 0))
+            .apply()
+        vistaAttuale = ""
+        // consumati: una rotazione dell'activity non deve riapplicarli
+        intent.removeExtra(EXTRA_CTX_GRUPPO)
+        intent.removeExtra(EXTRA_CTX_TOPIC)
+        return true
     }
 
     private fun queueIncomingShareIntent(intent: Intent?) {
