@@ -555,6 +555,11 @@ async function populateEditCategorie(gruppoId, topicId, selected) {
   } catch {
     // il selettore resta con la sola opzione "Nessuna categoria"
   }
+  // la categoria di partenza resta selezionabile anche se la destinazione non la elenca
+  if (selected && ![...sel.options].some((o) => o.value === selected) && editItem?.categoria_nome) {
+    const effimera = selected.startsWith('e:');
+    sel.innerHTML += `<option value="${esc(selected)}">${effimera ? '◌ ' : ''}${esc(editItem.categoria_nome)}</option>`;
+  }
   sel.value = selected || '';
 }
 
@@ -577,7 +582,8 @@ async function openEditItemDialog(item) {
 
 $('#edit-item-destinazione').addEventListener('change', async () => {
   const { gruppoId, topicId } = destinazioneEditSelezionata();
-  await populateEditCategorie(gruppoId, topicId);
+  // cambiare destinazione non deve azzerare la categoria già scelta
+  await populateEditCategorie(gruppoId, topicId, $('#edit-item-categoria').value);
 });
 
 $('#edit-item-close').addEventListener('click', () => $('#dlg-edit-item').close());
