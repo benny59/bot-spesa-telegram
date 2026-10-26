@@ -229,6 +229,11 @@ function renderNav() {
   }).join('');
   $('#nav-list').innerHTML = `<li><div class="gruppo">Viste</div><ul>${viste}</ul></li>` + state.gruppi.map((g) => {
     const topics = state.topics[g.id] || [{ topic_id: 0, nome: 'Principale' }];
+    if (topics.length === 1) {
+      const t = topics[0];
+      const active = !state.sel.vista && g.id === state.sel.gruppoId && t.topic_id === state.sel.topicId;
+      return `<li><button class="solo ${active ? 'active' : ''}" data-gruppo="${g.id}" data-topic="${t.topic_id}">${esc(g.nome)}</button></li>`;
+    }
     const buttons = topics.map((t) => {
       const active = !state.sel.vista && g.id === state.sel.gruppoId && t.topic_id === state.sel.topicId;
       return `<li><button class="${active ? 'active' : ''}" data-gruppo="${g.id}" data-topic="${t.topic_id}">${esc(t.nome)}</button></li>`;
