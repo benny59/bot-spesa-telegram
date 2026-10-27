@@ -50,7 +50,8 @@ class MessageHandler
     self.ensure_group_registered!(msg, u_id)
 
     raw_text = msg.text.to_s.strip
-    text = raw_text.split("@").first # Prende solo "/newgroup" da "/newgroup@bot"
+    # "/lista@bot" -> "/lista" (solo per i comandi: negli altri testi la @ resta intatta)
+    text = raw_text.start_with?("/") ? raw_text.sub(/\A(\/\w+)@\w+/, '\\1').strip : raw_text
 
 
 # --- STEP 1: GESTIONE INOLTRO ---
@@ -397,7 +398,13 @@ when "/setup_pin"
     }
     ui = KeyboardGenerator.genera_lista(items, g_id, t_id, page, options)
     target_thread = context.private_chat? ? nil : (t_id.to_i > 0 ? t_id.to_i : nil)
-    bot.api.send_message(chat_id: context.chat_id, message_thread_id: target_thread, text: ui[:text], reply_markup: ui[:markup], parse_mode: "HTML")
+    begin
+      bot.api.send_message(chat_id: context.chat_id, message_thread_id: target_thread, text: ui[:text], reply_markup: ui[:markup], parse_mode: "HTML")
+    rescue => e
+      puts "⚠️ [LISTA] invio fallito (#{e.class}: #{e.message}), riprovo senza thread/HTML"
+      testo_semplice = ui[:text].to_s.gsub(/<[^>]+>/, "")
+      bot.api.send_message(chat_id: context.chat_id, text: testo_semplice, reply_markup: ui[:markup])
+    end
   end
 
 def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = nil)
@@ -431,7 +438,7 @@ def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = ni
   bot.api.send_message(
     chat_id: context.chat_id,
     message_thread_id: (context.private_chat? ? nil : (t_id > 0 ? t_id : nil)),
-    text: "✅ <b>#{testo_pulito}</b> aggiunto alla lista <b>#{nome_lista}</b>.",
+    text: context.private_chat? ? "✅ <b>#{testo_pulito}</b> aggiunto alla lista <b>#{nome_lista}</b>." : "✅ <b>#{testo_pulito}</b> aggiunto",
     parse_mode: "HTML"
   )
 end
