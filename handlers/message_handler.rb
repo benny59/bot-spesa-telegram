@@ -419,7 +419,7 @@ def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = ni
 
   # Recupero nome lista dal metodo esistente
   info_contesto = DataManager.recupera_nomi_contesto(g_id, t_id)
-  nome_lista = info_contesto[:nome]
+  nome_lista = g_id == 0 ? info_contesto[:topic] : "#{info_contesto[:nome]}: #{info_contesto[:topic]}"
 
   DataManager.aggiungi_articoli(gruppo_id: g_id, user_id: u_id, items_text: contenuto, topic_id: t_id)
 
