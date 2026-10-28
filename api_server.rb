@@ -1450,7 +1450,7 @@ get '/lista/conteggi' do
 
   # Conteggio per singola lista (gruppo:topic), stessa logica di Lista.tutti / Lista.personale
   liste = {}
-  DB.execute(<<~SQL, [user_id, user_id, CONFIG_PREFERITI_PREFISSO, CONFIG_PREFERITI_PREFISSO]).each do |r|
+  DB.execute(<<~SQL, [user_id, user_id, Lista::CONFIG_PREFERITI_PREFISSO, Lista::CONFIG_PREFERITI_PREFISSO]).each do |r|
     SELECT i.gruppo_id, i.topic_id, COUNT(*) AS n FROM items i
     WHERE (i.gruppo_id IN (SELECT gruppo_id FROM memberships WHERE user_id = ?)
        OR (i.gruppo_id = 0 AND i.creato_da = ?)
