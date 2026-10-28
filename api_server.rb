@@ -757,6 +757,54 @@ patch '/lista/:id/toggle' do
   { comprato: result.to_s }.to_json
 end
 
+# Sposta articoli in un'unica lista (gruppo:topic). Valida tutto prima di muovere, poi sposta in transazione.
+# Per gli utenti non esiste lo "spostamento": un solo messaggio "eliminato" per ogni lista di partenza e
+# uno "aggiunto" per quella di arrivo, con i nomi separati da virgola (come l'immissione multipla).
+def sposta_articoli!(item_ids, user_id, target_gruppo_id, topic_id)
+  halt 400, { error: 'topic_id mancante' }.to_json if topic_id.nil?
+  halt 400, { error: 'gruppo_id mancante' }.to_json if target_gruppo_id.nil?
+  ids = Array(item_ids).map(&:to_i).uniq.reject(&:zero?)
+  halt 400, { error: 'items non validi' }.to_json if ids.empty? || ids.size > 100
+
+  items = ids.map { |id| item_accessibile!(id, user_id) }
+
+  if target_gruppo_id == 0
+    halt 400, { error: 'La lista personale usa topic_id 0' }.to_json unless topic_id == 0
+    halt 403, { error: 'accesso negato alla lista personale' }.to_json unless items.all? { |i| i['creato_da'].to_i == user_id.to_i }
+  else
+    halt 404, { error: 'gruppo di destinazione non trovato' }.to_json unless DB.get_first_value("SELECT 1 FROM gruppi WHERE id = ?", [target_gruppo_id])
+    halt 403, { error: 'accesso negato al gruppo di destinazione' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, target_gruppo_id)
+
+    if topic_id != 0
+      chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [target_gruppo_id])
+      topic_valido = DB.get_first_value(
+        "SELECT 1 FROM topics WHERE chat_id = ? AND topic_id = ?",
+        [chat_id, topic_id]
+      )
+      halt 404, { error: 'topic non trovato' }.to_json unless topic_valido
+    end
+  end
+
+  da_spostare = items.reject { |i| i['gruppo_id'].to_i == target_gruppo_id && i['topic_id'].to_i == topic_id }
+  return 0 if da_spostare.empty?
+
+  halt 404, { error: 'item non trovato' }.to_json unless Lista.sposta_topic_multipla(da_spostare.map { |i| i['id'] }, target_gruppo_id, topic_id) == da_spostare.size
+
+  utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+  da_spostare.group_by { |i| [i['gruppo_id'].to_i, i['topic_id'].to_i] }.each do |(gruppo, topic), gruppo_items|
+    notifica_gruppo(gruppo, topic, DataManager.build_item_action_message(utente, gruppo_items.map { |i| i['nome'] }.join(', '), 'soft_delete'))
+  end
+  notifica_gruppo(target_gruppo_id, topic_id, DataManager.build_item_action_message(utente, da_spostare.map { |i| i['nome'] }.join(', '), 'aggiunto'))
+  da_spostare.size
+end
+
+# Rotta specifica PRIMA di quella parametrica /lista/:id
+patch '/lista/sposta' do
+  body = json_body
+  sposta_articoli!(body['item_ids'], body['user_id']&.to_i || 0, body['gruppo_id']&.to_i, body['topic_id']&.to_i)
+  { ok: true, gruppo_id: body['gruppo_id'].to_i, topic_id: body['topic_id'].to_i }.to_json
+end
+
 patch '/lista/:id' do
   item_id = params[:id].to_i
   body = json_body
@@ -795,40 +843,11 @@ patch '/lista/:id' do
 end
 
 patch '/lista/:id/topic' do
-  item_id = params[:id].to_i
   body = json_body
-  user_id = body['user_id']&.to_i || 0
-  target_gruppo_id = body['gruppo_id']&.to_i
   topic_id = body['topic_id']&.to_i
-  halt 400, { error: 'topic_id mancante' }.to_json if topic_id.nil?
-  halt 400, { error: 'gruppo_id mancante' }.to_json if target_gruppo_id.nil?
-
-  item = item_accessibile!(item_id, user_id)
-  current_gruppo_id = item['gruppo_id'].to_i
-
-  if target_gruppo_id == 0
-    halt 400, { error: 'La lista personale usa topic_id 0' }.to_json unless topic_id == 0
-    halt 403, { error: 'accesso negato alla lista personale' }.to_json unless item['creato_da'].to_i == user_id.to_i
-  else
-    halt 404, { error: 'gruppo di destinazione non trovato' }.to_json unless DB.get_first_value("SELECT 1 FROM gruppi WHERE id = ?", [target_gruppo_id])
-    halt 403, { error: 'accesso negato al gruppo di destinazione' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, target_gruppo_id)
-
-    if topic_id != 0
-      chat_id = DB.get_first_value("SELECT chat_id FROM gruppi WHERE id = ?", [target_gruppo_id])
-      topic_valido = DB.get_first_value(
-        "SELECT 1 FROM topics WHERE chat_id = ? AND topic_id = ?",
-        [chat_id, topic_id]
-      )
-      halt 404, { error: 'topic non trovato' }.to_json unless topic_valido
-    end
-  end
-
-  halt 404, { error: 'item non trovato' }.to_json unless Lista.sposta_topic(item_id, target_gruppo_id, topic_id)
-
-  utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
-  notifica_gruppo(current_gruppo_id, item['topic_id'], DataManager.build_item_action_message(utente, item['nome'], 'spostato')) unless current_gruppo_id == 0
-  notifica_gruppo(target_gruppo_id, topic_id, DataManager.build_item_action_message(utente, item['nome'], 'spostato_qui')) unless target_gruppo_id == 0
-  { ok: true, gruppo_id: target_gruppo_id, topic_id: topic_id }.to_json
+  gruppo_id = body['gruppo_id']&.to_i
+  sposta_articoli!([params[:id]], body['user_id']&.to_i || 0, gruppo_id, topic_id)
+  { ok: true, gruppo_id: gruppo_id, topic_id: topic_id }.to_json
 end
 
 # Rotta specifica PRIMA di quella parametrica per evitare conflitti

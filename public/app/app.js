@@ -542,9 +542,7 @@ let editItems = null; // modifica multipla: articoli selezionati della stessa li
 
 // Un solo menu con tutti i record "Gruppo · Topic" visibili dall'utente (niente cascata gruppo->topic).
 function populateEditDestinazioni(gruppoIdSelezionato, topicIdSelezionato) {
-  // modifica multipla: solo i topic del gruppo corrente, niente spostamenti tra gruppi
-  const gruppi = editItems ? state.gruppi.filter((g) => g.id === gruppoIdSelezionato) : state.gruppi;
-  $('#edit-item-destinazione').innerHTML = gruppi.map((g) => {
+  $('#edit-item-destinazione').innerHTML = state.gruppi.map((g) => {
     if (g.id === 0) return `<option value="0:0">${esc(g.nome)}</option>`;
     const topics = state.topics[g.id] || [{ topic_id: 0, nome: 'Principale' }];
     return topics.map((t) => (
@@ -699,6 +697,21 @@ async function applicaMultipla(items, m) {
   items.forEach((i) => state.pending.add(i.id));
   renderLista();
   let ok = 0;
+  // la selezione è di una sola lista: se cambia destinazione si sposta tutto con una sola richiesta
+  // (il server manda un solo messaggio per lista), poi restano solo le eventuali categorie
+  if (m.gruppoId !== items[0].gruppo_id || m.topicId !== items[0].topic_id) {
+    try {
+      await api('/lista/sposta', {
+        method: 'PATCH',
+        body: { item_ids: items.map((i) => i.id), gruppo_id: m.gruppoId, topic_id: m.topicId, user_id: state.auth.userId }
+      });
+      items.forEach((i) => { i.gruppo_id = m.gruppoId; i.topic_id = m.topicId; });
+    } catch (err) {
+      items.forEach((i) => state.pending.delete(i.id));
+      renderLista();
+      return handleError(err);
+    }
+  }
   for (const item of items) {
     try {
       // categoria "invariata" (valore vuoto) = categoria attuale dell'articolo
