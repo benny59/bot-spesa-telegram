@@ -369,7 +369,16 @@ dialog ol { padding-left: 1.2em; }
 }
 .foto-pick { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 
-/* --- Carte fedeltà (sola lettura) --- */
+/* --- Scanner barcode --- */
+.scan-view { background: #000; border-radius: 8px; overflow: hidden; min-height: 120px; }
+.scan-view video { display: block; width: 100%; max-height: 50vh; object-fit: cover; }
+.scan-pick { border: 1px solid var(--border); border-radius: 8px; padding: .6em 1em; }
+#add-scan { background: none; border: 0; }
+.field { width: 100%; margin: 4px 0 8px; padding: .6em; border: 1px solid var(--border); border-radius: 8px; }
+.field-row { display: flex; align-items: center; gap: 4px; }
+.field-row .field { width: auto; }
+
+/* --- Carte fedeltà --- */
 #carte-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
 #carte-list button { display: flex; align-items: center; gap: 10px; }
 .carta-barcode {

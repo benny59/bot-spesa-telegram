@@ -72,13 +72,13 @@ async function api(path, { method = 'GET', body, query } = {}) {
 }
 
 // Upload foto: multipart, niente Content-Type manuale (lo imposta il browser col boundary).
-async function apiUpload(path, { query, file } = {}) {
+async function apiUpload(path, { query, file, field = 'file' } = {}) {
   const url = new URL(path, location.origin);
   Object.entries(query || {}).forEach(([k, v]) => url.searchParams.set(k, v));
   const headers = {};
   if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
   const form = new FormData();
-  form.append('file', file, file.name || 'foto.jpg');
+  form.append(field, file, file.name || 'foto.jpg');
 
   const res = await fetch(url, { method: 'POST', headers, body: form, cache: 'no-store' });
   const data = await res.json().catch(() => ({}));
@@ -791,11 +791,13 @@ async function uploadFoto(file) {
   }
 }
 
-$('#foto-input').addEventListener('change', () => {
-  const file = $('#foto-input').files[0];
-  $('#foto-input').value = '';
-  if (file) uploadFoto(file);
-});
+for (const id of ['#foto-input', '#foto-camera']) {
+  $(id).addEventListener('change', () => {
+    const file = $(id).files[0];
+    $(id).value = '';
+    if (file) uploadFoto(file);
+  });
+}
 
 const fotoDrop = $('#foto-drop');
 ['dragenter', 'dragover'].forEach((ev) => fotoDrop.addEventListener(ev, (e) => {
@@ -841,7 +843,190 @@ $('#dlg-foto').addEventListener('close', () => {
   fotoItem = null;
 });
 
-// ---------- carte fedeltà: sola lettura (gestione da Telegram o app Android) ----------
+// ---------- scanner barcode: fotocamera ----------
+// Con BarcodeDetector (Chrome/Android) la lettura è continua sul video. Senza (Safari/iOS)
+// si scatta un fotogramma o si sceglie una foto, e la decodifica la fa il server (POST /carte/scan).
+
+const SCAN_FORMATI = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'codabar', 'qr_code'];
+let scanStream = null;
+let scanTimer = null;
+let scanResolve = null;
+let scanResult = null;
+let scanDetector = null;
+let scanBusy = false;
+
+async function getDetector() {
+  if (!('BarcodeDetector' in window)) return null;
+  try {
+    const supported = await BarcodeDetector.getSupportedFormats();
+    const formats = SCAN_FORMATI.filter((f) => supported.includes(f));
+    return formats.length ? new BarcodeDetector({ formats }) : null;
+  } catch { return null; }
+}
+
+function setScanStatus(text) { $('#scan-status').textContent = text || ''; }
+
+function stopScan() {
+  clearTimeout(scanTimer);
+  scanTimer = null;
+  if (scanStream) scanStream.getTracks().forEach((t) => t.stop());
+  scanStream = null;
+  $('#scan-video').srcObject = null;
+}
+
+function finishScan(code) {
+  scanResult = code;
+  if ($('#dlg-scan').open) $('#dlg-scan').close();
+}
+
+async function detectLoop() {
+  const video = $('#scan-video');
+  if (!scanStream || !scanDetector) return;
+  try {
+    if (video.readyState >= 2) {
+      const found = await scanDetector.detect(video);
+      if (found.length && found[0].rawValue) return finishScan(found[0].rawValue);
+    }
+  } catch { /* fotogramma non leggibile: si riprova */ }
+  scanTimer = setTimeout(detectLoop, 250);
+}
+
+// Decodifica un'immagine ferma: prima in locale se possibile, poi sul server.
+async function decodeImage(blob) {
+  if (scanDetector) {
+    try {
+      const bmp = await createImageBitmap(blob);
+      const found = await scanDetector.detect(bmp);
+      if (found.length && found[0].rawValue) return found[0].rawValue;
+    } catch { /* ripiego sul server */ }
+  }
+  const file = blob instanceof File ? blob : new File([blob], 'scan.jpg', { type: blob.type || 'image/jpeg' });
+  const res = await apiUpload('/carte/scan', { file, field: 'immagine' });
+  return res.codice;
+}
+
+async function decodeAndFinish(blob) {
+  if (scanBusy) return;
+  scanBusy = true;
+  setScanStatus('Decodifico…');
+  try {
+    finishScan(await decodeImage(blob));
+  } catch (err) {
+    if (err instanceof AuthError) { finishScan(null); return handleError(err); }
+    setScanStatus('Nessun codice trovato, riprova.');
+  } finally {
+    scanBusy = false;
+  }
+}
+
+// Apre lo scanner; risolve col testo del codice, o null se annullato.
+async function scanBarcode(title = 'Scansiona barcode') {
+  scanResult = null;
+  scanBusy = false;
+  $('#scan-title').textContent = title;
+  setScanStatus('Avvio la fotocamera…');
+  $('#scan-shot').hidden = true;
+  $('#scan-video').hidden = false;
+  $('#dlg-scan').showModal();
+
+  scanDetector = await getDetector();
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('no-camera-api');
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
+    if (!$('#dlg-scan').open) { stopScan(); return null; } // chiuso durante il consenso
+    const video = $('#scan-video');
+    video.srcObject = scanStream;
+    await video.play().catch(() => {});
+    if (scanDetector) {
+      setScanStatus('Inquadra il codice a barre');
+      detectLoop();
+    } else {
+      setScanStatus('Inquadra il codice e premi Scatta');
+      $('#scan-shot').hidden = false;
+    }
+  } catch (err) {
+    $('#scan-video').hidden = true;
+    setScanStatus(err?.name === 'NotAllowedError'
+      ? 'Permesso fotocamera negato: usa "Da foto".'
+      : 'Fotocamera non disponibile: usa "Da foto".');
+  }
+
+  return new Promise((resolve) => { scanResolve = resolve; });
+}
+
+$('#dlg-scan').addEventListener('close', () => {
+  stopScan();
+  const resolve = scanResolve;
+  scanResolve = null;
+  if (resolve) resolve(scanResult);
+});
+$('#scan-close').addEventListener('click', () => $('#dlg-scan').close());
+
+$('#scan-shot').addEventListener('click', () => {
+  const video = $('#scan-video');
+  if (!video.videoWidth) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob) => { if (blob) decodeAndFinish(blob); }, 'image/jpeg', 0.9);
+});
+
+$('#scan-file').addEventListener('change', () => {
+  const file = $('#scan-file').files[0];
+  $('#scan-file').value = '';
+  if (file) decodeAndFinish(file);
+});
+
+// Mentre si mostra una carta alla cassa lo schermo non deve spegnersi.
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on) {
+      wakeLock = await navigator.wakeLock?.request('screen');
+    } else if (wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch { /* non supportato o negato: nessun problema */ }
+}
+
+// ---------- aggiungi prodotto da barcode ----------
+// Il GTIN letto viene inviato con l'articolo; il nome è quello di OpenFoodFacts (modificabile).
+
+let addGtin = '';
+
+$('#add-input').addEventListener('input', () => {
+  if (!$('#add-input').value.trim()) addGtin = '';
+});
+
+$('#add-scan').addEventListener('click', async () => {
+  const code = await scanBarcode('Scansiona un prodotto');
+  if (!code) return;
+  if (!/^\d{8,14}$/.test(code)) { toast('Non è un barcode di prodotto'); return; }
+  addGtin = code;
+  const input = $('#add-input');
+  try {
+    const result = await fetchProductInfo(code);
+    if (result.ok) {
+      const p = result.data;
+      const nome = [p.name, p.brand, p.quantity].filter(Boolean)
+        .filter((v, i, a) => a.findIndex((w) => w.toLowerCase() === v.toLowerCase()) === i).join(' ');
+      input.value = nome;
+      toast('Prodotto trovato: controlla il nome e aggiungi');
+    } else {
+      toast(result.message || 'Prodotto non trovato: scrivi il nome');
+    }
+  } catch (err) {
+    handleError(err);
+  }
+  input.focus();
+});
+
+// ---------- carte fedeltà: elenco, visualizzazione e aggiunta ----------
 
 let carteDisponibili = [];
 let cartaBlobUrl = null;
@@ -882,6 +1067,43 @@ async function openCarteDialog() {
 
 $('#carte-close').addEventListener('click', () => $('#dlg-carte').close());
 
+$('#carte-new').addEventListener('click', () => {
+  $('#carta-new-form').reset();
+  $('#dlg-carte').close();
+  $('#dlg-carta-new').showModal();
+});
+
+function chiudiNuovaCarta() {
+  $('#dlg-carta-new').close();
+  openCarteDialog();
+}
+$('#carta-new-close').addEventListener('click', chiudiNuovaCarta);
+$('#carta-new-cancel').addEventListener('click', chiudiNuovaCarta);
+
+$('#carta-new-scan').addEventListener('click', async () => {
+  // dialog sovrapposti: showModal sopra quello aperto, che resta con i campi compilati
+  const code = await scanBarcode('Scansiona la carta');
+  if (code) $('#carta-new-codice').value = code;
+});
+
+$('#carta-new-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/carte', {
+      method: 'POST',
+      body: {
+        user_id: state.auth.userId,
+        nome: $('#carta-new-nome').value.trim(),
+        codice: $('#carta-new-codice').value.trim()
+      }
+    });
+    toast('Carta salvata');
+    chiudiNuovaCarta();
+  } catch (err) {
+    handleError(err);
+  }
+});
+
 $('#carte-list').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-id]');
   if (!btn) return;
@@ -902,6 +1124,7 @@ async function openCartaDialog(carta) {
   $('#carta-codice').textContent = carta.codice || '';
   $('#carta-loading').hidden = false;
   $('#dlg-carta').showModal();
+  keepAwake(true);
   try {
     const url = await fetchCartaBlobUrl(carta.id);
     if (url) {
@@ -917,7 +1140,7 @@ async function openCartaDialog(carta) {
 }
 
 $('#carta-close').addEventListener('click', () => $('#dlg-carta').close());
-$('#dlg-carta').addEventListener('close', resetCartaPreview);
+$('#dlg-carta').addEventListener('close', () => { resetCartaPreview(); keepAwake(false); });
 
 // ---------- info prodotto: Yuka / OpenFoodFacts (sola lettura) ----------
 
@@ -1228,11 +1451,13 @@ $('#add-form').addEventListener('submit', async (e) => {
     body.categoria_id = Number(categoria);
   }
   body.nome = nome;
+  if (addGtin) body.gtin = addGtin;
 
   input.disabled = true;
   try {
     await api('/lista', { method: 'POST', body });
     input.value = '';
+    addGtin = '';
     $('#add-categoria').value = '';
     await refreshLista();
   } catch (err) {

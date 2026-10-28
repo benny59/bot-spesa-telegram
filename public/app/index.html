@@ -67,6 +67,7 @@
   <form id="add-form" class="addbar" autocomplete="off">
     <input id="add-input" type="text" enterkeyhint="send"
            placeholder="Aggiungi… (più articoli separati da virgola)" aria-label="Nuovo articolo">
+    <button type="button" id="add-scan" aria-label="Scansiona barcode" title="Scansiona il barcode di un prodotto">📷</button>
     <select id="add-categoria" aria-label="Categoria"></select>
     <button type="submit" class="primary" aria-label="Aggiungi">＋</button>
   </form>
@@ -109,16 +110,55 @@
     </form>
   </dialog>
 
-  <!-- Carte fedeltà: sola lettura, la gestione resta su Telegram / app Android -->
+  <!-- Scanner barcode: fotocamera (BarcodeDetector) con ripiego su foto decodificata dal server -->
+  <dialog id="dlg-scan">
+    <div class="foto-head">
+      <h3 id="scan-title">Scansiona barcode</h3>
+      <button id="scan-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <div class="scan-view">
+      <video id="scan-video" playsinline muted></video>
+    </div>
+    <p id="scan-status" class="muted center"></p>
+    <div class="foto-actions">
+      <button id="scan-shot" type="button" class="primary" hidden>📷 Scatta</button>
+      <label class="foto-pick scan-pick">
+        🖼️ Da foto
+        <input id="scan-file" type="file" accept="image/*" capture="environment" hidden>
+      </label>
+    </div>
+  </dialog>
+
+  <!-- Carte fedeltà: elenco, visualizzazione e aggiunta (scansione o codice manuale) -->
   <dialog id="dlg-carte">
     <div class="foto-head">
       <h3>🎟️ Carte fedeltà</h3>
-      <button id="carte-close" class="icon-btn" aria-label="Chiudi">✕</button>
+      <div class="foto-head-actions">
+        <button id="carte-new" class="icon-btn" aria-label="Nuova carta" title="Nuova carta">➕</button>
+        <button id="carte-close" class="icon-btn" aria-label="Chiudi">✕</button>
+      </div>
     </div>
     <p id="carte-empty" class="muted center" hidden>Nessuna carta disponibile.</p>
     <ul id="carte-list" class="menu"></ul>
   </dialog>
 
+  <dialog id="dlg-carta-new">
+    <form id="carta-new-form">
+      <div class="foto-head">
+        <h3>Nuova carta</h3>
+        <button id="carta-new-close" type="button" class="icon-btn" aria-label="Chiudi">✕</button>
+      </div>
+      <input id="carta-new-nome" class="field" placeholder="Nome (es. Coop)" maxlength="60" required>
+      <div class="field-row">
+        <input id="carta-new-codice" class="field grow" placeholder="Codice" inputmode="text" autocomplete="off" required>
+        <button id="carta-new-scan" type="button" class="icon-btn" aria-label="Scansiona" title="Scansiona con la fotocamera">📷</button>
+      </div>
+      <div class="foto-actions">
+        <button id="carta-new-cancel" type="button">Annulla</button>
+        <button type="submit" class="primary wide">Salva</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="dlg-carta">
     <div class="foto-head">
       <h3 id="carta-nome"></h3>
@@ -250,6 +290,10 @@
       <label class="primary foto-pick">
         Scegli file
         <input id="foto-input" type="file" accept="image/*" hidden>
+      </label>
+      <label class="primary foto-pick">
+        📷 Scatta
+        <input id="foto-camera" type="file" accept="image/*" capture="environment" hidden>
       </label>
       <button id="foto-delete" class="danger" hidden>🗑️ Rimuovi foto</button>
     </div>
