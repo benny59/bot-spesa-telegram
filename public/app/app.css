@@ -555,3 +555,11 @@ dialog ol { padding-left: 1.2em; }
     background: rgba(0, 0, 0, .35);
   }
 }
+
+/* --- Selezione multipla --- */
+#selbar { display: none; align-items: center; }
+#selbar span { flex: 1; padding-left: 8px; }
+body.selecting #selbar { display: flex; }
+body.selecting #add-form { display: none; }
+.sel-check { font-size: 1.3em; flex-shrink: 0; }
+.item.selected { background: #dbe9f8; }

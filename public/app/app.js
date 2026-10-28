@@ -12,6 +12,7 @@ const state = {
   // gruppoId/topicId restano l'ultima lista aperta: lì vanno gli articoli aggiunti.
   sel: { vista: '', ...(load('spesa.sel') || { gruppoId: null, topicId: 0 }) },
   conteggi: { oggi: null, tutti: null, miei: null, liste: {} },
+  selezione: null, // Set di id durante la selezione multipla, altrimenti null
   gruppi: [],
   topics: {},                          // gruppoId -> [{ topic_id, nome }]
   items: [],
@@ -198,6 +199,7 @@ function currentTopic() {
 }
 
 function selectContext(gruppoId, topicId, reload = true) {
+  esciSelezione();
   state.sel = { vista: '', gruppoId, topicId };
   save('spesa.sel', state.sel);
   document.body.classList.remove('nav-open');
@@ -212,6 +214,7 @@ function selectContext(gruppoId, topicId, reload = true) {
 }
 
 function selectVista(vista) {
+  esciSelezione();
   state.sel = { ...state.sel, vista };
   save('spesa.sel', state.sel);
   toggleNav(false);
@@ -360,9 +363,10 @@ function renderItem(item) {
     ? `<div class="item-cat">${item.categoria_id ? '▣' : '◌'} ${esc(categoriaLabel(item))}</div>`
     : '';
 
-  return `<li class="item ${cls} ${state.pending.has(item.id) ? 'pending' : ''}" data-id="${item.id}">
+  const check = state.selezione ? `<span class="sel-check">${state.selezione.has(item.id) ? '☑' : '☐'}</span>` : '';
+  return `<li class="item ${cls} ${state.pending.has(item.id) ? 'pending' : ''}${state.selezione?.has(item.id) ? ' selected' : ''}" data-id="${item.id}">
     <button class="item-main" data-action="tap">
-      ${creator}
+      ${check}${creator}
       <span class="item-text"><div class="item-nome">${item.oggi ? '<span class="oggi-badge" title="Oggi">🔥</span> ' : ''}${esc(item.nome)}</div>${categoria}</span>
       <span class="mark${cls === 'deleted' || cls === '' ? ' mark-del' : ''}">${mark}</span>
       ${buyer}
@@ -519,6 +523,7 @@ $('#lista').addEventListener('click', (e) => {
   if (!btn || !li) return;
   const item = findItem(Number(li.dataset.id));
   if (!item || state.pending.has(item.id)) return;
+  if (state.selezione) return toggleSelezione(item.id);
   if (btn.dataset.action === 'tap' && e.target.closest('.mark-del')) {
     // icona cestino/ripristino: toggle cancellazione
     runOnItem(item, () => item.deleted
@@ -533,6 +538,7 @@ $('#lista').addEventListener('click', (e) => {
 // ---------- modifica articolo: nome, categoria, sposta gruppo/topic ----------
 
 let editItem = null;
+let editItems = null; // modifica multipla: articoli selezionati della stessa lista
 
 // Un solo menu con tutti i record "Gruppo · Topic" visibili dall'utente (niente cascata gruppo->topic).
 function populateEditDestinazioni(gruppoIdSelezionato, topicIdSelezionato) {
@@ -553,7 +559,7 @@ function destinazioneEditSelezionata() {
 
 async function populateEditCategorie(gruppoId, topicId, selected) {
   const sel = $('#edit-item-categoria');
-  sel.innerHTML = '<option value="">Nessuna categoria</option>';
+  sel.innerHTML = `<option value="">${editItems ? '— invariata —' : 'Nessuna categoria'}</option>`;
   try {
     const categorie = await api('/categorie', { query: { gruppo_id: gruppoId, topic_id: topicId, user_id: state.auth.userId } });
     sel.innerHTML += categorie.sort((a, b) => a.nome.localeCompare(b.nome, 'it')).map((c) => (
@@ -582,6 +588,8 @@ function categoriaValueDiItem(item) {
 
 async function openEditItemDialog(item) {
   editItem = item;
+  editItems = null;
+  $('#edit-item-nome').hidden = false;
   $('#edit-item-nome').value = item.nome;
   populateEditDestinazioni(item.gruppo_id, item.topic_id);
   const { gruppoId, topicId } = destinazioneEditSelezionata();
@@ -602,7 +610,6 @@ $('#edit-item-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const item = editItem;
   if (!item) return;
-  const user = state.auth.userId;
 
   const nomeNuovo = $('#edit-item-nome').value.trim();
   if (!nomeNuovo) return toast('Inserisci un nome');
@@ -617,29 +624,101 @@ $('#edit-item-form').addEventListener('submit', async (e) => {
     categoriaIdBody = Number(categoriaValue);
   }
 
-  const spostato = gruppoNuovo !== item.gruppo_id || topicNuovo !== item.topic_id;
-  const rinominato = nomeNuovo !== item.nome || categoriaValue !== categoriaValueDiItem(item);
-  if (!spostato && !rinominato) {
-    $('#dlg-edit-item').close();
-    return;
-  }
-
   $('#dlg-edit-item').close();
-  await runOnItem(item, async () => {
-    if (spostato) {
-      await api(`/lista/${item.id}/topic`, {
-        method: 'PATCH', body: { gruppo_id: gruppoNuovo, topic_id: topicNuovo, user_id: user }
-      });
-      item.gruppo_id = gruppoNuovo;
-      item.topic_id = topicNuovo;
-    }
-    if (rinominato) {
-      const body = { nome: nomeBody, user_id: user };
-      if (categoriaIdBody !== undefined) body.categoria_id = categoriaIdBody;
-      await api(`/lista/${item.id}`, { method: 'PATCH', body });
-    }
-  });
+  const modifica = { gruppoId: gruppoNuovo, topicId: topicNuovo, categoriaValue, nomeNuovo, nomeBody, categoriaIdBody };
+  if (editItems) return applicaMultipla(editItems, modifica);
+  if (!modificaNecessaria(item, modifica)) return;
+  await runOnItem(item, () => applicaModifica(item, modifica));
 });
+
+function modificaNecessaria(item, m) {
+  return m.gruppoId !== item.gruppo_id || m.topicId !== item.topic_id ||
+    m.nomeNuovo !== item.nome || m.categoriaValue !== categoriaValueDiItem(item);
+}
+
+// Applica a un articolo le due PATCH esistenti (sposta, poi nome/categoria), solo se servono.
+async function applicaModifica(item, m) {
+  const user = state.auth.userId;
+  if (m.gruppoId !== item.gruppo_id || m.topicId !== item.topic_id) {
+    await api(`/lista/${item.id}/topic`, {
+      method: 'PATCH', body: { gruppo_id: m.gruppoId, topic_id: m.topicId, user_id: user }
+    });
+    item.gruppo_id = m.gruppoId;
+    item.topic_id = m.topicId;
+  }
+  if (m.nomeNuovo !== item.nome || m.categoriaValue !== categoriaValueDiItem(item)) {
+    const body = { nome: m.nomeBody, user_id: user };
+    if (m.categoriaIdBody !== undefined) body.categoria_id = m.categoriaIdBody;
+    await api(`/lista/${item.id}`, { method: 'PATCH', body });
+  }
+}
+
+// ---------- selezione multipla (stessa lista): assegna categoria e/o lista ----------
+
+function aggiornaBarraSelezione() {
+  document.body.classList.toggle('selecting', Boolean(state.selezione));
+  $('#sel-count').textContent = state.selezione ? `${state.selezione.size} selezionati` : '';
+  $('#sel-edit').disabled = !state.selezione?.size;
+}
+
+function entraSelezione() {
+  state.selezione = new Set();
+  aggiornaBarraSelezione();
+  renderLista();
+}
+
+function esciSelezione() {
+  if (!state.selezione) return;
+  state.selezione = null;
+  aggiornaBarraSelezione();
+  renderLista();
+}
+
+function toggleSelezione(id) {
+  if (state.selezione.has(id)) state.selezione.delete(id);
+  else state.selezione.add(id);
+  aggiornaBarraSelezione();
+  renderLista();
+}
+
+async function openEditMultiplaDialog() {
+  const items = state.items.filter((i) => state.selezione.has(i.id));
+  if (!items.length) return;
+  editItems = items;
+  editItem = items[0];
+  $('#edit-item-nome').hidden = true;
+  $('#edit-item-nome').value = items[0].nome; // non modificato: il campo è nascosto
+  populateEditDestinazioni(items[0].gruppo_id, items[0].topic_id);
+  await populateEditCategorie(items[0].gruppo_id, items[0].topic_id, '');
+  $('#dlg-edit-item').showModal();
+}
+
+async function applicaMultipla(items, m) {
+  items.forEach((i) => state.pending.add(i.id));
+  renderLista();
+  let ok = 0;
+  for (const item of items) {
+    try {
+      // categoria "invariata" (valore vuoto) = categoria attuale dell'articolo
+      const categoriaValue = m.categoriaValue || categoriaValueDiItem(item);
+      const nome = categoriaValue.startsWith('e:') ? `${item.nome} & ${categoriaValue.slice(2)}` : item.nome;
+      await applicaModifica(item, {
+        ...m, categoriaValue, nomeNuovo: item.nome, nomeBody: nome,
+        categoriaIdBody: m.categoriaValue && !m.categoriaValue.startsWith('e:') ? Number(m.categoriaValue) : undefined
+      });
+      ok += 1;
+    } catch (err) {
+      if (err instanceof AuthError) return handleError(err);
+    }
+  }
+  items.forEach((i) => state.pending.delete(i.id));
+  if (ok < items.length) toast(`${ok} su ${items.length} aggiornati`);
+  esciSelezione();
+  await refreshLista();
+}
+
+$('#sel-edit').addEventListener('click', openEditMultiplaDialog);
+$('#sel-cancel').addEventListener('click', esciSelezione);
 
 // ---------- foto articolo: carica da file, trascina o incolla ----------
 
@@ -1393,6 +1472,7 @@ document.querySelectorAll('#helper .tabs button').forEach((b) => b.addEventListe
 
 $('#btn-menu').addEventListener('click', () => {
   $('#menu-install').hidden = !state.installPrompt && !isIos();
+  $('#menu-select').hidden = Boolean(state.sel.vista) || Boolean(state.selezione); // solo articoli della stessa lista
   $('#dlg-menu').showModal();
 });
 
@@ -1403,6 +1483,8 @@ $('#dlg-menu').addEventListener('close', async () => {
     if (confirm('Scollegare questo dispositivo?')) logout();
   } else if (action === 'install') {
     doInstall();
+  } else if (action === 'select') {
+    entraSelezione();
   }
 });
 

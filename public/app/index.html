@@ -59,6 +59,11 @@
     <div id="helper-backdrop" hidden></div>
   </div>
 
+  <div id="selbar" class="addbar">
+    <span id="sel-count" class="muted"></span>
+    <button id="sel-edit" type="button" class="primary" disabled>Modifica</button>
+    <button id="sel-cancel" type="button">Annulla</button>
+  </div>
   <form id="add-form" class="addbar" autocomplete="off">
     <input id="add-input" type="text" enterkeyhint="send"
            placeholder="Aggiungi… (più articoli separati da virgola)" aria-label="Nuovo articolo">
@@ -98,6 +103,7 @@
   <dialog id="dlg-menu">
     <form method="dialog" class="menu">
       <button value="install" id="menu-install" hidden>📲 Installa l'app</button>
+      <button value="select" id="menu-select">☑️ Seleziona articoli</button>
       <button value="logout">🚪 Scollega questo dispositivo</button>
       <button value="">Annulla</button>
     </form>
