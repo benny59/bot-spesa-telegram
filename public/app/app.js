@@ -11,7 +11,7 @@ const state = {
   // vista: '' = lista del gruppo/topic, 'oggi' / 'tutti' / 'miei' = viste trasversali.
   // gruppoId/topicId restano l'ultima lista aperta: lì vanno gli articoli aggiunti.
   sel: { vista: '', ...(load('spesa.sel') || { gruppoId: null, topicId: 0 }) },
-  conteggi: { oggi: null, tutti: null, miei: null },
+  conteggi: { oggi: null, tutti: null, miei: null, liste: {} },
   gruppi: [],
   topics: {},                          // gruppoId -> [{ topic_id, nome }]
   items: [],
@@ -220,6 +220,11 @@ function selectVista(vista) {
   refreshLista();
 }
 
+function listCount(gruppoId, topicId) {
+  const n = (state.conteggi.liste || {})[`${gruppoId}:${topicId}`];
+  return n === undefined ? '' : `<span class="count">${n}</span>`;
+}
+
 function renderNav() {
   $('#nav-user').textContent = state.auth ? `Collegato come ${state.auth.firstName}` : '';
   const viste = Object.entries(VISTE).map(([key, label]) => {
@@ -232,11 +237,11 @@ function renderNav() {
     if (topics.length === 1) {
       const t = topics[0];
       const active = !state.sel.vista && g.id === state.sel.gruppoId && t.topic_id === state.sel.topicId;
-      return `<li><button class="solo ${active ? 'active' : ''}" data-gruppo="${g.id}" data-topic="${t.topic_id}">${esc(g.nome)}</button></li>`;
+      return `<li><button class="solo ${active ? 'active' : ''}" data-gruppo="${g.id}" data-topic="${t.topic_id}">${esc(g.nome)}${listCount(g.id, t.topic_id)}</button></li>`;
     }
     const buttons = topics.map((t) => {
       const active = !state.sel.vista && g.id === state.sel.gruppoId && t.topic_id === state.sel.topicId;
-      return `<li><button class="${active ? 'active' : ''}" data-gruppo="${g.id}" data-topic="${t.topic_id}">${esc(t.nome)}</button></li>`;
+      return `<li><button class="${active ? 'active' : ''}" data-gruppo="${g.id}" data-topic="${t.topic_id}">${esc(t.nome)}${listCount(g.id, t.topic_id)}</button></li>`;
     }).join('');
     return `<li><div class="gruppo">${esc(g.nome)}</div><ul>${buttons}</ul></li>`;
   }).join('');
@@ -313,7 +318,7 @@ async function doRefresh() {
 async function loadConteggi() {
   try {
     const conteggi = await api('/lista/conteggi', { query: { user_id: state.auth.userId } });
-    if (conteggi.oggi === state.conteggi.oggi && conteggi.tutti === state.conteggi.tutti && conteggi.miei === state.conteggi.miei) return;
+    if (JSON.stringify(conteggi) === JSON.stringify(state.conteggi)) return;
     state.conteggi = conteggi;
     renderNav();
   } catch {
