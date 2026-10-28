@@ -541,15 +541,19 @@ let editItem = null;
 let editItems = null; // modifica multipla: articoli selezionati della stessa lista
 
 // Un solo menu con tutti i record "Gruppo · Topic" visibili dall'utente (niente cascata gruppo->topic).
-function populateEditDestinazioni(gruppoIdSelezionato, topicIdSelezionato) {
-  $('#edit-item-destinazione').innerHTML = state.gruppi.map((g) => {
+function populateDestinazioni(select, gruppoIdSelezionato, topicIdSelezionato) {
+  select.innerHTML = state.gruppi.map((g) => {
     if (g.id === 0) return `<option value="0:0">${esc(g.nome)}</option>`;
     const topics = state.topics[g.id] || [{ topic_id: 0, nome: 'Principale' }];
     return topics.map((t) => (
       `<option value="${g.id}:${t.topic_id}">${esc(g.nome)} · ${esc(t.nome)}</option>`
     )).join('');
   }).join('');
-  $('#edit-item-destinazione').value = `${gruppoIdSelezionato}:${topicIdSelezionato}`;
+  select.value = `${gruppoIdSelezionato}:${topicIdSelezionato}`;
+}
+
+function populateEditDestinazioni(gruppoIdSelezionato, topicIdSelezionato) {
+  populateDestinazioni($('#edit-item-destinazione'), gruppoIdSelezionato, topicIdSelezionato);
 }
 
 function destinazioneEditSelezionata() {
@@ -1725,6 +1729,67 @@ $('#dlg-menu').addEventListener('close', async () => {
     doInstall();
   } else if (action === 'select') {
     entraSelezione();
+  } else if (action === 'ricetta') {
+    openRicettaDialog();
+  }
+});
+
+// ---------- import ricetta (Monsieur Cuisine, GialloZafferano) ----------
+// Il server legge la ricetta (POST /import/recipe/preview); gli ingredienti entrano
+// come articoli di una categoria effimera col nome della ricetta, come nell'app Android.
+
+function openRicettaDialog() {
+  $('#ricetta-url').value = '';
+  $('#ricetta-dettagli').hidden = true;
+  populateDestinazioni($('#ricetta-destinazione'), state.sel.gruppoId, state.sel.topicId);
+  $('#dlg-ricetta').showModal();
+}
+
+$('#ricetta-close').addEventListener('click', () => $('#dlg-ricetta').close());
+$('#ricetta-cancel').addEventListener('click', () => $('#dlg-ricetta').close());
+
+$('#ricetta-leggi').addEventListener('click', async () => {
+  const url = $('#ricetta-url').value.trim();
+  if (!url) return toast('Incolla il link della ricetta');
+  const btn = $('#ricetta-leggi');
+  btn.disabled = true;
+  try {
+    const r = await api('/import/recipe/preview', { method: 'POST', body: { url } });
+    $('#ricetta-categoria').value = r.title;
+    $('#ricetta-ingredienti').value = r.ingredients.join('\n');
+    const porzioni = [r.servings, r.serving_unit].filter(Boolean).join(' ');
+    $('#ricetta-info').textContent = `${porzioni ? `${porzioni} · ` : ''}${r.ingredients.length} ingredienti`;
+    $('#ricetta-dettagli').hidden = false;
+  } catch (err) {
+    handleError(err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#ricetta-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if ($('#ricetta-dettagli').hidden) return $('#ricetta-leggi').click();
+  const categoria = $('#ricetta-categoria').value.trim();
+  const items = $('#ricetta-ingredienti').value.split('\n').map((r) => r.trim()).filter(Boolean);
+  if (!categoria || categoria.includes('&')) return toast('Nome categoria non valido');
+  if (!items.length) return toast('Inserisci almeno un ingrediente');
+  const [gruppoId, topicId] = $('#ricetta-destinazione').value.split(':').map(Number);
+
+  $('#dlg-ricetta').close();
+  try {
+    const { item_ids: ids } = await api('/lista', {
+      method: 'POST',
+      body: {
+        gruppo_id: gruppoId, topic_id: topicId, user_id: state.auth.userId,
+        items, categoria_effimera: categoria, split_items: false
+      }
+    });
+    const doppi = items.length - ids.length;
+    toast(`Importati ${ids.length} ingredienti${doppi ? ` (${doppi} già presenti)` : ''}`);
+    await refreshLista();
+  } catch (err) {
+    handleError(err);
   }
 });
 

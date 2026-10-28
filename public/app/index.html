@@ -104,6 +104,7 @@
   <dialog id="dlg-menu">
     <form method="dialog" class="menu">
       <button value="install" id="menu-install" hidden>📲 Installa l'app</button>
+      <button value="ricetta">🍲 Importa ricetta</button>
       <button value="select" id="menu-select">☑️ Seleziona articoli</button>
       <button value="logout">🚪 Scollega questo dispositivo</button>
       <button value="">Annulla</button>
@@ -214,6 +215,34 @@
       <button value="oggi" id="item-oggi"></button>
       <button value="delete" id="item-delete"></button>
       <button value="">Annulla</button>
+    </form>
+  </dialog>
+
+  <!-- Import ricetta da link -->
+  <dialog id="dlg-ricetta">
+    <div class="foto-head">
+      <h3>🍲 Importa ricetta</h3>
+      <button id="ricetta-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <form id="ricetta-form">
+      <input id="ricetta-url" type="url" inputmode="url" placeholder="Link Monsieur Cuisine o GialloZafferano">
+      <button id="ricetta-leggi" type="button" class="wide">Leggi ricetta</button>
+      <div id="ricetta-dettagli" hidden>
+        <div id="ricetta-info" class="muted edit-item-label"></div>
+        <label class="edit-item-label muted">Categoria
+          <input id="ricetta-categoria" type="text" maxlength="100">
+        </label>
+        <label class="edit-item-label muted">Ingredienti (uno per riga)
+          <textarea id="ricetta-ingredienti" rows="8"></textarea>
+        </label>
+        <label class="edit-item-label muted">Lista
+          <select id="ricetta-destinazione"></select>
+        </label>
+        <div class="foto-actions">
+          <button id="ricetta-cancel" type="button">Annulla</button>
+          <button type="submit" class="primary wide">Aggiungi</button>
+        </div>
+      </div>
     </form>
   </dialog>
 
