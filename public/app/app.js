@@ -542,7 +542,9 @@ let editItems = null; // modifica multipla: articoli selezionati della stessa li
 
 // Un solo menu con tutti i record "Gruppo · Topic" visibili dall'utente (niente cascata gruppo->topic).
 function populateEditDestinazioni(gruppoIdSelezionato, topicIdSelezionato) {
-  $('#edit-item-destinazione').innerHTML = state.gruppi.map((g) => {
+  // modifica multipla: solo i topic del gruppo corrente, niente spostamenti tra gruppi
+  const gruppi = editItems ? state.gruppi.filter((g) => g.id === gruppoIdSelezionato) : state.gruppi;
+  $('#edit-item-destinazione').innerHTML = gruppi.map((g) => {
     if (g.id === 0) return `<option value="0:0">${esc(g.nome)}</option>`;
     const topics = state.topics[g.id] || [{ topic_id: 0, nome: 'Principale' }];
     return topics.map((t) => (
