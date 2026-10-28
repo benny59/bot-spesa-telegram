@@ -104,7 +104,7 @@
   <dialog id="dlg-menu">
     <form method="dialog" class="menu">
       <button value="install" id="menu-install" hidden>📲 Installa l'app</button>
-      <button value="ricetta">🍲 Importa ricetta</button>
+      <button value="ricetta">🔗 Importa da link</button>
       <button value="select" id="menu-select">☑️ Seleziona articoli</button>
       <button value="logout">🚪 Scollega questo dispositivo</button>
       <button value="">Annulla</button>
@@ -218,15 +218,15 @@
     </form>
   </dialog>
 
-  <!-- Import ricetta da link -->
+  <!-- Import da link: ricetta (Monsieur Cuisine, GialloZafferano) o prodotto (CoopShop) -->
   <dialog id="dlg-ricetta">
     <div class="foto-head">
-      <h3>🍲 Importa ricetta</h3>
+      <h3>🔗 Importa da link</h3>
       <button id="ricetta-close" class="icon-btn" aria-label="Chiudi">✕</button>
     </div>
     <form id="ricetta-form">
-      <input id="ricetta-url" type="url" inputmode="url" placeholder="Link Monsieur Cuisine o GialloZafferano">
-      <button id="ricetta-leggi" type="button" class="wide">Leggi ricetta</button>
+      <input id="ricetta-url" type="url" inputmode="url" placeholder="Ricetta (Monsieur Cuisine, GialloZafferano) o prodotto (CoopShop, Tigros)">
+      <button id="ricetta-leggi" type="button" class="wide">Leggi link</button>
       <div id="ricetta-dettagli" hidden>
         <div id="ricetta-info" class="muted edit-item-label"></div>
         <label class="edit-item-label muted">Categoria
@@ -235,6 +235,17 @@
         <label class="edit-item-label muted">Ingredienti (uno per riga)
           <textarea id="ricetta-ingredienti" rows="8"></textarea>
         </label>
+      </div>
+      <div id="prodotto-dettagli" hidden>
+        <img id="prodotto-foto" alt="" hidden>
+        <label class="edit-item-label muted">Nome
+          <input id="prodotto-nome" type="text" maxlength="200">
+        </label>
+        <label class="edit-item-label muted">Barcode
+          <input id="prodotto-gtin" type="text" inputmode="numeric" maxlength="14">
+        </label>
+      </div>
+      <div id="ricetta-comune" hidden>
         <label class="edit-item-label muted">Lista
           <select id="ricetta-destinazione"></select>
         </label>

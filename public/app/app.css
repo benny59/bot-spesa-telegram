@@ -425,6 +425,7 @@ dialog ol { padding-left: 1.2em; }
 
 /* --- Modifica articolo (nome, categoria, sposta gruppo/topic) --- */
 #dlg-edit-item, #dlg-ricetta { width: min(92vw, 420px); }
+#prodotto-foto { display: block; max-width: 60%; max-height: 180px; margin: 0 auto 10px; border-radius: 8px; }
 #ricetta-form textarea, #ricetta-form input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 #edit-item-nome {
   width: 100%;

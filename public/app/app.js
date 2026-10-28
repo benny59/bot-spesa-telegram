@@ -1734,13 +1734,16 @@ $('#dlg-menu').addEventListener('close', async () => {
   }
 });
 
-// ---------- import ricetta (Monsieur Cuisine, GialloZafferano) ----------
-// Il server legge la ricetta (POST /import/recipe/preview); gli ingredienti entrano
-// come articoli di una categoria effimera col nome della ricetta, come nell'app Android.
+// ---------- import da link: ricetta (Monsieur Cuisine, GialloZafferano) o prodotto (CoopShop, Tigros) ----------
+// Il server legge il link (POST /import/recipe/preview). Una ricetta entra come articoli di una
+// categoria effimera col suo nome (come nell'app Android); un prodotto come singolo articolo
+// con barcode e foto (scaricata dal server: foto_url).
+
+let importFotoUrl = '';
 
 function openRicettaDialog() {
   $('#ricetta-url').value = '';
-  $('#ricetta-dettagli').hidden = true;
+  for (const id of ['ricetta-dettagli', 'prodotto-dettagli', 'ricetta-comune']) $(`#${id}`).hidden = true;
   populateDestinazioni($('#ricetta-destinazione'), state.sel.gruppoId, state.sel.topicId);
   $('#dlg-ricetta').showModal();
 }
@@ -1750,16 +1753,27 @@ $('#ricetta-cancel').addEventListener('click', () => $('#dlg-ricetta').close());
 
 $('#ricetta-leggi').addEventListener('click', async () => {
   const url = $('#ricetta-url').value.trim();
-  if (!url) return toast('Incolla il link della ricetta');
+  if (!url) return toast('Incolla il link');
   const btn = $('#ricetta-leggi');
   btn.disabled = true;
   try {
     const r = await api('/import/recipe/preview', { method: 'POST', body: { url } });
-    $('#ricetta-categoria').value = r.title;
-    $('#ricetta-ingredienti').value = r.ingredients.join('\n');
-    const porzioni = [r.servings, r.serving_unit].filter(Boolean).join(' ');
-    $('#ricetta-info').textContent = `${porzioni ? `${porzioni} · ` : ''}${r.ingredients.length} ingredienti`;
-    $('#ricetta-dettagli').hidden = false;
+    const prodotto = r.kind === 'product';
+    $('#ricetta-dettagli').hidden = prodotto;
+    $('#prodotto-dettagli').hidden = !prodotto;
+    $('#ricetta-comune').hidden = false;
+    if (prodotto) {
+      importFotoUrl = r.image_url || '';
+      $('#prodotto-nome').value = r.title;
+      $('#prodotto-gtin').value = r.gtin || '';
+      $('#prodotto-foto').hidden = !importFotoUrl;
+      $('#prodotto-foto').src = importFotoUrl;
+    } else {
+      $('#ricetta-categoria').value = r.title;
+      $('#ricetta-ingredienti').value = r.ingredients.join('\n');
+      const porzioni = [r.servings, r.serving_unit].filter(Boolean).join(' ');
+      $('#ricetta-info').textContent = `${porzioni ? `${porzioni} · ` : ''}${r.ingredients.length} ingredienti`;
+    }
   } catch (err) {
     handleError(err);
   } finally {
@@ -1767,26 +1781,42 @@ $('#ricetta-leggi').addEventListener('click', async () => {
   }
 });
 
-$('#ricetta-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  if ($('#ricetta-dettagli').hidden) return $('#ricetta-leggi').click();
+function bodyImport() {
+  if (!$('#prodotto-dettagli').hidden) {
+    const nome = $('#prodotto-nome').value.trim();
+    if (!nome) return toast('Inserisci un nome');
+    const body = { nome };
+    const gtin = $('#prodotto-gtin').value.trim();
+    if (gtin) body.gtin = gtin;
+    if (importFotoUrl) body.foto_url = importFotoUrl;
+    return body;
+  }
   const categoria = $('#ricetta-categoria').value.trim();
   const items = $('#ricetta-ingredienti').value.split('\n').map((r) => r.trim()).filter(Boolean);
   if (!categoria || categoria.includes('&')) return toast('Nome categoria non valido');
   if (!items.length) return toast('Inserisci almeno un ingrediente');
+  return { items, categoria_effimera: categoria, split_items: false };
+}
+
+$('#ricetta-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if ($('#ricetta-comune').hidden) return $('#ricetta-leggi').click();
+  const dati = bodyImport();
+  if (!dati) return;
   const [gruppoId, topicId] = $('#ricetta-destinazione').value.split(':').map(Number);
 
   $('#dlg-ricetta').close();
   try {
-    const { item_ids: ids } = await api('/lista', {
+    const r = await api('/lista', {
       method: 'POST',
-      body: {
-        gruppo_id: gruppoId, topic_id: topicId, user_id: state.auth.userId,
-        items, categoria_effimera: categoria, split_items: false
-      }
+      body: { gruppo_id: gruppoId, topic_id: topicId, user_id: state.auth.userId, ...dati }
     });
-    const doppi = items.length - ids.length;
-    toast(`Importati ${ids.length} ingredienti${doppi ? ` (${doppi} già presenti)` : ''}`);
+    if (dati.items) {
+      const doppi = dati.items.length - r.item_ids.length;
+      toast(`Importati ${r.item_ids.length} ingredienti${doppi ? ` (${doppi} già presenti)` : ''}`);
+    } else {
+      toast(dati.foto_url && !r.foto ? 'Aggiunto, ma la foto non è stata salvata' : 'Prodotto aggiunto');
+    }
     await refreshLista();
   } catch (err) {
     handleError(err);
