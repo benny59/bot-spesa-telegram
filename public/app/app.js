@@ -561,16 +561,27 @@ function destinazioneEditSelezionata() {
   return { gruppoId, topicId };
 }
 
+// <option> delle categorie: valore "e:nome" per le effimere, id per le fisse
+function categoriaOptions(categorie) {
+  return [...categorie].sort((a, b) => a.nome.localeCompare(b.nome, 'it')).map((c) => (
+    c.effimera
+      ? `<option value="e:${esc(c.nome)}">◌ ${esc(c.nome.toLowerCase())}</option>`
+      : `<option value="${c.id}">${esc(c.nome)}</option>`
+  )).join('');
+}
+
+// Applica la categoria scelta a un nuovo articolo: effimera = sintassi "nome & categoria" del bot
+function applicaCategoria(body, nome, categoria) {
+  if (categoria.startsWith('e:')) return { ...body, nome: `${nome} & ${categoria.slice(2)}` };
+  return { ...body, nome, ...(categoria && { categoria_id: Number(categoria) }) };
+}
+
 async function populateEditCategorie(gruppoId, topicId, selected) {
   const sel = $('#edit-item-categoria');
   sel.innerHTML = `<option value="">${editItems ? '— invariata —' : 'Nessuna categoria'}</option>`;
   try {
     const categorie = await api('/categorie', { query: { gruppo_id: gruppoId, topic_id: topicId, user_id: state.auth.userId } });
-    sel.innerHTML += categorie.sort((a, b) => a.nome.localeCompare(b.nome, 'it')).map((c) => (
-      c.effimera
-        ? `<option value="e:${esc(c.nome)}">◌ ${esc(c.nome.toLowerCase())}</option>`
-        : `<option value="${c.id}">${esc(c.nome)}</option>`
-    )).join('');
+    sel.innerHTML += categoriaOptions(categorie);
   } catch {
     // il selettore resta con la sola opzione "Nessuna categoria"
   }
@@ -1427,34 +1438,21 @@ async function loadCategorie() {
   } catch {
     state.categorie = [];
   }
-  $('#add-categoria').innerHTML = '<option value="">Categoria</option>' +
-    state.categorie.map((c) => (
-      c.effimera
-        ? `<option value="e:${esc(c.nome)}">◌ ${esc(c.nome.toLowerCase())}</option>`
-        : `<option value="${c.id}">${esc(c.nome)}</option>`
-    )).join('');
+  $('#add-categoria').innerHTML = '<option value="">Categoria</option>' + categoriaOptions(state.categorie);
 }
 
 $('#add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = $('#add-input');
-  let nome = input.value.trim();
+  const nome = input.value.trim();
   if (!nome || !state.auth || state.sel.gruppoId === null) return;
 
-  const categoria = $('#add-categoria').value;
-  const body = {
+  const body = applicaCategoria({
     gruppo_id: state.sel.gruppoId,
     topic_id: state.sel.topicId,
     user_id: state.auth.userId,
     split_items: true
-  };
-  if (categoria.startsWith('e:')) {
-    // categoria effimera: sintassi "a, b & categoria" usata anche dal bot
-    nome = `${nome} & ${categoria.slice(2)}`;
-  } else if (categoria) {
-    body.categoria_id = Number(categoria);
-  }
-  body.nome = nome;
+  }, nome, $('#add-categoria').value);
   if (addGtin) body.gtin = addGtin;
 
   input.disabled = true;
@@ -1741,6 +1739,23 @@ $('#dlg-menu').addEventListener('close', async () => {
 
 let importFotoUrl = '';
 
+async function caricaCategorieImport() {
+  const [gruppoId, topicId] = $('#ricetta-destinazione').value.split(':').map(Number);
+  const sel = $('#prodotto-categoria');
+  const scelta = sel.value;
+  sel.innerHTML = '<option value="">Nessuna categoria</option>';
+  try {
+    sel.innerHTML += categoriaOptions(await api('/categorie', {
+      query: { gruppo_id: gruppoId, topic_id: topicId, user_id: state.auth.userId }
+    }));
+    sel.value = scelta;
+  } catch {
+    // resta la sola opzione "Nessuna categoria"
+  }
+}
+
+$('#ricetta-destinazione').addEventListener('change', caricaCategorieImport);
+
 function openRicettaDialog() {
   $('#ricetta-url').value = '';
   for (const id of ['ricetta-dettagli', 'prodotto-dettagli', 'ricetta-comune']) $(`#${id}`).hidden = true;
@@ -1768,6 +1783,8 @@ $('#ricetta-leggi').addEventListener('click', async () => {
       $('#prodotto-gtin').value = r.gtin || '';
       $('#prodotto-foto').hidden = !importFotoUrl;
       $('#prodotto-foto').src = importFotoUrl;
+      $('#prodotto-categoria').value = '';
+      caricaCategorieImport();
     } else {
       $('#ricetta-categoria').value = r.title;
       $('#ricetta-ingredienti').value = r.ingredients.join('\n');
@@ -1785,7 +1802,7 @@ function bodyImport() {
   if (!$('#prodotto-dettagli').hidden) {
     const nome = $('#prodotto-nome').value.trim();
     if (!nome) return toast('Inserisci un nome');
-    const body = { nome };
+    const body = applicaCategoria({}, nome, $('#prodotto-categoria').value);
     const gtin = $('#prodotto-gtin').value.trim();
     if (gtin) body.gtin = gtin;
     if (importFotoUrl) body.foto_url = importFotoUrl;
