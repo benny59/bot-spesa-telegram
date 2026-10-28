@@ -539,10 +539,9 @@ function populateEditDestinazioni(gruppoIdSelezionato, topicIdSelezionato) {
   $('#edit-item-destinazione').innerHTML = state.gruppi.map((g) => {
     if (g.id === 0) return `<option value="0:0">${esc(g.nome)}</option>`;
     const topics = state.topics[g.id] || [{ topic_id: 0, nome: 'Principale' }];
-    const options = topics.map((t) => (
-      `<option value="${g.id}:${t.topic_id}">${esc(t.nome)}</option>`
+    return topics.map((t) => (
+      `<option value="${g.id}:${t.topic_id}">${esc(g.nome)} · ${esc(t.nome)}</option>`
     )).join('');
-    return `<optgroup label="${esc(g.nome)}">${options}</optgroup>`;
   }).join('');
   $('#edit-item-destinazione').value = `${gruppoIdSelezionato}:${topicIdSelezionato}`;
 }
