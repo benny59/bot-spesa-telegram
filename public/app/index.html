@@ -105,6 +105,7 @@
     <form method="dialog" class="menu">
       <button value="install" id="menu-install" hidden>📲 Installa l'app</button>
       <button value="ricetta">🔗 Importa da link</button>
+      <button value="promemoria">📅 Invia promemoria</button>
       <button value="select" id="menu-select">☑️ Seleziona articoli</button>
       <button value="logout">🚪 Scollega questo dispositivo</button>
       <button value="">Annulla</button>
@@ -215,6 +216,48 @@
       <button value="oggi" id="item-oggi"></button>
       <button value="delete" id="item-delete"></button>
       <button value="">Annulla</button>
+    </form>
+  </dialog>
+
+  <!-- Promemoria: evento una tantum inviato su Telegram come file .ics da salvare nel calendario -->
+  <dialog id="dlg-promemoria">
+    <div class="foto-head">
+      <h3>📅 Invia promemoria</h3>
+      <button id="promemoria-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <form id="promemoria-form">
+      <label class="edit-item-label muted">Invia a
+        <select id="promemoria-destinazione"></select>
+      </label>
+      <label class="edit-item-label muted">Titolo
+        <input id="promemoria-titolo" type="text" maxlength="100" required>
+      </label>
+      <label class="edit-item-label muted">Data e ora
+        <input id="promemoria-inizio" type="datetime-local" required>
+      </label>
+      <label class="edit-item-label muted">Luogo
+        <input id="promemoria-luogo" type="text" maxlength="200">
+      </label>
+      <label class="edit-item-label muted">Preavviso allarme
+        <span class="promemoria-preavviso">
+          <input id="promemoria-preavviso" type="number" inputmode="numeric" min="0" max="365" value="1">
+          <select id="promemoria-unita">
+            <option value="ore">ore</option>
+            <option value="giorni" selected>giorni</option>
+          </select>
+        </span>
+      </label>
+      <label class="edit-item-label muted">Descrizione
+        <textarea id="promemoria-descrizione" rows="3" maxlength="2000"></textarea>
+      </label>
+      <label class="edit-item-label muted">Messaggio per il gruppo
+        <textarea id="promemoria-messaggio" rows="3" maxlength="500"></textarea>
+      </label>
+      <p class="muted edit-item-label">📲 Al messaggio viene aggiunta la riga: tocca il file e scegli Calendario per salvarlo sul telefono.</p>
+      <div class="foto-actions">
+        <button id="promemoria-cancel" type="button">Annulla</button>
+        <button type="submit" class="primary wide">Invia</button>
+      </div>
     </form>
   </dialog>
 

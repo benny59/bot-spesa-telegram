@@ -424,9 +424,9 @@ dialog ol { padding-left: 1.2em; }
 }
 
 /* --- Modifica articolo (nome, categoria, sposta gruppo/topic) --- */
-#dlg-edit-item, #dlg-ricetta { width: min(92vw, 420px); }
+#dlg-edit-item, #dlg-ricetta, #dlg-promemoria { width: min(92vw, 420px); }
 #prodotto-foto { display: block; max-width: 60%; max-height: 180px; margin: 0 auto 10px; border-radius: 8px; }
-#ricetta-form textarea, #ricetta-form input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+#ricetta-form textarea, #ricetta-form input, #promemoria-form textarea, #promemoria-form input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 #edit-item-nome {
   width: 100%;
   margin-bottom: 10px;
@@ -574,3 +574,7 @@ body.selecting #selbar { display: flex; }
 body.selecting #add-form { display: none; }
 .sel-check { font-size: 1.3em; flex-shrink: 0; }
 .item.selected { background: #dbe9f8; }
+
+.promemoria-preavviso { display: flex; gap: 8px; margin-top: 4px; }
+.promemoria-preavviso input { flex: 1; min-width: 0; margin-bottom: 0 !important; }
+.edit-item-label .promemoria-preavviso select { flex: 0 0 40%; width: auto; margin-top: 0; }

@@ -20,6 +20,7 @@ require_relative 'handlers/storico_manager'
 require_relative 'models/item_action_message'
 require_relative 'models/group_manager'
 require_relative 'models/lista_modello'
+require_relative 'models/promemoria_ics'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
 def telegram_token_attivo
@@ -760,6 +761,74 @@ post '/lista' do
 
   status 201
   { ok: true, item_ids: item_ids, foto: foto_allegata }.to_json
+end
+
+PROMEMORIA_RIGA_SALVATAGGIO = "\u{1F4F2} Tocca il file allegato e scegli Calendario per salvare il promemoria sul telefono."
+
+# Invia al gruppo/topic un promemoria .ics (evento una tantum) con messaggio di accompagnamento.
+# gruppo_id 0 = Lista Personale: il file va in chat privata a chi lo crea.
+post '/promemoria' do
+  body      = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  topic_id  = body['topic_id']&.to_i || 0
+  user_id   = body['user_id']&.to_i || 0
+  titolo    = body['titolo'].to_s.strip
+  messaggio = body['messaggio'].to_s.strip
+
+  halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || user_id == 0
+  halt 400, { error: 'titolo troppo lungo' }.to_json if titolo.length > 100
+  halt 400, { error: 'messaggio troppo lungo' }.to_json if messaggio.length > 500
+  halt 400, { error: 'luogo troppo lungo' }.to_json if body['luogo'].to_s.length > 200
+  halt 400, { error: 'descrizione troppo lunga' }.to_json if body['descrizione'].to_s.length > 2000
+  if gruppo_id != 0
+    halt 403, { error: 'accesso negato' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
+  end
+
+  unita_minuti = { 'ore' => 60, 'giorni' => 1440 }
+  preavviso = body['preavviso'].to_i
+  moltiplicatore = unita_minuti[body['preavviso_unita'].to_s]
+  halt 400, { error: 'unità di preavviso non valida' }.to_json if preavviso > 0 && moltiplicatore.nil?
+
+  begin
+    ics = PromemoriaIcs.genera(
+      titolo: titolo,
+      inizio: body['inizio'],
+      luogo: body['luogo'],
+      descrizione: body['descrizione'],
+      preavviso_minuti: preavviso * moltiplicatore.to_i
+    )
+  rescue PromemoriaIcs::Error => e
+    halt 400, { error: e.message }.to_json
+  end
+
+  token = telegram_token_attivo
+  halt 503, { error: 'token Telegram non configurato' }.to_json unless token
+
+  chat_id = gruppo_id == 0 ? user_id : DataManager.get_real_chat_id(gruppo_id)
+  halt 404, { error: 'gruppo non trovato' }.to_json unless chat_id
+
+  nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
+  didascalia = ["\u{1F4C5} <b>#{CGI.escapeHTML(titolo)}</b>"]
+  didascalia << CGI.escapeHTML(messaggio) unless messaggio.empty?
+  didascalia << "Creato da #{CGI.escapeHTML(nome_utente)}"
+  didascalia << PROMEMORIA_RIGA_SALVATAGGIO
+
+  payload = {
+    chat_id: chat_id,
+    document: Faraday::UploadIO.new(StringIO.new(ics), 'text/calendar', PromemoriaIcs.nome_file(titolo)),
+    caption: didascalia.join("\n\n"),
+    parse_mode: 'HTML'
+  }
+  payload[:message_thread_id] = topic_id if gruppo_id != 0 && topic_id != 0
+
+  begin
+    Telegram::Bot::Client.new(token).api.send_document(**payload)
+  rescue Telegram::Bot::Exceptions::ResponseError => e
+    halt 502, { error: "Invio Telegram fallito: #{e.message}" }.to_json
+  end
+
+  status 201
+  { ok: true }.to_json
 end
 
 def recipe_preview_response

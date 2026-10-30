@@ -1729,6 +1729,8 @@ $('#dlg-menu').addEventListener('close', async () => {
     entraSelezione();
   } else if (action === 'ricetta') {
     openRicettaDialog();
+  } else if (action === 'promemoria') {
+    openPromemoriaDialog();
   }
 });
 
@@ -1837,6 +1839,49 @@ $('#ricetta-form').addEventListener('submit', async (e) => {
     await refreshLista();
   } catch (err) {
     handleError(err);
+  }
+});
+
+// ---------- promemoria: evento una tantum inviato su Telegram come .ics ----------
+// Il server (POST /promemoria) genera il file e lo manda al gruppo/topic scelto: chi lo riceve
+// lo apre e lo salva nel calendario del telefono.
+
+function openPromemoriaDialog() {
+  $('#promemoria-form').reset();
+  populateDestinazioni($('#promemoria-destinazione'), state.sel.gruppoId, state.sel.topicId);
+  $('#dlg-promemoria').showModal();
+}
+
+$('#promemoria-close').addEventListener('click', () => $('#dlg-promemoria').close());
+$('#promemoria-cancel').addEventListener('click', () => $('#dlg-promemoria').close());
+
+$('#promemoria-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const [gruppoId, topicId] = $('#promemoria-destinazione').value.split(':').map(Number);
+  const body = {
+    gruppo_id: gruppoId,
+    topic_id: topicId,
+    user_id: state.auth.userId,
+    titolo: $('#promemoria-titolo').value.trim(),
+    inizio: $('#promemoria-inizio').value,
+    luogo: $('#promemoria-luogo').value.trim(),
+    descrizione: $('#promemoria-descrizione').value.trim(),
+    messaggio: $('#promemoria-messaggio').value.trim(),
+    preavviso: Number($('#promemoria-preavviso').value) || 0,
+    preavviso_unita: $('#promemoria-unita').value
+  };
+  if (!body.titolo) return toast('Inserisci un titolo');
+
+  const btn = e.submitter;
+  btn.disabled = true;
+  try {
+    await api('/promemoria', { method: 'POST', body });
+    $('#dlg-promemoria').close();
+    toast('📅 Promemoria inviato');
+  } catch (err) {
+    handleError(err);
+  } finally {
+    btn.disabled = false;
   }
 });
 
