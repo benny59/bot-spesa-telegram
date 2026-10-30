@@ -67,7 +67,7 @@ async function api(path, { method = 'GET', body, query } = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) throw new AuthError('Non autorizzato');
-  if (!res.ok) throw new Error(data.error || `Errore ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `Errore ${res.status}`), { status: res.status });
   return data;
 }
 
@@ -465,11 +465,68 @@ function tapItem(item) {
 }
 
 let menuItem = null;
+// ---------- preferiti: stesso backup (GET/PUT /utente/config/preferiti) dell'app Android ----------
+// Un preferito coincide con un articolo se hanno lo stesso nome, categoria, link e barcode (come FavoritesStore.kt).
+
+const preferitoCoincide = (f, item) => (
+  f.description === item.nome &&
+  (f.categoryId || 0) === (item.categoria_id || 0) &&
+  (f.yukaLink || '') === (item.link_url || '') &&
+  (f.gtin || '') === (item.gtin || '')
+);
+
+async function leggiPreferiti() {
+  try {
+    const backup = await api('/utente/config/preferiti', { query: { user_id: state.auth.userId } });
+    save('spesa.preferiti', backup);
+    return backup;
+  } catch (err) {
+    if (err.status !== 404) throw err;
+    return { schemaVersion: 1, kind: 'favorites-backup', userId: state.auth.userId, lastBackupAt: '', favorites: [] };
+  }
+}
+
+function aggiornaVocePreferito(item, backup) {
+  const preferito = (backup?.favorites || []).some((f) => preferitoCoincide(f, item));
+  $('#item-preferito').textContent = preferito ? '★ Togli dai preferiti' : '☆ Aggiungi ai preferiti';
+}
+
+function nuovoPreferito(item) {
+  return {
+    id: crypto.randomUUID(),
+    description: item.nome,
+    categoryId: item.categoria_id || 0,
+    categoryName: item.categoria_nome || '',
+    categoryEphemeral: !item.categoria_id && Boolean(item.categoria_nome),
+    yukaLink: item.link_url || '',
+    gtin: item.gtin || undefined,
+    telegramPhotoId: item.picture_id || undefined,
+    telegramPhotoFileName: item.picture_file_name || undefined,
+    telegramPhotoDate: item.picture_date || undefined
+  };
+}
+
+async function togglePreferito(item) {
+  const backup = await leggiPreferiti();
+  const rimasti = backup.favorites.filter((f) => !preferitoCoincide(f, item));
+  const aggiunto = rimasti.length === backup.favorites.length;
+  backup.favorites = aggiunto ? [...rimasti, nuovoPreferito(item)] : rimasti;
+  backup.lastBackupAt = new Date().toISOString();
+  await api('/utente/config/preferiti', { method: 'PUT', body: { user_id: state.auth.userId, backup } });
+  save('spesa.preferiti', backup);
+  toast(aggiunto ? 'Aggiunto ai preferiti' : 'Rimosso dai preferiti');
+  if (helper.open && helper.tab === 'preferiti') loadHelper();
+}
+
 function openItemMenu(item) {
   menuItem = item;
   $('#item-title').textContent = item.nome;
   $('#item-foto').textContent = item.has_foto ? '🖼️ Vedi/cambia foto' : '📷 Aggiungi foto';
   $('#item-disponibile').textContent = item.disponibile ? '🚫 Segna non disponibile' : '✅ Segna disponibile';
+  aggiornaVocePreferito(item, load('spesa.preferiti'));
+  leggiPreferiti().then((backup) => {
+    if (menuItem === item && $('#dlg-item').open) aggiornaVocePreferito(item, backup);
+  }).catch(() => {});
   $('#item-oggi').textContent = item.oggi ? '❎ Togli da Oggi' : '🔥 Segna Oggi (urgente)';
   $('#item-delete').textContent = item.deleted ? '↺ Rimetti in lista' : '🗑️ Elimina';
   $('#dlg-item').showModal();
@@ -492,6 +549,8 @@ $('#dlg-item').addEventListener('close', () => {
     runOnItem(item, () => api(`/lista/${item.id}/disponibile`, {
       method: 'PATCH', body: { gruppo_id: item.gruppo_id, user_id: user, disponibile: !item.disponibile }
     }));
+  } else if (action === 'preferito') {
+    runOnItem(item, () => togglePreferito(item));
   } else if (action === 'oggi') {
     runOnItem(item, () => api(`/lista/${item.id}/oggi`, {
       method: 'PATCH', body: { gruppo_id: item.gruppo_id, user_id: user, oggi: !item.oggi }
@@ -1472,7 +1531,7 @@ $('#add-form').addEventListener('submit', async (e) => {
 
 // ---------- aiuto compilazione: suggeriti, storico, preferiti ----------
 // Suggeriti (checklist) e storico condividono riga e toggle (POST /checklist/toggle).
-// I preferiti sono in sola lettura: arrivano dall'ultimo backup fatto dall'app Android.
+// I preferiti sono il backup condiviso con l'app Android (si aggiungono/tolgono dal menu ⋯ dell'articolo).
 
 const helper = {
   open: false,
@@ -1556,7 +1615,7 @@ async function fetchHelperRows(tab) {
     if (err instanceof AuthError) throw err;
     backup = load('spesa.preferiti');
     if (!backup) {
-      return { rows: [], note: 'Nessun backup dei preferiti: dall\'app Android apri Preferiti → Backup.' };
+      return { rows: [], note: 'Nessun preferito: aggiungili dal menu ⋯ di un articolo.' };
     }
   }
   const inLista = new Map((await itemsDestinazione())
@@ -1578,7 +1637,7 @@ async function fetchHelperRows(tab) {
       a.description.localeCompare(b.description, 'it')
     ));
   return {
-    note: `Backup dall'app Android del ${formatData((backup.lastBackupAt || '').replace('T', ' '))} · si modificano dall'app`,
+    note: `Ultimo salvataggio del ${formatData((backup.lastBackupAt || '').replace('T', ' '))} · si aggiungono dal menu ⋯ di un articolo`,
     rows: favorites.map((f) => {
       const itemId = inLista.get(f.description.trim().toLowerCase());
       return {

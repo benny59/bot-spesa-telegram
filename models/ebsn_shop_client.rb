@@ -11,6 +11,9 @@ class EbsnShopClient
   }.freeze
   USER_AGENT = "BotSpesa/1.0"
   MAX_IMAGE_BYTES = 5 * 1024 * 1024
+  OPEN_TIMEOUT = 8
+  READ_TIMEOUT = 20
+  ATTEMPTS = 2
 
   class Error < StandardError; end
 
@@ -23,7 +26,7 @@ class EbsnShopClient
     raise Error, "Link negozio non supportato" unless host
 
     http = connection || connection_for("https://#{host}")
-    response = http.get("/ebsn/api/products", slug: slug) { |request| request.headers["User-Agent"] = USER_AGENT }
+    response = get(http, "/ebsn/api/products", slug: slug)
     raise Error, "Prodotto #{SHOPS[host]} non disponibile" unless response.success?
 
     normalize(JSON.parse(response.body), url: "https://#{host}/product/#{slug}")
@@ -58,7 +61,7 @@ class EbsnShopClient
     raise Error, "Immagine non valida" unless uri.scheme == "https" && SHOPS.key?(host)
 
     http = connection || connection_for("https://#{host}")
-    response = http.get(uri.request_uri) { |request| request.headers["User-Agent"] = USER_AGENT }
+    response = get(http, uri.request_uri)
     raise Error, "Immagine non disponibile" unless response.success?
 
     data = response.body.to_s.b
@@ -83,10 +86,22 @@ class EbsnShopClient
 
   def self.connection_for(base_url)
     Faraday.new(url: base_url) do |client|
-      client.options.open_timeout = 3
-      client.options.timeout = 8
+      client.options.open_timeout = OPEN_TIMEOUT
+      client.options.timeout = READ_TIMEOUT
     end
   end
 
-  private_class_method :parse, :connection_for
+  # I negozi a volte rispondono lenti (o la rete del server è lenta): un solo nuovo tentativo sui timeout
+  def self.get(http, path, params = nil)
+    attempts = 0
+    begin
+      attempts += 1
+      http.get(path, params) { |request| request.headers["User-Agent"] = USER_AGENT }
+    rescue Faraday::TimeoutError, Faraday::ConnectionFailed
+      retry if attempts < ATTEMPTS
+      raise
+    end
+  end
+
+  private_class_method :parse, :connection_for, :get
 end
