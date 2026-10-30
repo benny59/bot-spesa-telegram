@@ -763,7 +763,7 @@ post '/lista' do
   { ok: true, item_ids: item_ids, foto: foto_allegata }.to_json
 end
 
-PROMEMORIA_RIGA_SALVATAGGIO = "\u{1F4F2} Tocca il file allegato e scegli Calendario per salvare il promemoria sul telefono."
+PROMEMORIA_RIGA_SALVATAGGIO = "\u{1F4F2} Tocca \u{1F4C4} qui sopra e scegli Calendario per salvare il promemoria sul telefono."
 
 # Invia al gruppo/topic un promemoria .ics (evento una tantum) con messaggio di accompagnamento.
 # gruppo_id 0 = Lista Personale: il file va in chat privata a chi lo crea.
