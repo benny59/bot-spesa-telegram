@@ -223,6 +223,24 @@ def allega_foto(item_id, user_id, image_data)
   )
 end
 
+# Scarica la foto da un negozio noto e la allega agli articoli; un fallimento non deve bloccare l'operazione
+def allega_foto_da_url(item_ids, user_id, foto_url)
+  return false if foto_url.to_s.empty? || user_id.to_i == 0 || item_ids.empty?
+
+  image_data = EbsnShopClient.fetch_image(foto_url)
+  item_ids.each { |item_id| allega_foto(item_id, user_id, image_data) }
+  true
+rescue EbsnShopClient::Error, FotoError => e
+  warn "[IMPORT] foto non allegata: #{e.message}"
+  false
+end
+
+# Lega un barcode all'articolo e lo registra nel catalogo prodotti
+def imposta_gtin(item_id, gtin, nome)
+  DataManager.upsert_prodotto(gtin, nome)
+  DB.execute("UPDATE items SET gtin = ? WHERE id = ?", [gtin, item_id])
+end
+
 def item_accessibile!(item_id, user_id)
   halt 400, { error: 'user_id mancante' }.to_json if user_id.to_i == 0
 
@@ -738,16 +756,7 @@ post '/lista' do
     end
   end
 
-  foto_allegata = false
-  unless foto_url.empty? || user_id == 0
-    begin
-      image_data = EbsnShopClient.fetch_image(foto_url)
-      item_ids.each { |item_id| allega_foto(item_id, user_id, image_data) }
-      foto_allegata = !item_ids.empty?
-    rescue EbsnShopClient::Error, FotoError => e
-      warn "[IMPORT] foto non allegata: #{e.message}"
-    end
-  end
+  foto_allegata = allega_foto_da_url(item_ids, user_id, foto_url)
 
   if gruppo_id != 0 && user_id != 0
     nome_utente = DB.get_first_value("SELECT first_name FROM user_names WHERE user_id = ?", [user_id]) || 'Utente'
@@ -863,8 +872,7 @@ patch '/lista/:id/prodotto' do
     halt 403, { error: 'accesso negato' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
   end
 
-  DataManager.upsert_prodotto(gtin, item['nome'])
-  DB.execute("UPDATE items SET gtin = ? WHERE id = ?", [gtin, item_id])
+  imposta_gtin(item_id, gtin, item['nome'])
   { ok: true, gtin: gtin }.to_json
 end
 
@@ -945,6 +953,11 @@ patch '/lista/:id' do
   halt 400, { error: 'nome mancante dopo parsing' }.to_json if nome_finale.empty?
   halt 404, { error: 'item non trovato' }.to_json unless Lista.modifica_nome(item_id, nome_finale)
 
+  # dati ricavati da un link di negozio (barcode e foto); un barcode non valido si ignora
+  gtin = DataManager.normalizza_gtin(body['gtin'])
+  imposta_gtin(item_id, gtin, nome_finale) if gtin
+  foto_allegata = allega_foto_da_url([item_id], user_id, body['foto_url'].to_s.strip)
+
   if categoria_finale
     categoria = DB.get_first_row("SELECT id FROM categorie WHERE id = ?", [categoria_finale.to_i])
     Lista.aggiorna_categoria(item_id, categoria_finale.to_i) if categoria
@@ -963,7 +976,7 @@ patch '/lista/:id' do
     )
   end
 
-  { ok: true, nome: nome_finale }.to_json
+  { ok: true, nome: nome_finale, gtin: gtin, foto: foto_allegata }.to_json
 end
 
 patch '/lista/:id/topic' do

@@ -680,13 +680,30 @@ $('#edit-item-destinazione').addEventListener('change', async () => {
 $('#edit-item-close').addEventListener('click', () => $('#dlg-edit-item').close());
 $('#edit-item-cancel').addEventListener('click', () => $('#dlg-edit-item').close());
 
+// Se il testo è un link a una scheda prodotto (CoopShop, Tigros, ...) restituisce l'anteprima;
+// per qualsiasi altro testo, o se il link non si decodifica, null e il testo resta com'è.
+async function prodottoDaLink(testo) {
+  if (!/^https:\/\/\S+$/i.test(testo)) return null;
+  toast('Leggo il link…');
+  try {
+    const r = await api('/import/recipe/preview', { method: 'POST', body: { url: testo } });
+    return r.kind === 'product' ? r : null;
+  } catch (err) {
+    if (err instanceof AuthError) throw err;
+    return null;
+  }
+}
+
 $('#edit-item-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const item = editItem;
   if (!item) return;
 
-  const nomeNuovo = $('#edit-item-nome').value.trim();
+  let nomeNuovo = $('#edit-item-nome').value.trim();
   if (!nomeNuovo) return toast('Inserisci un nome');
+  // un link di negozio al posto del nome diventa nome, barcode e foto del prodotto
+  const prodotto = editItems ? null : await prodottoDaLink(nomeNuovo);
+  if (prodotto) nomeNuovo = prodotto.title;
   const { gruppoId: gruppoNuovo, topicId: topicNuovo } = destinazioneEditSelezionata();
   const categoriaValue = $('#edit-item-categoria').value;
 
@@ -699,7 +716,8 @@ $('#edit-item-form').addEventListener('submit', async (e) => {
   }
 
   $('#dlg-edit-item').close();
-  const modifica = { gruppoId: gruppoNuovo, topicId: topicNuovo, categoriaValue, nomeNuovo, nomeBody, categoriaIdBody };
+  const extra = prodotto ? { gtin: prodotto.gtin || undefined, foto_url: prodotto.image_url || undefined } : {};
+  const modifica = { gruppoId: gruppoNuovo, topicId: topicNuovo, categoriaValue, nomeNuovo, nomeBody, categoriaIdBody, extra };
   if (editItems) return applicaMultipla(editItems, modifica);
   if (!modificaNecessaria(item, modifica)) return;
   await runOnItem(item, () => applicaModifica(item, modifica));
@@ -721,9 +739,10 @@ async function applicaModifica(item, m) {
     item.topic_id = m.topicId;
   }
   if (m.nomeNuovo !== item.nome || m.categoriaValue !== categoriaValueDiItem(item)) {
-    const body = { nome: m.nomeBody, user_id: user };
+    const body = { nome: m.nomeBody, user_id: user, ...m.extra };
     if (m.categoriaIdBody !== undefined) body.categoria_id = m.categoriaIdBody;
-    await api(`/lista/${item.id}`, { method: 'PATCH', body });
+    const r = await api(`/lista/${item.id}`, { method: 'PATCH', body });
+    if (m.extra?.foto_url && !r.foto) toast('Aggiornato, ma la foto non è stata salvata');
   }
 }
 
