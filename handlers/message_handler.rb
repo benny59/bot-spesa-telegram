@@ -688,14 +688,18 @@ end
 
 class TopicManager
   def self.sincronizza(msg)
+    # I messaggi di servizio dei topic vanno gestiti per primi e in modo indipendente:
+    # in un gruppo msg.chat.title è sempre valorizzato e farebbe da "catch-all".
+    if msg.forum_topic_created
+      DataManager.set_topic_name(msg.chat.id, msg.message_thread_id, msg.forum_topic_created.name)
+    elsif msg.forum_topic_edited && !msg.forum_topic_edited.name.to_s.strip.empty?
+      DataManager.set_topic_name(msg.chat.id, msg.message_thread_id, msg.forum_topic_edited.name)
+    end
+
     if msg.new_chat_title
       DataManager.aggiorna_nome_gruppo(msg.chat.id, msg.new_chat_title)
     elsif msg.chat && msg.chat.title && !msg.chat.title.to_s.strip.empty?
       DataManager.sincronizza_nome_gruppo(msg.chat.id, msg.chat.title)
-    elsif msg.forum_topic_created
-      DataManager.set_topic_name(msg.chat.id, msg.message_thread_id, msg.forum_topic_created.name)
-    elsif msg.forum_topic_edited
-      DataManager.set_topic_name(msg.chat.id, msg.message_thread_id, msg.forum_topic_edited.name)
     end
   end
 end
