@@ -2074,6 +2074,24 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- avvio ----------
 
+// Ponte dall'artifact "Basket Index": .../app/?aggiungi=ricotta,avocado precompila il campo
+// "Aggiungi…"; l'utente conferma lui (nessun invio automatico). Il parametro viene tolto dall'indirizzo.
+let daAggiungere = '';
+try {
+  const q = new URLSearchParams(location.search).get('aggiungi');
+  if (q) {
+    daAggiungere = q.slice(0, 500);
+    history.replaceState(null, '', location.pathname + location.hash);
+  }
+} catch (_) {}
+function applicaDaAggiungere() {
+  if (!daAggiungere) return;
+  const input = $('#add-input');
+  input.value = daAggiungere;
+  daAggiungere = '';
+  input.focus();
+}
+
 async function start() {
   // mostra subito i dati in cache, poi aggiorna dalla rete
   state.gruppi = load('spesa.gruppi') || [];
@@ -2084,6 +2102,7 @@ async function start() {
     await loadGruppi();
     render();
     await Promise.all([refreshLista(), loadCategorie()]);
+    applicaDaAggiungere();
     if (load('spesa.helperOpen') && isWide()) setHelperOpen(true);
   } catch (err) {
     if (err instanceof AuthError) return handleError(err);
