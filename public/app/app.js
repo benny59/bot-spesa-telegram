@@ -1577,6 +1577,34 @@ function categoriaEffimeraEsiste(nome) {
   return state.categorie.some((c) => c.effimera && c.nome.trim().toLowerCase() === norm);
 }
 
+// Esporta i preferiti (solo nome, categoria e codice a barre) in un file JSON, per importarlo nell'artifact Basket Index.
+$('#helper-export').addEventListener('click', async () => {
+  try {
+    const backup = await leggiPreferiti();
+    const out = {
+      kind: 'favorites-export',
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      favorites: (backup?.favorites || []).map((f) => ({
+        description: f.description || '',
+        categoryName: f.categoryName || '',
+        gtin: f.gtin || ''
+      }))
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `preferiti-${out.exportedAt.slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`Esportati ${out.favorites.length} preferiti`);
+  } catch (err) {
+    handleError(err);
+  }
+});
+
 // articoli ancora da comprare nella lista di destinazione (per i preferiti)
 async function itemsDestinazione() {
   if (!state.sel.vista) return state.items;
@@ -1699,6 +1727,7 @@ function renderHelper() {
     b.setAttribute('aria-selected', b.dataset.tab === helper.tab);
   });
   $('#helper-note').textContent = helper.note;
+  $('#helper-export-row').hidden = helper.tab !== 'preferiti';
   $('#helper-note').hidden = !helper.note;
 
   let html = '';
