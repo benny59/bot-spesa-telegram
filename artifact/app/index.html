@@ -1,0 +1,400 @@
+<meta charset="utf-8">
+<title>Basket Index</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="css/stile.css">
+
+<div class="wrap">
+  <header class="top">
+    <div><div class="eyebrow" data-i18n="top.eyebrow">Family food · prices, nutrition, meals</div><h1>Basket Index</h1></div>
+    <div class="row"><button type="button" id="langBtn" aria-label="Lingua / Language">EN</button><button type="button" class="primary" id="addReceiptTop" data-i18n="top.addReceipt">Add receipt</button></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button type="button" role="tab" id="tab-prices" data-view="prices" aria-controls="view-prices" aria-selected="true" data-i18n="tab.prices">Prices</button>
+    <button type="button" role="tab" id="tab-nutrition" data-view="nutrition" aria-controls="view-nutrition" aria-selected="false" data-i18n="tab.nutrition">Nutrition</button>
+    <button type="button" role="tab" id="tab-recipes" data-view="recipes" aria-controls="view-recipes" aria-selected="false" data-i18n="tab.recipes">Recipes</button>
+    <button type="button" role="tab" id="tab-receipts" data-view="receipts" aria-controls="view-receipts" aria-selected="false" data-i18n="tab.receipts">Receipts</button>
+  </nav>
+
+  <div class="view" id="view-prices" role="tabpanel" aria-labelledby="tab-prices">
+    <p class="lede" data-i18n="prices.lede">How the prices you pay change, which shop is cheaper for the same product, and how your basket compares with official German and euro-area inflation.</p>
+    <div class="glance" id="glance-prices"></div>
+  <section id="trackSec">
+    <div class="row" style="justify-content:space-between">
+      <h2 data-i18n="prices.trackTitle">Your price index over time</h2>
+      <span class="status" id="trackSpan"></span>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <div class="seg" role="group" aria-label="How products are matched">
+        <button type="button" id="modeSame" data-mode="same" aria-pressed="true" data-i18n="prices.modeSame">Same product, same store</button>
+        <button type="button" id="modeAny" data-mode="any" aria-pressed="false" data-i18n="prices.modeAny">Comparable product, any store</button>
+      </div>
+    </div>
+    <p class="note" id="modeNote"></p>
+    <div class="chips" id="storeChips" role="group" aria-label="Filter by store" hidden></div>
+    <div class="card" id="trackCard">
+      <div class="stats" id="trackStats"></div>
+      <div class="breadth" id="breadth" hidden></div>
+      <div id="chartBox"></div>
+      <div class="legend" id="legend"></div>
+      <div class="detail" id="detail" hidden></div>
+    </div>
+    <div class="card tbl-wrap" id="monthBox"></div>
+    <details class="card">
+      <summary data-i18n="prices.howSummary">How the index is built</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+        <p class="note">Each receipt is compared with the last time you bought the same products, matched by article number (or by name when there is none). The price change of each matched product is weighted by what you spent on it, averaged over the two purchases, and the geometric mean of those changes moves the index on. A receipt with no repeat products leaves it unchanged. Chaining receipts this way follows the approach statistical offices use for supermarket scanner data. Because it is geometric, a product that goes on offer and then back to its usual price ends where it started.</p>
+        <p class="note">Each store chain is tracked separately, since the same product can cost differently at ALDI and at HIT. Use the store buttons to see one chain's index on its own. Non-food lines (household, toiletries, alcohol) are left out of every food figure.</p>
+        <p class="note">Coverage is the share of a receipt's food spending that could be matched. Points drawn larger rest on more of your basket; small points rest on one or two items and can swing a lot on a single promotion.</p>
+        <p class="note">The dashed lines show where an index starting on your first receipt would be if prices rose at the official annual rate for each month. They are a pace reference, not data from your shop.</p>
+      </div>
+    </details>
+  </section>
+  <section id="cmpSec">
+    <div class="row" style="justify-content:space-between">
+      <h2 data-i18n="prices.cmpTitle">Same product, different shops</h2>
+      <label class="chk" for="mergeBio"><input type="checkbox" id="mergeBio"> Count organic and conventional as one product</label>
+    </div>
+    <div class="card" id="cmpCard"></div>
+  </section>
+  <section id="summary" aria-live="polite">
+    <h2 data-i18n="prices.summaryTitle">Your basket at official rates</h2>
+    <div class="card">
+      <div class="hero">
+        <div class="big num" id="youDE">–</div>
+        <div>
+          <div style="font-weight:600">Food inflation on your spending mix, at German rates</div>
+          <div class="meta" id="heroMeta">Based on your basket</div>
+        </div>
+      </div>
+      <div class="bars" id="bars"></div>
+      <p class="note" id="period" style="margin-top:12px"></p>
+    </div>
+  </section>
+  <section>
+    <div class="row" style="justify-content:space-between">
+      <h3 data-i18n="prices.weightsTitle">Where your weights come from</h3>
+      <span class="status" id="basketLabel"></span>
+    </div>
+    <div class="card tbl-wrap"><table id="catTable"></table></div>
+    <p class="note">Contribution = your spending share × the class's annual rate. Classes marked <span class="chip fb">aggr.</span> have no published sub-rate, so the overall German food rate (or the non-alcoholic beverages rate) stands in. The euro-area figure uses the processed / unprocessed food split, the finest food detail in Eurostat's release.</p>
+  </section>
+  <section>
+    <h2 data-i18n="prices.repeatTitle">Repeat products</h2>
+    <div class="card" id="tracker"></div>
+  </section>
+  <section>
+    <details class="card" id="ratesBox">
+      <summary data-i18n="prices.ratesSummary">Official rates used</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+        <p class="note" id="ratesNote"></p>
+        <div class="tbl-wrap"><table id="monthsTable"></table></div>
+        <h3 id="ratesHead" data-i18n="prices.classRates">Class rates</h3>
+        <div class="tbl-wrap"><table id="ratesTable"></table></div>
+        <div class="row"><button id="resetRates" data-i18n="prices.resetRates">Reset to published figures</button><span class="status" id="ratesStatus"></span></div>
+      </div>
+    </details>
+  </section>
+  </div>
+
+  <div class="view" id="view-nutrition" role="tabpanel" aria-labelledby="tab-nutrition" hidden>
+    <p class="lede">What your groceries give your family: energy, nutrients, Nutri-Score and value for money, worked out from every line on your receipts.</p>
+    <div class="glance" id="glance-nutrition"></div>
+  <section id="nutSec">
+    <div class="row" style="justify-content:space-between">
+      <h2>What your money buys, nutritionally</h2>
+      <div class="chips" id="nutPeriod" role="group" aria-label="Period">
+        <button type="button" id="np-all" data-np="all" aria-pressed="true">All receipts</button>
+        <button type="button" id="np-30" data-np="30" aria-pressed="false">Last 30 days</button>
+      </div>
+    </div>
+    <div class="card" id="nutTop"></div>
+    <div class="card" id="nutBest"></div>
+    <div class="card" id="nutShare"></div>
+    <div class="card" id="nutValue"></div>
+    <div class="card" id="nutDens"></div>
+    <div class="card" id="nutRadar"></div>
+    <div class="card" id="nutLong"></div>
+    <div class="card" id="nutClimate"></div>
+    <div class="card" id="nutPrice"></div>
+    <div class="card" id="nutFat"></div>
+    <div class="card" id="nutScore"></div>
+    <div class="card" id="nutMicro"></div>
+    <div class="card" id="labCard">
+      <div class="row" style="justify-content:space-between"><h3>Add the label for products with typical values</h3><span class="status" id="labCount"></span></div>
+      <p class="note" style="margin:6px 0 8px">Photograph the nutrition table on the pack, and the barcode or front if you like. The values are saved for that product and used on every receipt it appears on, past and future.</p>
+      <div class="lab-panel" id="labPanel" hidden>
+        <div class="row" style="justify-content:space-between"><b id="labTarget"></b><button type="button" id="labCancel">Close</button></div>
+        <div class="row">
+          <label class="btn primary file" for="labPhotos">Take or choose photos
+            <input type="file" id="labPhotos" accept="image/jpeg,image/png,image/webp" multiple>
+          </label>
+          <button type="button" id="labRead" disabled>Read label</button>
+        </div>
+        <div class="lab-thumbs" id="labThumbs"></div>
+        <p class="status" id="labStatus"></p>
+        <div id="labReview" hidden>
+          <div class="lab-form">
+            <label for="lf-brand">Brand<input type="text" id="lf-brand"></label>
+            <label for="lf-product">Product<input type="text" id="lf-product"></label>
+            <label for="lf-ean">Barcode (EAN)<input type="text" id="lf-ean" inputmode="numeric"></label>
+            <label for="lf-size">Net size<input type="text" id="lf-size" placeholder="e.g. 400 g"></label>
+            <label for="lf-drained">Drained weight<input type="text" id="lf-drained" placeholder="tins and jars"></label>
+            <label for="lf-per">Values per<input type="text" id="lf-per" value="100 g"></label>
+            <label for="lf-kcal">Energy, kcal<input type="number" step="any" id="lf-kcal"></label>
+            <label for="lf-f">Fat, g<input type="number" step="any" id="lf-f"></label>
+            <label for="lf-sf">of which saturates, g<input type="number" step="any" id="lf-sf"></label>
+            <label for="lf-c">Carbohydrate, g<input type="number" step="any" id="lf-c"></label>
+            <label for="lf-s">of which sugars, g<input type="number" step="any" id="lf-s"></label>
+            <label for="lf-fib">Fibre, g<input type="number" step="any" id="lf-fib"></label>
+            <label for="lf-p">Protein, g<input type="number" step="any" id="lf-p"></label>
+            <label for="lf-salt">Salt, g<input type="number" step="any" id="lf-salt"></label>
+          </div>
+          <p class="status" id="labCheck" style="margin-top:8px"></p>
+          <div class="row" style="margin-top:6px"><button type="button" class="primary" id="labSave">Save label</button><span class="status" id="labSaveStatus"></span></div>
+        </div>
+      </div>
+      <div id="labList"></div>
+      <details id="labLibBox" hidden style="margin-top:10px">
+        <summary id="labLibSum">Saved labels</summary>
+        <div id="labLib" style="margin-top:8px"></div>
+      </details>
+    </div>
+    <details class="card">
+      <summary>Where the nutrition figures come from</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+        <p class="note">Receipts don't list nutrition or barcodes. Where the exact product could be identified, its values come from its own label: either a label photo you added, or the label as recorded in a product database (Open Food Facts, fddb or fatsecret). Both are marked “label”. Everything else carries typical values per 100 g for that kind of product from standard food-composition tables, marked “typical”; supermarket own brands are often close to these.</p>
+        <p class="note">Weight comes from the receipt where the line is weighed, from the pack size printed in the name, or otherwise from a typical pack or piece weight (marked “est.”). For fruit and vegetables only the edible part is counted: a banana without its peel, a mango without stone and skin. Tinned goods count the drained weight. Correct a pack size with Edit under Saved receipts and the figures follow.</p>
+        <p class="note">Nutri-Score grades are calculated here with the current algorithm (revised 2023/24; milk and plant drinks now count as drinks) from each product's per-100 g values and an estimate of its fruit, vegetable and legume share. A grade printed on the pack and read from a label photo takes precedence. Grades from typical values are a good guide but can differ from the pack by a letter.</p>
+        <p class="note">The nutrient score follows the Nutrient Rich Foods index (NRF9.3, Drewnowski) per 100 kcal, extended for this page: omega-3 and unsaturated fat count as positives, and grain products get up to 50 extra points for being wholegrain. Fat composition, omega-3 and wholegrain share are typical values for each kind of product.</p>
+        <p class="note">Vitamins and minerals are typical values from food-composition tables for each kind of product, compared with the EU nutrient reference values. Fortified products (plant drinks, some cereals) and iodised salt can change these a lot; a label photo that shows vitamins is used instead.</p>
+        <p class="note">Reference values are the EU reference intakes for an average adult (2,000 kcal a day), scaled to 1,000 kcal so they can be compared with any amount of shopping; fibre uses the German Nutrition Society's 30 g a day. They describe the groceries you bought, not what anyone ate.</p>
+        <div class="row"><button id="nutFill" hidden>Estimate missing lines</button><span class="status" id="nutFillStatus"></span></div>
+      </div>
+    </details>
+  </section>
+  </div>
+
+  <div class="view" id="view-recipes" role="tabpanel" aria-labelledby="tab-recipes" hidden>
+    <p class="lede">A week of shopping and meals worked out for your family, or one recipe from what's in your kitchen, matched to the day ahead. Cost and nutrition come from your own receipts, and ingredients that need using first come first.</p>
+    <div class="glance" id="glance-recipes"></div>
+    <div class="chips subtabs" id="recTabs" role="group" aria-label="Recipes section">
+      <button type="button" data-rt="week" aria-pressed="true">Week plan</button><button type="button" data-rt="meal" aria-pressed="false">One meal</button><button type="button" data-rt="kitchen" aria-pressed="false">Kitchen</button><button type="button" data-rt="cooked" aria-pressed="false">Cooked</button></div>
+    <div id="rp-week">
+    <section>
+      <h2>Your week</h2>
+      <div class="card plan">
+        <p class="note" style="margin:0">Set the shape of a normal week once: which meals you eat at home, how much time there is to cook, and your training. The plan then finds the cheapest shopping that meets your household's nutrient targets, from products you actually buy, and uses up what's about to go off first.</p>
+        <div class="wk" id="weekShape"></div>
+        <label class="chk" for="athKg">Training is yours alone: your body weight <input type="number" id="athKg" min="35" max="200" step="1" style="width:4.5em"> kg <span class="status">(sets protein and carbohydrate per kg on training days)</span></label>
+        <p class="status" id="weekCov"></p>
+        <div class="field"><div class="lbl" id="lbl-ostart">Plan starts</div><div class="chips" id="optStart" role="group" aria-labelledby="lbl-ostart"></div></div>
+        <div class="field"><div class="lbl" id="lbl-ochange">How much to change</div><div class="chips" id="optChange" role="group" aria-labelledby="lbl-ochange"></div></div>
+        <div class="field"><div class="lbl" id="lbl-oclim">Climate target vs your usual</div><div class="chips" id="optClimate" role="group" aria-labelledby="lbl-oclim"></div></div>
+        <div class="row"><button type="button" class="primary" id="planBtn">Plan the week</button><span class="status" id="planStatus" aria-live="polite"></span></div>
+      </div>
+    </section>
+    <section id="wpResult" hidden>
+      <div class="row" style="justify-content:space-between"><h2>The plan</h2><span class="status" id="wpMeta"></span></div>
+      <div class="ntiles" id="wpTiles"></div>
+      <div class="card" id="wpNut"></div>
+      <div class="card" id="wpShop"></div>
+      <div class="card"><div class="row" style="justify-content:space-between"><h3>Menu</h3><div class="row"><button type="button" class="primary" id="menuBtn">Write the menu</button><button type="button" id="menuStop" hidden>Stop</button></div></div><p class="status" id="menuStatus" aria-live="polite"></p><div id="wpMenu"></div></div>
+    </section>
+    </div>
+    <div id="rp-meal" hidden>
+    <section>
+      <h2>Plan a meal</h2>
+      <div class="card plan">
+        <div class="field"><div class="lbl" id="lbl-day">Kind of day</div><div class="chips" id="dayChips" role="group" aria-labelledby="lbl-day"></div><p class="note" id="dayNote"></p></div>
+        <div class="field"><div class="lbl" id="lbl-meal">Meal</div><div class="chips" id="mealChips" role="group" aria-labelledby="lbl-meal"></div></div>
+        <div class="field"><div class="lbl" id="lbl-who">Who's eating</div><div class="chips" id="whoChips" role="group" aria-labelledby="lbl-who"></div></div>
+        <div class="field"><div class="lbl" id="lbl-style">Style</div><div class="chips" id="styleChips" role="group" aria-labelledby="lbl-style"></div><p class="note" id="styleNote"></p></div>
+        <div class="field"><label class="lbl" for="spiceShelf">Your spice shelf <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+          <textarea id="spiceShelf" rows="3" maxlength="600" placeholder="e.g. za'atar, sumac, tahini, smoked paprika, Aleppo chilli, pomegranate molasses" style="width:100%;font:14px/1.45 var(--body);padding:8px 10px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;resize:vertical"></textarea>
+          <p class="note">Flavourings you keep at home. Recipes use these freely without adding them to the shopping list. Saved for next time.</p></div>
+        <div class="field"><div class="lbl" id="lbl-time">Time to cook</div><div class="chips" id="timeChips" role="group" aria-labelledby="lbl-time"></div></div>
+        <div class="field" id="pinField" hidden><div class="lbl">Must include</div><div class="chips" id="pinChips"></div></div>
+        <div class="row"><button type="button" class="primary" id="suggestBtn">Suggest 3 recipes</button><button type="button" id="suggestStop" hidden>Stop</button><span class="status" id="suggestStatus" aria-live="polite"></span></div>
+      </div>
+    </section>
+    <section id="recResults" hidden>
+      <div class="row" style="justify-content:space-between"><h2>Suggestions</h2><span class="status" id="recMeta"></span></div>
+      <div class="card" id="recCompare"></div>
+      <div class="reccards" id="recCards"></div>
+    </section>
+    </div>
+    <div id="rp-kitchen" hidden>
+    <section>
+      <div class="row" style="justify-content:space-between"><h2>In your kitchen</h2>
+        <div class="chips" id="pantryWin" role="group" aria-label="Bought in the last"><button type="button" id="pw-7" data-pw="7" aria-pressed="true">7 days</button><button type="button" id="pw-14" data-pw="14" aria-pressed="false">14 days</button><button type="button" id="pw-30" data-pw="30" aria-pressed="false">30 days</button></div></div>
+      <div class="card" id="pantryCard"></div>
+    </section>
+    </div>
+    <div id="rp-cooked" hidden>
+    <section>
+      <h2>Meals you cooked</h2>
+      <div class="card" id="mealsCard"></div>
+    </section>
+    </div>
+  </div>
+
+  <div class="view" id="view-receipts" role="tabpanel" aria-labelledby="tab-receipts" hidden>
+    <p class="lede" data-i18n="rec.lede">Photograph a receipt; each line is read, sorted into its food class and checked by you before it's saved. Everything else on this page builds on these receipts.</p>
+  <section>
+    <h2 data-i18n="rec.addTitle">Add a receipt</h2>
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <div class="row">
+        <label class="btn primary file" for="photo"><span data-i18n="rec.photoBtn">Take or choose photo</span>
+          <input type="file" id="photo" accept="image/jpeg,image/png,image/webp,application/pdf">
+        </label>
+        <button id="readBtn" disabled data-i18n="rec.readBtn">Read receipt</button>
+        <button id="stopBtn" hidden data-i18n="rec.stopBtn">Stop</button>
+      </div>
+      <div class="row">
+        <label class="btn file" for="pdfFile"><span data-i18n="pdf.choose">Choose a PDF receipt</span>
+          <input type="file" id="pdfFile" accept="application/pdf,.pdf">
+        </label>
+        <details id="pdfTextBox"><summary data-i18n="pdf.pasteSum">Or paste the receipt text</summary>
+          <textarea id="pdfText" rows="6" style="width:100%;margin-top:8px;font:13px/1.35 var(--mono)"></textarea>
+          <div class="row" style="margin-top:6px"><button type="button" id="pdfTextBtn" data-i18n="pdf.pasteBtn">Read the text</button></div>
+        </details>
+      </div>
+      <div class="preview" id="previewBox" hidden><img id="previewImg" alt="Receipt photo preview"><span class="status" id="readStatus"></span></div>
+      <p class="status" id="aiStatus"></p>
+    </div>
+  </section>
+  <section id="draftSec" hidden>
+    <div class="row" style="justify-content:space-between">
+      <h2 id="draftTitle" data-i18n="rec.checkTitle">Check the items</h2>
+      <div class="row">
+        <button id="discardBtn" data-i18n="rec.discard">Discard</button>
+        <button id="saveBtn" class="primary" data-i18n="rec.save">Save receipt</button>
+      </div>
+    </div>
+    <div class="banner" id="draftBanner" hidden></div>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="row">
+        <label class="status" for="dStore" data-i18n="rec.store">Store</label><input type="text" id="dStore" style="width:12em">
+        <label class="status" for="dDate" data-i18n="rec.date">Date</label><input type="date" id="dDate">
+        <span class="status num" id="dTotal"></span>
+      </div>
+      <div class="tbl-wrap"><table id="draftTable"></table></div>
+    </div>
+    <p class="status" id="saveStatus"></p>
+  </section>
+  <section id="censSec">
+    <h2 data-i18n="cens.title">Scan the items of a receipt</h2>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <p class="note" data-i18n="cens.note">Back home, take the products out one by one and scan each barcode. Done once per product and shop: the next receipts recognise them.</p>
+      <select id="censSrc" aria-label="Receipt" style="max-width:100%"></select>
+      <div class="row"><span class="status" id="censProg"></span><button type="button" class="primary" id="censScan" data-i18n="cens.scan">Scan a product</button></div>
+      <div id="censList"></div>
+    </div>
+  </section>
+  <section id="favSec">
+    <details class="card">
+      <summary data-i18n="fav.title">Favourites from Spesa</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+        <p class="note" data-i18n="fav.note">In the Spesa app open Favourites and tap "Export favourites (JSON)", then choose that file here. Receipt lines that start like a favourite take its name and barcode.</p>
+        <div class="row"><label class="btn file" for="favFile"><span data-i18n="fav.choose">Choose the favourites file</span><input type="file" id="favFile" accept="application/json,.json"></label><span class="status" id="favStatus"></span></div>
+      </div>
+    </details>
+  </section>
+  <section id="bridgeSec">
+    <details class="card" id="bridgeBox">
+      <summary data-i18n="bridge.title">Add to the shopping list</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+        <p class="note" data-i18n="bridge.note">Tick the products to buy again, or type them separated by commas. Nothing is sent from here: the link opens your Spesa app with the words ready, and you confirm there.</p>
+        <select id="bridgeSrc" aria-label="Receipt" style="max-width:100%"></select>
+        <div id="bridgeList"></div>
+        <input type="text" id="bridgeItems" data-i18n-ph="bridge.ph" placeholder="e.g. ricotta, avocado" style="width:100%">
+        <div class="row">
+          <a class="btn primary" id="bridgeLink" href="#" target="_blank" rel="noopener" data-i18n="bridge.open">Open in the Spesa app</a>
+          <button type="button" id="bridgeCopy" data-i18n="bridge.copy">Copy as +items for Telegram</button>
+          <span class="status" id="bridgeStatus"></span>
+        </div>
+        <label class="status" for="bridgeUrl"><span data-i18n="bridge.url">Spesa app address</span><input type="text" id="bridgeUrl" style="width:100%"></label>
+      </div>
+    </details>
+  </section>
+  <section>
+    <h2 data-i18n="rec.savedTitle">Saved receipts</h2>
+    <div class="card" id="history"></div>
+  </section>
+  <section id="eanSec">
+    <details class="card"><summary><b data-i18n="ean.title">Products by barcode</b> · <span id="eanSum" class="status"></span></summary>
+      <p class="status" data-i18n="ean.note">One barcode is one product; the lines as printed by each shop are its aliases. Prices are compared by barcode, and nutrition values are shared between aliases.</p>
+      <div id="eanLegacy" class="row" style="display:none"><button type="button" id="eanLegacyBtn"></button></div>
+      <div id="eanList"></div>
+    </details>
+  </section>
+  <section id="bkSec">
+    <details class="card"><summary><b data-i18n="bk.title">Backup of your data</b></summary>
+      <p class="status" data-i18n="bk.note">Saves receipts, product memory with barcodes and settings in one JSON file you keep, and restores them from it. Receipt photos and payment details are not included.</p>
+      <p class="status" id="bkInfo"></p>
+      <div class="row"><button type="button" id="bkExport" data-i18n="bk.export">Export all data</button>
+        <label class="btn file" for="bkFile"><span data-i18n="bk.import">Import from file</span><input type="file" id="bkFile" accept="application/json,.json"></label></div>
+      <p class="status" id="bkStatus"></p>
+      <div id="bkTextRow" style="display:none"><textarea id="bkText" rows="6" style="width:100%" readonly></textarea></div>
+      <p class="status" id="bkPreview"></p><div class="row"><button type="button" class="primary" id="bkApply" style="display:none"></button></div>
+    </details>
+  </section>
+  <section id="memSec">
+    <h2 data-i18n="rec.memTitle">Product memory</h2>
+    <input type="file" id="memScanInput" accept="image/*" capture="environment" hidden>
+    <div class="card" id="scanBox" hidden style="position:fixed;left:12px;right:12px;bottom:12px;max-width:640px;margin:0 auto;z-index:50;display:none;flex-direction:column;gap:8px;box-shadow:0 4px 24px rgba(0,0,0,.25)">
+      <div class="row" style="justify-content:space-between"><b id="scanTarget"></b><button type="button" id="scanCancel" data-i18n="scan.close">Close</button></div>
+      <p class="status" id="scanStatus"></p>
+      <div id="scanPick" style="max-height:38vh;overflow:auto;display:none;flex-direction:column;gap:6px"></div>
+      <div class="row" id="scanManualRow" hidden><input type="text" id="scanManual" inputmode="numeric" maxlength="13" data-i18n-ph="scan.manual" placeholder="EAN" style="width:11em"><button type="button" class="primary" id="scanSave" data-i18n="scan.save">Save code</button><button type="button" id="scanAgain" data-i18n="scan.again">Take another photo</button></div>
+    </div>
+    <div class="row" id="memBar" hidden style="margin-bottom:8px;gap:8px">
+      <span class="status" id="memBarN"></span>
+      <a class="btn primary" id="memBarLink" href="#" target="_blank" rel="noopener" data-i18n="bridge.open">Open in the Spesa app</a>
+      <button type="button" id="memBarCopy" data-i18n="bridge.copyShort">Copy +items</button>
+      <button type="button" id="memBarClear" data-i18n="mem.clear">Clear</button>
+    </div>
+    <div class="card" id="memCard"></div>
+  </section>
+  </div>
+</div>
+
+
+<script src="i18n/locali.js"></script>
+<script src="js/00-i18n.js"></script>
+<script src="js/00-utilita.js"></script>
+<script src="js/01-catalogo-tassi.js"></script>
+<script src="js/02-esempio.js"></script>
+<script src="js/03-stato.js"></script>
+<script src="js/04-paniere-tassi.js"></script>
+<script src="js/05-igiene-scontrini.js"></script>
+<script src="js/06-indice-prezzi.js"></script>
+<script src="js/07-prezzi-ui.js"></script>
+<script src="js/08-confronto-negozi-ui.js"></script>
+<script src="js/09-nutrizione-dati.js"></script>
+<script src="js/10-nutrizione-punteggi.js"></script>
+<script src="js/11-famiglia-radar.js"></script>
+<script src="js/12-prezzo-nutrizione.js"></script>
+<script src="js/13-clima-longevita.js"></script>
+<script src="js/14-nutrizione-core.js"></script>
+<script src="js/15-etichette-foto.js"></script>
+<script src="js/16-riepilogo-render.js"></script>
+<script src="js/17-bozza-salvataggio.js"></script>
+<script src="js/18-lettura-scontrino.js"></script>
+<script src="js/19-memoria-prodotti.js"></script>
+<script src="js/20-guscio-colpo-docchio.js"></script>
+<script src="js/21-dispensa.js"></script>
+<script src="js/22-ricette.js"></script>
+<script src="js/23-solver-lp.js"></script>
+<script src="js/24-settimana-modello.js"></script>
+<script src="js/25-settimana-ui.js"></script>
+<script src="js/26-pasti-migliori.js"></script>
+<script src="js/27-avvio.js"></script>
+<script src="js/28-pdf-scontrini.js"></script>
+<script src="js/29-ponte-spesa.js"></script>
+<script src="js/30-preferiti.js"></script>
+<script src="js/31-scansione.js"></script>
+<script src="js/32-prodotti-ean.js"></script>
+<script src="js/33-esporta-importa.js"></script>
