@@ -1983,10 +1983,9 @@ class MainActivity : AppCompatActivity() {
             ))
         }
 
-    private fun testoDrawer(testo: String, intestazione: Boolean): CharSequence {
+    private fun testoDrawer(testo: String): CharSequence {
         val sp = android.text.SpannableString(testo)
         sp.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, sp.length, 0)
-        if (intestazione) sp.setSpan(android.text.style.RelativeSizeSpan(1.15f), 0, sp.length, 0)
         val ta = obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary))
         val colore = ta.getColor(0, Color.BLACK)
         ta.recycle()
@@ -1996,7 +1995,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun preparaDrawerGruppi(navView: NavigationView) {
         val menu = navView.menu
-        menu.findItem(R.id.nav_viste)?.title = testoDrawer(getString(R.string.nav_viste), true)
+        menu.findItem(R.id.nav_viste)?.title = testoDrawer(getString(R.string.nav_viste))
         listOf("oggi" to R.id.nav_oggi, "tutti" to R.id.nav_tutti, "miei" to R.id.nav_miei).forEach { (k, id) ->
             val b = nuovoBadge()
             navBadge[k] = b
@@ -2060,10 +2059,13 @@ class MainActivity : AppCompatActivity() {
         navStruttura.forEach { (g, topics) ->
             val ts = topics.ifEmpty { listOf(TopicItem(0, "Principale")) }
             if (ts.size == 1) {
-                voce(menu, NavDest(g.id, ts[0].topicId), testoDrawer(g.nome, false), ordine++)
+                voce(menu, NavDest(g.id, ts[0].topicId), testoDrawer(g.nome), ordine++)
             } else {
-                val sub = menu.addSubMenu(gruppoDyn, 50000 + idx++, ordine++, testoDrawer(g.nome, true))
-                ts.forEachIndexed { i, t -> voce(sub, NavDest(g.id, t.topicId), t.nome, i) }
+                val sub = menu.addSubMenu(gruppoDyn, 50000 + idx++, ordine++, testoDrawer(g.nome))
+                ts.forEachIndexed { i, t -> voce(sub, NavDest(g.id, t.topicId),
+                    android.text.SpannableString(t.nome).apply {
+                        setSpan(android.text.style.LeadingMarginSpan.Standard(dpPx(20)), 0, length, 0)
+                    }, i) }
             }
         }
     }
