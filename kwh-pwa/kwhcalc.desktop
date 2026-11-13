@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=kWh ↔ %
+Comment=Calcolatore kWh e percentuale batteria 58 kWh
+Exec=xdg-open /home/benatti/repos/bot-spesa-telegram/kwh-pwa/kwhcalc.html
+Icon=/home/benatti/repos/bot-spesa-telegram/kwh-pwa/kwhcalc.svg
+Terminal=false
+Categories=Utility;
