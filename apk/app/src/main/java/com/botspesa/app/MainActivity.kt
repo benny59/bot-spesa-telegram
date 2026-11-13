@@ -220,6 +220,9 @@ class MainActivity : AppCompatActivity() {
             R.string.open_drawer, R.string.close_drawer
         )
         drawerLayout.addDrawerListener(toggle)
+        drawerLayout.addDrawerListener(object : DrawerLayout.SimpleDrawerListener() {
+            override fun onDrawerOpened(drawerView: android.view.View) { aggiornaStrutturaDrawer() }
+        })
         toggle.syncState()
 
         val navView = findViewById<NavigationView>(R.id.navView)
@@ -240,7 +243,6 @@ class MainActivity : AppCompatActivity() {
         navView.setNavigationItemSelectedListener { item ->
             drawerLayout.closeDrawers()
             when (item.itemId) {
-                R.id.nav_lista            -> { vistaAttuale = ""; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_oggi             -> { vistaAttuale = "oggi"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_tutti            -> { vistaAttuale = "tutti"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
                 R.id.nav_miei             -> { vistaAttuale = "miei"; aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu() }
@@ -294,16 +296,22 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_lancia_satispay  -> lanciaSatispayLocale()
                 R.id.nav_carte_disponibili -> apriCarteDisponibili()
                 R.id.nav_gestione_carte    -> apriGestioneCarte()
-                R.id.nav_cambia_gruppo     -> mostraDialogCambioGruppo()
                 R.id.nav_collega_telegram  -> mostraDialogCollegaTelegram()
                 R.id.nav_config_rete       -> mostraDialogConfigRete()
                 R.id.nav_lingua            -> mostraDialogLingua()
                 R.id.nav_colori_gruppi     -> mostraDialogColoriTopic()
                 R.id.nav_checkout_tap      -> mostraDialogCheckoutTap()
                 R.id.nav_amministrazione   -> AdminSheet.newInstance(userId).show(supportFragmentManager, "admin")
+                else -> navDest[item.itemId]?.let { d ->
+                    prefs().edit().putInt("gruppo_id", d.gruppoId).putInt("topic_id", d.topicId).apply()
+                    vistaAttuale = ""
+                    aggiornaLista(); caricaInfoGruppo(); invalidateOptionsMenu()
+                }
             }
-            true
+            // evidenzia solo viste e liste, non le voci che aprono schede/dialog
+            item.itemId in setOf(R.id.nav_oggi, R.id.nav_tutti, R.id.nav_miei) || navDest.containsKey(item.itemId)
         }
+        preparaDrawerGruppi(navView)
 
         recyclerView = findViewById(R.id.recyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
@@ -316,6 +324,7 @@ class MainActivity : AppCompatActivity() {
 
         aggiornaNomeUtente()
         if (prefs.contains("api_url")) {
+            aggiornaStrutturaDrawer()
             aggiornaLista()
             caricaInfoGruppo()
             if (prefs.getInt("user_id", 0) == 0) {
@@ -343,7 +352,7 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         queueIncomingShareIntent(intent)
         if (applicaContestoDaIntent(intent)) {
-            findViewById<NavigationView>(R.id.navView).setCheckedItem(R.id.nav_lista)
+            evidenziaVoceDrawer()
             aggiornaLista()
             caricaInfoGruppo()
             invalidateOptionsMenu()
@@ -1937,11 +1946,138 @@ class MainActivity : AppCompatActivity() {
             val conteggi = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.getConteggiListe(userId) }.getOrNull()
             } ?: return@launch
-            val menu = findViewById<NavigationView>(R.id.navView).menu
-            menu.findItem(R.id.nav_oggi).title = getString(R.string.nav_oggi_count, conteggi.oggi)
-            menu.findItem(R.id.nav_tutti).title = getString(R.string.nav_tutti_count, conteggi.tutti)
-            menu.findItem(R.id.nav_miei).title = getString(R.string.nav_miei_count, conteggi.miei)
+            navConteggi = conteggi
+            applicaBadgeDrawer()
         }
+    }
+
+    // ---------- drawer: viste + elenco gruppi/topic (come la sidebar della PWA) ----------
+
+    private data class NavDest(val gruppoId: Int, val topicId: Int)
+
+    private var navStruttura: List<Pair<GruppoItem, List<TopicItem>>> = emptyList()
+    private var navConteggi: ApiClient.ConteggiListe? = null
+    private val navDest = mutableMapOf<Int, NavDest>()
+    private val navBadge = mutableMapOf<String, TextView>()
+
+    private fun dpPx(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun nuovoBadge(): TextView = TextView(this).apply {
+        textSize = 12f
+        setTextColor(Color.parseColor("#1F5AA6"))
+        setPadding(dpPx(8), dpPx(1), dpPx(8), dpPx(1))
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.parseColor("#E1EBF7"))
+            cornerRadius = dpPx(10).toFloat()
+        }
+        visibility = android.view.View.GONE
+    }
+
+    /** Il NavigationView allunga l'actionView in altezza: il badge sta in un contenitore e resta centrato. */
+    private fun contenitoreBadge(b: TextView): android.view.View =
+        android.widget.FrameLayout(this).apply {
+            addView(b, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER_VERTICAL
+            ))
+        }
+
+    private fun testoDrawer(testo: String, intestazione: Boolean): CharSequence {
+        val sp = android.text.SpannableString(testo)
+        sp.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, sp.length, 0)
+        if (intestazione) sp.setSpan(android.text.style.RelativeSizeSpan(1.15f), 0, sp.length, 0)
+        val ta = obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary))
+        val colore = ta.getColor(0, Color.BLACK)
+        ta.recycle()
+        sp.setSpan(android.text.style.ForegroundColorSpan(colore), 0, sp.length, 0)
+        return sp
+    }
+
+    private fun preparaDrawerGruppi(navView: NavigationView) {
+        val menu = navView.menu
+        menu.findItem(R.id.nav_viste)?.title = testoDrawer(getString(R.string.nav_viste), true)
+        listOf("oggi" to R.id.nav_oggi, "tutti" to R.id.nav_tutti, "miei" to R.id.nav_miei).forEach { (k, id) ->
+            val b = nuovoBadge()
+            navBadge[k] = b
+            menu.findItem(id)?.actionView = contenitoreBadge(b)
+        }
+    }
+
+    private fun impostaBadge(chiave: String, n: Int?) {
+        val b = navBadge[chiave] ?: return
+        if (n == null) { b.visibility = android.view.View.GONE; return }
+        b.text = n.toString()
+        b.visibility = android.view.View.VISIBLE
+    }
+
+    private fun applicaBadgeDrawer() {
+        val c = navConteggi ?: return
+        impostaBadge("oggi", c.oggi)
+        impostaBadge("tutti", c.tutti)
+        impostaBadge("miei", c.miei)
+        navDest.values.forEach { d ->
+            val chiave = "${d.gruppoId}:${d.topicId}"
+            impostaBadge(chiave, c.liste[chiave] ?: 0)
+        }
+    }
+
+    private fun aggiornaStrutturaDrawer() {
+        if (userId == 0) return
+        lifecycleScope.launch {
+            val struttura = withContext(Dispatchers.IO) {
+                runCatching {
+                    val gruppi = ApiClient.getGruppiTyped(userId)
+                    val tutti = if (gruppi.any { it.id == 0 }) gruppi
+                                else listOf(GruppoItem(0, "Lista Personale", null)) + gruppi
+                    tutti.map { g -> g to (if (g.id == 0) emptyList() else ApiClient.getTopics(g.id)) }
+                }.getOrNull()
+            } ?: return@launch
+            if (struttura == navStruttura) return@launch
+            navStruttura = struttura
+            ricostruisciDrawerGruppi()
+            applicaBadgeDrawer()
+            evidenziaVoceDrawer()
+        }
+    }
+
+    private fun ricostruisciDrawerGruppi() {
+        val menu = findViewById<NavigationView>(R.id.navView).menu
+        val gruppoDyn = 9001
+        menu.removeGroup(gruppoDyn)
+        navDest.clear()
+        navBadge.keys.removeAll { it.contains(':') }
+        var idx = 0
+        var ordine = 200
+        fun voce(m: android.view.Menu, dest: NavDest, titolo: CharSequence, ord: Int) {
+            val it = m.add(gruppoDyn, 50000 + idx++, ord, titolo)
+            it.isCheckable = true
+            navDest[it.itemId] = dest
+            val b = nuovoBadge()
+            navBadge["${dest.gruppoId}:${dest.topicId}"] = b
+            it.actionView = contenitoreBadge(b)
+        }
+        navStruttura.forEach { (g, topics) ->
+            val ts = topics.ifEmpty { listOf(TopicItem(0, "Principale")) }
+            if (ts.size == 1) {
+                voce(menu, NavDest(g.id, ts[0].topicId), testoDrawer(g.nome, false), ordine++)
+            } else {
+                val sub = menu.addSubMenu(gruppoDyn, 50000 + idx++, ordine++, testoDrawer(g.nome, true))
+                ts.forEachIndexed { i, t -> voce(sub, NavDest(g.id, t.topicId), t.nome, i) }
+            }
+        }
+    }
+
+    private fun evidenziaVoceDrawer() {
+        val navView = findViewById<NavigationView>(R.id.navView)
+        val id = when (vistaAttuale) {
+            "oggi" -> R.id.nav_oggi
+            "tutti" -> R.id.nav_tutti
+            "miei" -> R.id.nav_miei
+            else -> (navDest.entries.firstOrNull { it.value == NavDest(gruppoId, topicId) }
+                ?: navDest.entries.firstOrNull { it.value.gruppoId == gruppoId })?.key
+        }
+        if (id != null) navView.setCheckedItem(id)
     }
 
     private fun selezionaContestoDaListaGlobale(item: SpesaItem) {
@@ -1950,7 +2086,7 @@ class MainActivity : AppCompatActivity() {
             .putInt("topic_id", item.topicId)
             .apply()
         vistaAttuale = ""
-        findViewById<NavigationView>(R.id.navView).setCheckedItem(R.id.nav_lista)
+        evidenziaVoceDrawer()
         aggiornaLista()
         caricaInfoGruppo()
         invalidateOptionsMenu()
@@ -2513,6 +2649,7 @@ class MainActivity : AppCompatActivity() {
                         applicaColoreToolbar(gId, tNome)
                     }
                 }
+                evidenziaVoceDrawer()
                 // aggiorna sottotitolo header drawer
                 val header = findViewById<com.google.android.material.navigation.NavigationView>(R.id.navView).getHeaderView(0)
                 header.findViewById<TextView>(R.id.tvGruppoNome).text =
@@ -2620,8 +2757,10 @@ class MainActivity : AppCompatActivity() {
                         .putInt("gruppo_id", selected.gruppoId)
                         .putInt("topic_id", selected.topicId)
                         .apply()
+                    vistaAttuale = ""
                     aggiornaLista()
                     caricaInfoGruppo()
+                    invalidateOptionsMenu()
                     dialog.dismiss()
                 }
             }

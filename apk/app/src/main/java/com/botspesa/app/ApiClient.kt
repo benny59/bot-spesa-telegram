@@ -92,7 +92,7 @@ object ApiClient {
         return parseItems(http.newCall(req).execute().use { it.body!!.string() })
     }
 
-    data class ConteggiListe(val tutti: Int, val miei: Int, val oggi: Int = 0)
+    data class ConteggiListe(val tutti: Int, val miei: Int, val oggi: Int = 0, val liste: Map<String, Int> = emptyMap())
 
     data class CategoriaItem(val id: Int, val nome: String, val effimera: Boolean = false)
 
@@ -145,7 +145,10 @@ object ApiClient {
         return ConteggiListe(
             tutti = (raw["tutti"] as? Double)?.toInt() ?: 0,
             miei = (raw["miei"] as? Double)?.toInt() ?: 0,
-            oggi = (raw["oggi"] as? Double)?.toInt() ?: 0
+            oggi = (raw["oggi"] as? Double)?.toInt() ?: 0,
+            liste = (raw["liste"] as? Map<*, *>)?.entries
+                ?.associate { it.key.toString() to ((it.value as? Double)?.toInt() ?: 0) }
+                ?: emptyMap()
         )
     }
 

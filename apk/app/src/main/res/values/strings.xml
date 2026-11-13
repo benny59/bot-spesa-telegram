@@ -207,4 +207,5 @@
     <string name="categoria_effimera_non_valida">Inserisci un nome senza &amp;</string>
     <string name="ingredienti_importati">%1$d ingredienti aggiunti, %2$d già presenti</string>
     <string name="importazione_ricetta_fallita">Importazione ricetta non riuscita</string>
+    <string name="nav_viste">Viste</string>
 </resources>

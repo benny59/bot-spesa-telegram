@@ -1,24 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <group android:checkableBehavior="single">
-        <item
-            android:id="@+id/nav_lista"
-            android:icon="@drawable/ic_nav_lista"
-            android:title="@string/nav_lista"
-            android:checked="true" />
-        <item
-            android:id="@+id/nav_oggi"
-            android:icon="@drawable/ic_nav_lista"
-            android:title="@string/nav_oggi" />
-        <item
-            android:id="@+id/nav_tutti"
-            android:icon="@drawable/ic_nav_lista"
-            android:title="@string/nav_tutti" />
-        <item
-            android:id="@+id/nav_miei"
-            android:icon="@drawable/ic_nav_lista"
-            android:title="@string/nav_miei" />
+    <item
+        android:id="@+id/nav_viste"
+        android:orderInCategory="100"
+        android:title="@string/nav_viste">
+        <menu>
+            <group android:checkableBehavior="single">
+                <item
+                    android:id="@+id/nav_oggi"
+                    android:title="@string/nav_oggi" />
+                <item
+                    android:id="@+id/nav_tutti"
+                    android:title="@string/nav_tutti" />
+                <item
+                    android:id="@+id/nav_miei"
+                    android:title="@string/nav_miei" />
+            </group>
+        </menu>
+    </item>
+
+    <group android:orderInCategory="1000">
         <item
             android:id="@+id/nav_preferiti"
             android:icon="@drawable/ic_star_border"
@@ -40,10 +42,6 @@
             android:icon="@drawable/ic_checklist"
             android:title="@string/nav_storico" />
         <item
-            android:id="@+id/nav_cambia_gruppo"
-            android:icon="@drawable/ic_nav_swap"
-            android:title="@string/nav_cambia_gruppo" />
-        <item
             android:id="@+id/nav_lancia_yuka"
             android:icon="@drawable/ic_yuka_logo"
             android:title="@string/nav_lancia_yuka" />
@@ -58,6 +56,7 @@
     </group>
 
     <item
+        android:orderInCategory="1100"
         android:title="@string/nav_carte"
         android:icon="@drawable/ic_nav_carte">
         <menu>
@@ -71,6 +70,7 @@
     </item>
 
     <item
+        android:orderInCategory="1200"
         android:title="@string/nav_impostazioni"
         android:icon="@drawable/ic_nav_settings">
         <menu>

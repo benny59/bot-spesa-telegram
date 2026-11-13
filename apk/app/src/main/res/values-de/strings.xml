@@ -206,4 +206,5 @@
     <string name="categoria_effimera_non_valida">Name ohne &amp; eingeben</string>
     <string name="ingredienti_importati">%1$d Zutaten hinzugefügt, %2$d bereits vorhanden</string>
     <string name="importazione_ricetta_fallita">Rezept konnte nicht importiert werden</string>
+    <string name="nav_viste">Ansichten</string>
 </resources>
