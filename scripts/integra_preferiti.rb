@@ -74,7 +74,7 @@ puts "Backup preferiti trovati: #{righe.size}"
 riepilogo.each do |r|
   puts "\nUtente #{r[:utente]}: #{r[:totale]} preferiti, #{r[:cambiati].size} integrati (ultimo backup #{r[:ultimo_backup]})"
   r[:cambiati].each { |nome, mod| puts "  + #{nome}: #{mod.join(', ')}" }
-  r[:duplicati].each { |g| puts "  = duplicati: #{g.join(' / ')}" }
+  r[:duplicati].each { |g| puts "  = duplicati: tieni «#{g.first}», elimina #{g.drop(1).join(' / ')}" }
 end
 unless simili_tot.empty?
   puts "\nNomi SOLO simili (non applicati, da decidere a mano):"
@@ -94,8 +94,7 @@ if notifica
     end
     unless r[:duplicati].empty?
       testo << "\n👯 Possibili duplicati tra i tuoi preferiti (stesso prodotto):\n"
-      r[:duplicati].each { |g| testo << "• #{g.join(' / ')}\n" }
-      testo << "Tieni quello che preferisci ed elimina gli altri."
+      r[:duplicati].each { |g| testo << "• tieni «#{g.first}» (il più completo), elimina: #{g.drop(1).join(' / ')}\n" }
     end
     begin
       client.api.send_message(chat_id: r[:utente], text: testo)

@@ -838,7 +838,13 @@ class DataManager
       end
     end
     (0...favs.size).group_by { |i| trova.call(i) }.values.select { |g| g.size > 1 }
-                   .map { |g| g.map { |i| favs[i]["description"].to_s } }
+                   .map { |g| g.sort_by { |i| [-ricchezza_preferito(favs[i]), i] }.map { |i| favs[i]["description"].to_s } }
+  end
+
+  # Quante informazioni porta un preferito: serve a indicare quale duplicato tenere (il più ricco).
+  def self.ricchezza_preferito(fav)
+    [normalizza_gtin(fav["gtin"]), fav["yukaLink"].to_s.strip, fav["telegramPhotoId"].to_s.strip,
+     fav["categoryId"].to_i.positive? ? "c" : nil].count { |v| v && !v.to_s.empty? }
   end
 
   # Salvataggio del backup dall'app: la lista in arrivo è la verità (aggiunte, modifiche, cancellazioni),

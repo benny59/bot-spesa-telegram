@@ -41,6 +41,8 @@ Dir.mktmpdir("integra-preferito-test") do |directory|
       { "description" => "Latte" }
     ])
     raise "duplicati errati: #{dup.inspect}" unless dup.sort == [["Muesli", "Muesli COOP"], ["Pane", "pane!!"]].sort
+    ricco = DataManager.duplicati_preferiti([{ "description" => "Latte" }, { "description" => "latte", "gtin" => gtin, "yukaLink" => link }])
+    raise "il più ricco deve venire per primo: #{ricco.inspect}" unless ricco == [["latte", "Latte"]]
 
     # 6) salvataggio backup: l'integrazione già fatta non si perde se l'app manda il preferito senza codici
     salvato = { "favorites" => [{ "id" => "a", "description" => "la sfoglia", "gtin" => gtin, "yukaLink" => link }] }

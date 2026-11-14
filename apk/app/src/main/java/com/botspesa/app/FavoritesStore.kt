@@ -72,12 +72,6 @@ class FavoritesStore(context: Context) {
         }
     }
 
-    private fun FavoriteItem.matches(item: SpesaItem): Boolean =
-        description == item.nome &&
-            categoryId == item.categoriaId &&
-            yukaLink == item.linkUrl &&
-            gtin.orEmpty() == item.gtin
-
     private fun SpesaItem.toFavorite() = FavoriteItem(
         id = UUID.randomUUID().toString(),
         description = nome,

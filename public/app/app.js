@@ -466,13 +466,14 @@ function tapItem(item) {
 
 let menuItem = null;
 // ---------- preferiti: stesso backup (GET/PUT /utente/config/preferiti) dell'app Android ----------
-// Un preferito coincide con un articolo se hanno lo stesso nome, categoria, link e barcode (come FavoritesStore.kt).
-
+// Un preferito coincide con un articolo se hanno lo stesso nome e categoria; link e barcode contano solo se presenti
+// da entrambe le parti (un preferito integrato con GTIN/link resta lo stesso dell'articolo che ne è privo). Come FavoritesStore.kt.
+const campoCompatibile = (a, b) => !a || !b || a === b;
 const preferitoCoincide = (f, item) => (
   f.description === item.nome &&
   (f.categoryId || 0) === (item.categoria_id || 0) &&
-  (f.yukaLink || '') === (item.link_url || '') &&
-  (f.gtin || '') === (item.gtin || '')
+  campoCompatibile(f.yukaLink || '', item.link_url || '') &&
+  campoCompatibile(f.gtin || '', item.gtin || '')
 );
 
 async function leggiPreferiti() {
