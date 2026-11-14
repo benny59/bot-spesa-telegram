@@ -945,6 +945,7 @@ let scanStream = null;
 let scanTimer = null;
 let scanResolve = null;
 let scanResult = null;
+let scanFormato = null; // formato rilevato dallo scanner dell'ultima scansione riuscita
 let scanDetector = null;
 let scanBusy = false;
 
@@ -967,8 +968,9 @@ function stopScan() {
   $('#scan-video').srcObject = null;
 }
 
-function finishScan(code) {
+function finishScan(code, formato = null) {
   scanResult = code;
+  scanFormato = code ? formato : null;
   if ($('#dlg-scan').open) $('#dlg-scan').close();
 }
 
@@ -978,7 +980,7 @@ async function detectLoop() {
   try {
     if (video.readyState >= 2) {
       const found = await scanDetector.detect(video);
-      if (found.length && found[0].rawValue) return finishScan(found[0].rawValue);
+      if (found.length && found[0].rawValue) return finishScan(found[0].rawValue, found[0].format);
     }
   } catch { /* fotogramma non leggibile: si riprova */ }
   scanTimer = setTimeout(detectLoop, 250);
@@ -990,12 +992,12 @@ async function decodeImage(blob) {
     try {
       const bmp = await createImageBitmap(blob);
       const found = await scanDetector.detect(bmp);
-      if (found.length && found[0].rawValue) return found[0].rawValue;
+      if (found.length && found[0].rawValue) return { codice: found[0].rawValue, formato: found[0].format };
     } catch { /* ripiego sul server */ }
   }
   const file = blob instanceof File ? blob : new File([blob], 'scan.jpg', { type: blob.type || 'image/jpeg' });
   const res = await apiUpload('/carte/scan', { file, field: 'immagine' });
-  return res.codice;
+  return { codice: res.codice, formato: res.formato };
 }
 
 async function decodeAndFinish(blob) {
@@ -1003,7 +1005,8 @@ async function decodeAndFinish(blob) {
   scanBusy = true;
   setScanStatus('Decodifico…');
   try {
-    finishScan(await decodeImage(blob));
+    const r = await decodeImage(blob);
+    finishScan(r.codice, r.formato);
   } catch (err) {
     if (err instanceof AuthError) { finishScan(null); return handleError(err); }
     setScanStatus('Nessun codice trovato, riprova.');
@@ -1167,17 +1170,20 @@ $('#carte-new').addEventListener('click', () => {
 });
 
 function chiudiNuovaCarta() {
+  cartaNewFormato = null;
   $('#dlg-carta-new').close();
   openCarteDialog();
 }
 $('#carta-new-close').addEventListener('click', chiudiNuovaCarta);
 $('#carta-new-cancel').addEventListener('click', chiudiNuovaCarta);
 
+let cartaNewFormato = null; // formato rilevato dalla scansione, se il codice non è stato modificato a mano
 $('#carta-new-scan').addEventListener('click', async () => {
   // dialog sovrapposti: showModal sopra quello aperto, che resta con i campi compilati
   const code = await scanBarcode('Scansiona la carta');
-  if (code) $('#carta-new-codice').value = code;
+  if (code) { $('#carta-new-codice').value = code; cartaNewFormato = scanFormato; }
 });
+$('#carta-new-codice').addEventListener('input', () => { cartaNewFormato = null; });
 
 $('#carta-new-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1187,7 +1193,8 @@ $('#carta-new-form').addEventListener('submit', async (e) => {
       body: {
         user_id: state.auth.userId,
         nome: $('#carta-new-nome').value.trim(),
-        codice: $('#carta-new-codice').value.trim()
+        codice: $('#carta-new-codice').value.trim(),
+        formato: cartaNewFormato
       }
     });
     toast('Carta salvata');

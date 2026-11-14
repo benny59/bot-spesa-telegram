@@ -202,6 +202,8 @@ class CarteFedelta
   def self.prepara_codice(codice, formato = nil)
     codice = codice.to_s.gsub(/[^[:print:]]/, "").strip
     formato = formato.to_s.strip
+    # formati rilevati dallo scanner che non sappiamo disegnare (unknown, codabar, upc_e...): si indovina dal testo
+    formato = "" unless formato.downcase.delete("_- ").match?(/\A(ean13|ean8|upca|code39|code128|itf|itf14|code25interleaved|qrcode)\z/)
 
     if codice.match?(/\A\d{12}\z/)
       puts " [RE-ENCODE] 🚨 Trasformo UPC-A in EAN-13 (aggiunta zero iniziale)"

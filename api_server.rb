@@ -1763,7 +1763,7 @@ post '/carte' do
   codice  = body['codice'].to_s.strip
   halt 400, { error: 'parametri mancanti' }.to_json if user_id.nil? || nome.empty? || codice.empty?
 
-  codice, formato = CarteFedelta.prepara_codice(codice)
+  codice, formato = CarteFedelta.prepara_codice(codice, body['formato'])
   DB.execute("INSERT INTO carte_fedelta (user_id, nome, codice, formato) VALUES (?, ?, ?, ?)",
              [user_id, nome, codice, formato.to_s])
   carta_id = DB.last_insert_row_id
