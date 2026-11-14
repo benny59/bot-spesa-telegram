@@ -69,6 +69,10 @@ class CleanupManager
       s_articoli = self.pulisci_storico_vecchio()
       puts "[CLEANUP] ✅ Storico rimosso: #{s_articoli}"
 
+      puts "\n[CLEANUP] ▶️ pulizia catalogo prodotti non usati..."
+      c_prodotti = self.pulisci_catalogo_prodotti()
+      puts "[CLEANUP] ✅ Prodotti del catalogo rimossi: #{c_prodotti}"
+
       puts "\n[CLEANUP] ▶️ pulizia items orfani..."
       i_orfani = self.pulisci_items_orfani()
       puts "[CLEANUP] ✅ Items orfani rimossi: #{i_orfani}"
@@ -79,6 +83,7 @@ class CleanupManager
         #gruppi_migrati: esito_gruppi[:migrati] || [],
         pending_actions: p_actions || 0,
         storico_articoli: s_articoli || 0,
+        catalogo_prodotti: c_prodotti || 0,
         items_orfani: i_orfani || 0,
       }
 
@@ -292,6 +297,27 @@ class CleanupManager
   end
 
   # ========================================
+  # 📦 PULIZIA CATALOGO PRODOTTI NON USATI
+  # (criterio unico in DataManager.prodotti_catalogo_scaduti)
+  # ========================================
+  def self.pulisci_catalogo_prodotti
+    rows = DataManager.prodotti_catalogo_scaduti
+    if rows.any?
+      puts "📦 Rimuovo dal catalogo (#{rows.size} prodotti mai ripetuti da oltre #{DataManager::GIORNI_CATALOGO_INUTILIZZATO} giorni):"
+      rows.each { |r| puts "   - #{r['gtin']} #{r['descrizione']} usi=#{r['utilizzi']} ultimo_uso=#{r['ultimo_uso']}" }
+    else
+      puts "ℹ️ Nessun prodotto del catalogo da rimuovere"
+    end
+    rimossi = DataManager.elimina_prodotti(rows.map { |r| r["gtin"] })
+    orfane = DataManager.pulisci_righe_storico_prodotti_orfane
+    puts "✅ Prodotti rimossi: #{rimossi}, righe di storico orfane: #{orfane}"
+    rimossi
+  rescue => e
+    puts "❌ Errore pulizia catalogo prodotti: #{e.message}"
+    0
+  end
+
+  # ========================================
   # 🗂️ PULIZIA ITEMS ORFANI (gruppo cancellato)
   # ========================================
   def self.pulisci_items_orfani
@@ -351,6 +377,7 @@ class CleanupManager
     # Calcolo totale per il messaggio finale
     total_azioni = risultati[:pending_actions].to_i +
                    risultati[:storico_articoli].to_i +
+                   risultati[:catalogo_prodotti].to_i +
                    risultati[:items_orfani].to_i +
                    rimossi.size
 
@@ -361,6 +388,7 @@ class CleanupManager
       📊 *Risultati della pulizia:*
       • 🗑️ Pending actions: #{stats_pre[:pending_actions_vecchie]} → #{risultati[:pending_actions]}
       • 📊 Articoli storico: #{stats_pre[:storico_vecchio]} → #{risultati[:storico_articoli]}
+      • 📦 Catalogo prodotti non usati rimossi: #{risultati[:catalogo_prodotti]}
       • 🗂️ Items orfani: #{stats_pre[:items_orfani]} → #{risultati[:items_orfani]}
 
       ✅ #{total_azioni > 0 ? "Database pulito!" : "Database già ottimizzato!"}

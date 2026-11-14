@@ -2,6 +2,7 @@
 require "sqlite3"
 require "json"
 require "time"
+require "set"
 DB_PATH = ENV["SPESA_DB"].to_s.empty? ? "spesa.db" : ENV["SPESA_DB"]
 
 # ==============================================================================
@@ -127,10 +128,20 @@ SQL
     "fonte" => "TEXT",
     "ultimo_controllo" => "DATETIME",
     "ultimo_aggiornamento" => "DATETIME",
-    "descrizione_origine" => "TEXT"   # preferito > storico > scontrino (vedi DataManager.imposta_descrizione)
+    "descrizione_origine" => "TEXT",   # preferito > storico > scontrino (vedi DataManager.imposta_descrizione)
+    "creato_il" => "DATETIME"          # quando il prodotto è entrato nel catalogo (per la pulizia dei non usati)
   }.each do |name, type|
     db.execute("ALTER TABLE prodotti ADD COLUMN #{name} #{type}") unless prodotti_columns.include?(name)
   end
+  # I prodotti già presenti partono dal giorno della migrazione; i nuovi prendono la data dal trigger.
+  db.execute("UPDATE prodotti SET creato_il = datetime('now') WHERE creato_il IS NULL")
+  db.execute <<-SQL
+    CREATE TRIGGER IF NOT EXISTS trg_prodotti_creato_il AFTER INSERT ON prodotti
+    WHEN NEW.creato_il IS NULL
+    BEGIN
+      UPDATE prodotti SET creato_il = datetime('now') WHERE id = NEW.id;
+    END;
+  SQL
 
   # Recupera l'identità solo quando il valore storico individua un utente senza ambiguità.
   db.execute <<-SQL
@@ -695,6 +706,64 @@ class DataManager
     nil
   end
 
+  # Tutti i preferiti di tutti gli utenti (Hash del backup), dal backup più recente.
+  def self.preferiti_di_tutti
+    DB.execute("SELECT link_url FROM items WHERE nome LIKE ? AND deleted = 0 ORDER BY id DESC", ["#{CONFIG_PREFERITI_PREFISSO}%"]).flat_map do |riga|
+      Array(JSON.parse(riga["link_url"].to_s)["favorites"])
+    rescue JSON::ParserError, NoMethodError, TypeError
+      []
+    end
+  end
+
+  # ---- Pulizia del catalogo prodotti ----
+  # Il catalogo serve a mettere un prodotto in lista (ricerca /prodotti), anche senza che sia un preferito,
+  # e a ricordare dopo un po' un prodotto già comprato. Si toglie solo ciò che non è mai servito davvero.
+  GIORNI_CATALOGO_INUTILIZZATO = 365
+
+  # UN solo criterio, usato da anteprima, riepilogo e cancellazione. Un prodotto è da togliere se TUTTO questo è vero:
+  # esiste da più di `giorni` giorni; ha al massimo un uso (storico + articoli in lista); l'ultimo uso (messa in lista,
+  # acquisto, scansione/controllo) è più vecchio di `giorni`; non è un preferito di nessuno; non è in un articolo ancora in lista.
+  def self.prodotti_catalogo_scaduti(giorni: GIORNI_CATALOGO_INUTILIZZATO)
+    limite = "-#{giorni.to_i} days"
+    in_preferiti = preferiti_di_tutti.filter_map { |f| normalizza_gtin(f["gtin"]) }.to_set
+    DB.execute(<<~SQL, [limite, limite]).reject { |r| in_preferiti.include?(r["gtin"]) }
+      SELECT * FROM (
+        SELECT p.gtin, p.descrizione, p.creato_il,
+          COALESCE((SELECT SUM(utilizzi) FROM storico_articolo_prodotti WHERE gtin = p.gtin), 0)
+            + (SELECT COUNT(*) FROM items WHERE gtin = p.gtin) AS utilizzi,
+          MAX(p.creato_il, COALESCE(p.ultimo_controllo, ''), COALESCE(p.ultimo_aggiornamento, ''),
+              COALESCE((SELECT MAX(ultimo_utilizzo) FROM storico_articolo_prodotti WHERE gtin = p.gtin), ''),
+              COALESCE((SELECT MAX(ultimo_acquisto) FROM storico_articolo_prodotti WHERE gtin = p.gtin), ''),
+              COALESCE((SELECT MAX(creato_il) FROM items WHERE gtin = p.gtin), '')) AS ultimo_uso
+        FROM prodotti p
+        WHERE p.creato_il < datetime('now', ?)
+          AND NOT EXISTS (SELECT 1 FROM items i WHERE i.gtin = p.gtin AND i.deleted = 0 AND COALESCE(i.comprato, '') = '')
+      ) WHERE utilizzi <= 1 AND ultimo_uso < datetime('now', ?)
+      ORDER BY descrizione
+    SQL
+  end
+
+  # Toglie i prodotti con i loro alias e le loro righe di storico (le chiavi esterne non sono attive: si fa a mano).
+  def self.elimina_prodotti(gtins)
+    gtins = Array(gtins)
+    return 0 if gtins.empty?
+
+    marcatori = gtins.map { "?" }.join(",")
+    DB.transaction do
+      DB.execute("DELETE FROM prodotto_alias WHERE gtin IN (#{marcatori})", gtins)
+      DB.execute("DELETE FROM storico_articolo_prodotti WHERE gtin IN (#{marcatori})", gtins)
+      DB.execute("DELETE FROM prodotti WHERE gtin IN (#{marcatori})", gtins)
+    end
+    gtins.size
+  end
+
+  # Righe di storico_articolo_prodotti rimaste senza la voce di storico (cancellata dal cleanup dello storico).
+  def self.pulisci_righe_storico_prodotti_orfane
+    n = DB.get_first_value("SELECT COUNT(*) FROM storico_articolo_prodotti WHERE storico_articolo_id NOT IN (SELECT id FROM storico_articoli)").to_i
+    DB.execute("DELETE FROM storico_articolo_prodotti WHERE storico_articolo_id NOT IN (SELECT id FROM storico_articoli)") if n.positive?
+    n
+  end
+
   # Priorità del nome di un prodotto: preferiti > storico > scontrino (o nome di origine ignota/Open Food Facts).
   DESCRIZIONE_PRIORITA = { "preferito" => 3, "storico" => 2, "scontrino" => 1 }.freeze
 
@@ -727,15 +796,9 @@ class DataManager
     gtin = normalizza_gtin(gtin)
     return nil unless gtin
 
-    DB.execute("SELECT link_url FROM items WHERE nome LIKE ? AND deleted = 0 ORDER BY id DESC", ["#{CONFIG_PREFERITI_PREFISSO}%"]).each do |riga|
-      begin
-        Array(JSON.parse(riga["link_url"].to_s)["favorites"]).each do |fav|
-          nome = fav["description"].to_s.strip
-          return [nome, "preferito"] if !nome.empty? && normalizza_gtin(fav["gtin"]) == gtin
-        end
-      rescue JSON::ParserError, NoMethodError, TypeError
-        next
-      end
+    preferiti_di_tutti.each do |fav|
+      nome = fav["description"].to_s.strip
+      return [nome, "preferito"] if !nome.empty? && normalizza_gtin(fav["gtin"]) == gtin
     end
 
     nome = DB.get_first_value(<<~SQL, [gtin])
