@@ -875,6 +875,33 @@ class DataManager
     [in_arrivo.merge("favorites" => favoriti), completati]
   end
 
+  # Preferiti dell'utente dal backup sul server (lista di Hash), vuota se assente o non valido.
+  def self.preferiti_utente(user_id)
+    riga = DB.get_first_value(
+      "SELECT link_url FROM items WHERE gruppo_id = 0 AND topic_id = 0 AND creato_da = ? AND nome = ? AND deleted = 0 ORDER BY id DESC LIMIT 1",
+      [user_id.to_i, CONFIG_PREFERITI_NOME]
+    )
+    Array(JSON.parse(riga.to_s)["favorites"])
+  rescue JSON::ParserError, NoMethodError, TypeError
+    []
+  end
+
+  # Un nome scritto a mano che coincide (normalizzato) con UN SOLO preferito dell'utente con GTIN/link Yuka
+  # eredita quei codici: {gtin:, link:}. Se i preferiti con quel nome portano codici diversi (prodotti
+  # diversi con lo stesso nome) è ambiguo e non si assegna nulla.
+  def self.preferito_unico_per_nome(user_id, nome)
+    return nil if user_id.to_i.zero?
+
+    chiave = normalizza_alias(nome)
+    return nil if chiave.length < 3
+
+    candidati = preferiti_utente(user_id).select { |f| normalizza_alias(f["description"]) == chiave }.map do |f|
+      link = f["yukaLink"].to_s.strip
+      { gtin: normalizza_gtin(f["gtin"]), link: link_yuka?(link) ? link : nil }
+    end.reject { |c| c[:gtin].nil? && c[:link].nil? }.uniq
+    candidati.size == 1 ? candidati.first : nil
+  end
+
   def self.scheda_prodotto(gtin)
     gtin = normalizza_gtin(gtin)
     return nil unless gtin
@@ -1785,6 +1812,18 @@ end
 
         next if nome.empty?
 
+        # Nome scritto a mano uguale a un preferito (con GTIN/link Yuka): l'articolo eredita i codici.
+        gtin_item = gtin
+        ereditato = nil
+        if gtin_item.nil? && item_link_pulito.nil? && (ereditato = self.preferito_unico_per_nome(user_id, nome))
+          gtin_item = ereditato[:gtin]
+          item_link_pulito = ereditato[:link]
+          if gtin_item
+            self.upsert_prodotto(gtin_item, nome)
+            self.imposta_descrizione(gtin_item, nome, "preferito")
+          end
+        end
+
         esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome_db.downcase])
 
         if esiste
@@ -1797,7 +1836,11 @@ end
           if categoria_effettiva
             DB.execute("UPDATE items SET categoria_id = ? WHERE id = ?", [categoria_effettiva, esiste])
           end
-          DB.execute("UPDATE items SET gtin = ? WHERE id = ?", [gtin, esiste]) if gtin
+          if gtin
+            DB.execute("UPDATE items SET gtin = ? WHERE id = ?", [gtin, esiste])
+          elsif gtin_item   # ereditato dal preferito: solo se l'articolo non ne ha già uno
+            DB.execute("UPDATE items SET gtin = COALESCE(NULLIF(TRIM(gtin), ''), ?) WHERE id = ?", [gtin_item, esiste])
+          end
           if categoria_effettiva
             self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_effettiva)
           end
@@ -1806,7 +1849,7 @@ end
         end
 
         DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url, gtin, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          [gruppo_id, topic_id, user_id, nome_db, item_link_pulito, gtin, categoria_effettiva])
+          [gruppo_id, topic_id, user_id, nome_db, item_link_pulito, gtin_item, categoria_effettiva])
         ids_creati << DB.last_insert_row_id
         if categoria_effettiva
           self.aggiorna_last_categoria_storico(gruppo_id, topic_id, nome, categoria_effettiva)
