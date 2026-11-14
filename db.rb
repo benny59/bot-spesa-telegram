@@ -2,7 +2,7 @@
 require "sqlite3"
 require "json"
 require "time"
-DB_PATH = "spesa.db"
+DB_PATH = ENV["SPESA_DB"].to_s.empty? ? "spesa.db" : ENV["SPESA_DB"]
 
 # ==============================================================================
 # INIZIALIZZAZIONE SCHEMA (STRUTTURA ESISTENTE - NON TOCCARE)
@@ -126,7 +126,8 @@ SQL
     "metadata_json" => "TEXT",
     "fonte" => "TEXT",
     "ultimo_controllo" => "DATETIME",
-    "ultimo_aggiornamento" => "DATETIME"
+    "ultimo_aggiornamento" => "DATETIME",
+    "descrizione_origine" => "TEXT"   # preferito > storico > scontrino (vedi DataManager.imposta_descrizione)
   }.each do |name, type|
     db.execute("ALTER TABLE prodotti ADD COLUMN #{name} #{type}") unless prodotti_columns.include?(name)
   end
@@ -257,6 +258,21 @@ SQL
   unless storico_columns.include?("metadata_json")
     db.execute("ALTER TABLE storico_articoli ADD COLUMN metadata_json TEXT")
   end
+
+  # Alias: altre denominazioni dello stesso prodotto (descrizioni da scontrino, nomi liberi degli utenti).
+  # Testo normalizzato (senza accenti/maiuscole), un solo record per (gtin, negozio, alias): il DB resta compatto.
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS prodotto_alias (
+      gtin TEXT NOT NULL,
+      alias TEXT NOT NULL,
+      negozio TEXT NOT NULL DEFAULT '',
+      fonte TEXT,
+      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (gtin, negozio, alias),
+      FOREIGN KEY (gtin) REFERENCES prodotti(gtin) ON DELETE CASCADE
+    );
+  SQL
+  db.execute "CREATE INDEX IF NOT EXISTS idx_prodotto_alias_alias ON prodotto_alias (alias);"
 
   db.execute <<-SQL
     CREATE TABLE IF NOT EXISTS storico_articolo_prodotti (
@@ -611,14 +627,103 @@ class DataManager
 
     descrizione = descrizione.to_s.strip
     DB.execute(
-      "INSERT INTO prodotti (gtin, descrizione) VALUES (?, ?)
-       ON CONFLICT(gtin) DO UPDATE SET descrizione = CASE
-         WHEN TRIM(COALESCE(prodotti.descrizione, '')) = '' THEN excluded.descrizione
-         ELSE prodotti.descrizione
-       END",
-      [gtin, descrizione.empty? ? nil : descrizione]
+      "INSERT INTO prodotti (gtin, descrizione, descrizione_origine) VALUES (?, ?, ?)
+       ON CONFLICT(gtin) DO UPDATE SET
+         descrizione_origine = CASE
+           WHEN TRIM(COALESCE(prodotti.descrizione, '')) = '' THEN excluded.descrizione_origine
+           ELSE prodotti.descrizione_origine
+         END,
+         descrizione = CASE
+           WHEN TRIM(COALESCE(prodotti.descrizione, '')) = '' THEN excluded.descrizione
+           ELSE prodotti.descrizione
+         END",
+      [gtin, descrizione.empty? ? nil : descrizione, descrizione.empty? ? nil : "storico"]
     )
     DB.get_first_row("SELECT id, gtin, descrizione FROM prodotti WHERE gtin = ?", [gtin])
+  end
+
+  MAX_ALIAS_PER_PRODOTTO = 12
+
+  def self.normalizza_alias(value)
+    value.to_s.unicode_normalize(:nfd).gsub(/\p{Mn}/, "").downcase.scan(/[[:alnum:]]+/).join(" ")
+  end
+
+  # Registra un alias per un GTIN già in `prodotti`. Ritorna :nuovo, :esistente o nil (scartato).
+  # Scarta alias troppo corti o uguali alla descrizione del prodotto; oltre il tetto non cresce.
+  def self.registra_alias_prodotto(gtin, alias_testo, negozio: "", fonte: nil)
+    gtin = normalizza_gtin(gtin)
+    return nil unless gtin
+    alias_norm = normalizza_alias(alias_testo)
+    return nil if alias_norm.length < 3
+    return nil unless DB.get_first_value("SELECT 1 FROM prodotti WHERE gtin = ?", [gtin])
+    return nil if normalizza_alias(DB.get_first_value("SELECT descrizione FROM prodotti WHERE gtin = ?", [gtin])) == alias_norm
+
+    negozio = normalizza_alias(negozio)
+    return :esistente if DB.get_first_value("SELECT 1 FROM prodotto_alias WHERE gtin = ? AND negozio = ? AND alias = ?", [gtin, negozio, alias_norm])
+    return nil if DB.get_first_value("SELECT COUNT(*) FROM prodotto_alias WHERE gtin = ?", [gtin]).to_i >= MAX_ALIAS_PER_PRODOTTO
+
+    DB.execute("INSERT INTO prodotto_alias (gtin, alias, negozio, fonte) VALUES (?, ?, ?, ?)", [gtin, alias_norm, negozio, fonte])
+    :nuovo
+  end
+
+  # Priorità del nome di un prodotto: preferiti > storico > scontrino (o nome di origine ignota/Open Food Facts).
+  DESCRIZIONE_PRIORITA = { "preferito" => 3, "storico" => 2, "scontrino" => 1 }.freeze
+
+  # Imposta la descrizione solo se la nuova origine ha priorità STRETTAMENTE maggiore di quella attuale
+  # (o se la descrizione è vuota). Il nome sostituito resta come alias, così la ricerca non lo perde.
+  # Ritorna true se ha scritto.
+  def self.imposta_descrizione(gtin, testo, origine)
+    gtin = normalizza_gtin(gtin)
+    testo = testo.to_s.strip
+    nuova = DESCRIZIONE_PRIORITA[origine.to_s]
+    return false unless gtin && nuova && !testo.empty?
+
+    riga = DB.get_first_row("SELECT descrizione, descrizione_origine FROM prodotti WHERE gtin = ?", [gtin])
+    return false unless riga
+
+    attuale = riga["descrizione"].to_s.strip
+    if attuale.empty?
+      DB.execute("UPDATE prodotti SET descrizione = ?, descrizione_origine = ? WHERE gtin = ?", [testo, origine.to_s, gtin])
+      return true
+    end
+    return false if normalizza_alias(attuale) == normalizza_alias(testo)
+    return false unless nuova > (DESCRIZIONE_PRIORITA[riga["descrizione_origine"].to_s] || 1)
+
+    DB.execute("UPDATE prodotti SET descrizione = ?, descrizione_origine = ? WHERE gtin = ?", [testo, origine.to_s, gtin])
+    registra_alias_prodotto(gtin, attuale, fonte: "descrizione_precedente")
+    true
+  end
+
+  # Miglior nome noto per un GTIN dalle fonti dell'app: [testo, origine] o nil.
+  # 1) preferito (backup dei preferiti di qualunque utente), 2) storico (nome più usato/acquistato).
+  def self.descrizione_da_fonti(gtin)
+    gtin = normalizza_gtin(gtin)
+    return nil unless gtin
+
+    DB.execute("SELECT link_url FROM items WHERE nome LIKE ? AND deleted = 0 ORDER BY id DESC", ["#{CONFIG_PREFERITI_PREFISSO}%"]).each do |riga|
+      begin
+        Array(JSON.parse(riga["link_url"].to_s)["favorites"]).each do |fav|
+          nome = fav["description"].to_s.strip
+          return [nome, "preferito"] if !nome.empty? && normalizza_gtin(fav["gtin"]) == gtin
+        end
+      rescue JSON::ParserError, NoMethodError, TypeError
+        next
+      end
+    end
+
+    nome = DB.get_first_value(<<~SQL, [gtin])
+      SELECT sa.nome FROM storico_articolo_prodotti sap
+      JOIN storico_articoli sa ON sa.id = sap.storico_articolo_id
+      WHERE sap.gtin = ? AND TRIM(COALESCE(sa.nome, '')) != ''
+      ORDER BY sap.acquisti_confermati DESC, sap.utilizzi DESC, sa.conteggio DESC LIMIT 1
+    SQL
+    nome ? [nome.to_s.strip, "storico"] : nil
+  end
+
+  # Applica a un prodotto il miglior nome disponibile dalle fonti. Ritorna l'origine applicata o nil.
+  def self.riallinea_descrizione(gtin)
+    nome, origine = descrizione_da_fonti(gtin)
+    nome && imposta_descrizione(gtin, nome, origine) ? origine : nil
   end
 
   def self.scheda_prodotto(gtin)
@@ -675,7 +780,18 @@ class DataManager
          (gtin, descrizione, metadata_json, fonte, ultimo_controllo, ultimo_aggiornamento)
        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
        ON CONFLICT(gtin) DO UPDATE SET
-         descrizione = CASE WHEN excluded.descrizione != '' THEN excluded.descrizione ELSE prodotti.descrizione END,
+         descrizione_origine = CASE
+           WHEN prodotti.descrizione_origine IN ('preferito', 'storico') AND TRIM(COALESCE(prodotti.descrizione, '')) != ''
+             THEN prodotti.descrizione_origine
+           WHEN excluded.descrizione != '' THEN NULL
+           ELSE prodotti.descrizione_origine
+         END,
+         descrizione = CASE
+           WHEN prodotti.descrizione_origine IN ('preferito', 'storico') AND TRIM(COALESCE(prodotti.descrizione, '')) != ''
+             THEN prodotti.descrizione
+           WHEN excluded.descrizione != '' THEN excluded.descrizione
+           ELSE prodotti.descrizione
+         END,
          metadata_json = excluded.metadata_json,
          fonte = excluded.fonte,
          ultimo_controllo = datetime('now'),
