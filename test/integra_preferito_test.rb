@@ -33,6 +33,24 @@ Dir.mktmpdir("integra-preferito-test") do |directory|
     fav, = DataManager.integra_preferito({ "description" => "la sfoglia", "yukaLink" => link, "gtin" => gtin })
     _, mod, = DataManager.integra_preferito(fav)
     raise "seconda integrazione non idempotente" unless mod.empty?
+
+    # 5) duplicati: stesso GTIN, stesso link, stesso nome normalizzato; i diversi restano fuori
+    dup = DataManager.duplicati_preferiti([
+      { "description" => "Muesli", "gtin" => gtin }, { "description" => "Muesli COOP", "gtin" => gtin },
+      { "description" => "Pane", "yukaLink" => link }, { "description" => "pane!!" },
+      { "description" => "Latte" }
+    ])
+    raise "duplicati errati: #{dup.inspect}" unless dup.sort == [["Muesli", "Muesli COOP"], ["Pane", "pane!!"]].sort
+
+    # 6) salvataggio backup: l'integrazione già fatta non si perde se l'app manda il preferito senza codici
+    salvato = { "favorites" => [{ "id" => "a", "description" => "la sfoglia", "gtin" => gtin, "yukaLink" => link }] }
+    in_arrivo = { "favorites" => [{ "id" => "a", "description" => "la sfoglia" }, { "id" => "b", "description" => "brisee stesa 230g" }] }
+    nuovo, n = DataManager.integra_backup_preferiti(in_arrivo, salvato)
+    raise "gtin/link persi nel backup" unless nuovo["favorites"][0]["gtin"] == gtin && nuovo["favorites"][0]["yukaLink"] == link
+    raise "nuovo preferito non integrato" unless nuovo["favorites"][1]["gtin"] == gtin
+    raise "conteggio integrati errato (#{n})" unless n == 2
+    nuovo, = DataManager.integra_backup_preferiti({ "favorites" => [{ "id" => "b", "description" => "brisee stesa 230g" }] }, salvato)
+    raise "un preferito cancellato dall'app deve sparire" unless nuovo["favorites"].map { |f| f["id"] } == ["b"]
     puts "integra_preferito_test OK"
   end
 end

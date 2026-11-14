@@ -815,6 +815,56 @@ class DataManager
     [fav, modifiche, simili]
   end
 
+  # Gruppi di preferiti che sembrano lo stesso prodotto: stesso GTIN, stesso link Yuka o stesso nome normalizzato.
+  # Ritorna array di array di descrizioni (solo gruppi con almeno 2 preferiti).
+  def self.duplicati_preferiti(favorites)
+    favs = Array(favorites)
+    padre = (0...favs.size).to_a
+    trova = ->(i) { padre[i] == i ? i : (padre[i] = trova.call(padre[i])) }
+    [
+      ->(f) { normalizza_gtin(f["gtin"]) },
+      ->(f) { l = f["yukaLink"].to_s.strip; link_yuka?(l) ? l : nil },
+      ->(f) { n = normalizza_alias(f["description"]); n.length >= 3 ? n : nil }
+    ].each do |chiave|
+      visti = {}
+      favs.each_with_index do |f, i|
+        k = chiave.call(f)
+        next unless k
+        if visti[k]
+          padre[trova.call(i)] = trova.call(visti[k])
+        else
+          visti[k] = i
+        end
+      end
+    end
+    (0...favs.size).group_by { |i| trova.call(i) }.values.select { |g| g.size > 1 }
+                   .map { |g| g.map { |i| favs[i]["description"].to_s } }
+  end
+
+  # Salvataggio del backup dall'app: la lista in arrivo è la verità (aggiunte, modifiche, cancellazioni),
+  # ma i campi vuoti vengono completati da ciò che il server già aveva per lo stesso preferito (stesso id),
+  # poi si integra con GTIN/link noti. Così "Backup" non cancella mai un'integrazione già fatta.
+  # Ritorna [backup, numero_di_preferiti_completati].
+  def self.integra_backup_preferiti(in_arrivo, salvato)
+    precedenti = Array(salvato && salvato["favorites"]).to_h { |f| [f["id"], f] }
+    completati = 0
+    favoriti = Array(in_arrivo["favorites"]).map do |fav|
+      prima = precedenti[fav["id"]]
+      fav = fav.dup
+      cambiato = false
+      %w[gtin yukaLink].each do |campo|
+        if fav[campo].to_s.strip.empty? && prima && !prima[campo].to_s.strip.empty?
+          fav[campo] = prima[campo]
+          cambiato = true
+        end
+      end
+      fav, modifiche, = integra_preferito(fav)
+      completati += 1 if cambiato || !modifiche.empty?
+      fav
+    end
+    [in_arrivo.merge("favorites" => favoriti), completati]
+  end
+
   def self.scheda_prodotto(gtin)
     gtin = normalizza_gtin(gtin)
     return nil unless gtin

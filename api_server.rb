@@ -691,18 +691,24 @@ put '/utente/config/preferiti' do
   halt 400, { error: 'backup preferiti non valido' }.to_json unless backup.is_a?(Hash) && backup['kind'] == 'favorites-backup' && backup['schemaVersion'].to_i == 1 && backup['favorites'].is_a?(Array)
   halt 403, { error: 'backup non associato all utente' }.to_json unless backup['userId'].to_i == user_id
 
-  payload = JSON.generate(backup)
   existing = DB.get_first_row(
-    "SELECT id FROM items WHERE gruppo_id = 0 AND topic_id = 0 AND creato_da = ? AND nome = ? ORDER BY id DESC LIMIT 1",
+    "SELECT id, link_url FROM items WHERE gruppo_id = 0 AND topic_id = 0 AND creato_da = ? AND nome = ? ORDER BY id DESC LIMIT 1",
     [user_id, CONFIG_PREFERITI_NOME]
   )
+  salvato = begin
+    existing && JSON.parse(existing['link_url'].to_s)
+  rescue JSON::ParserError
+    nil
+  end
+  backup, integrati = DataManager.integra_backup_preferiti(backup, salvato)
+  payload = JSON.generate(backup)
   if existing
     DB.execute("UPDATE items SET link_url = ?, deleted = 0, comprato = '', disponibile = 1 WHERE id = ?", [payload, existing['id']])
   else
     DB.execute("INSERT INTO items (gruppo_id, topic_id, creato_da, nome, link_url) VALUES (0, 0, ?, ?, ?)", [user_id, CONFIG_PREFERITI_NOME, payload])
   end
 
-  { ok: true, last_backup_at: backup['lastBackupAt'] }.to_json
+  { ok: true, last_backup_at: backup['lastBackupAt'], integrati: integrati }.to_json
 end
 
 post '/lista' do

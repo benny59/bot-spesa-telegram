@@ -14,7 +14,8 @@
 #    (normalizzato) alla descrizione/alias di un solo prodotto. I nomi solo "simili" vengono segnalati, mai applicati.
 #  - link Yuka mancante: si prende da item/storico con lo stesso GTIN.
 #  - il nome del preferito diventa la descrizione del prodotto (priorità massima, vedi imposta_descrizione).
-#  - il messaggio Telegram parte solo con --notifica insieme a --apply, solo a chi ha subito modifiche.
+#  - il messaggio Telegram parte solo con --notifica insieme a --apply, solo a chi ha subito modifiche o ha duplicati;
+#    elenca anche i preferiti duplicati (stesso GTIN, link Yuka o nome).
 
 require "json"
 require "time"
@@ -54,7 +55,8 @@ begin
         nuovo
       end
 
-      riepilogo << { utente: riga["creato_da"], totale: nuovi.size, cambiati: cambiati, ultimo_backup: backup["lastBackupAt"] }
+      riepilogo << { utente: riga["creato_da"], totale: nuovi.size, cambiati: cambiati, ultimo_backup: backup["lastBackupAt"],
+                     duplicati: DataManager.duplicati_preferiti(nuovi) }
       next if cambiati.empty?
 
       backup["favorites"] = nuovi
@@ -72,6 +74,7 @@ puts "Backup preferiti trovati: #{righe.size}"
 riepilogo.each do |r|
   puts "\nUtente #{r[:utente]}: #{r[:totale]} preferiti, #{r[:cambiati].size} integrati (ultimo backup #{r[:ultimo_backup]})"
   r[:cambiati].each { |nome, mod| puts "  + #{nome}: #{mod.join(', ')}" }
+  r[:duplicati].each { |g| puts "  = duplicati: #{g.join(' / ')}" }
 end
 unless simili_tot.empty?
   puts "\nNomi SOLO simili (non applicati, da decidere a mano):"
@@ -81,11 +84,19 @@ end
 if notifica
   require "telegram/bot"
   client = Telegram::Bot::Client.new(telegram_token)
-  riepilogo.reject { |r| r[:cambiati].empty? }.each do |r|
-    testo = "🔄 Ho integrato #{r[:cambiati].size} dei tuoi preferiti (codice a barre / link Yuka).\n" \
-            "Per caricarli apri l'app → Preferiti → Ripristina.\n" \
-            "⚠️ Il ripristino sostituisce i preferiti del telefono: se dopo il backup del #{r[:ultimo_backup].to_s[0, 10]} " \
-            "ne hai aggiunti di nuovi, non ripristinare e avvisami."
+  riepilogo.reject { |r| r[:cambiati].empty? && r[:duplicati].empty? }.each do |r|
+    testo = +""
+    unless r[:cambiati].empty?
+      testo << "🔄 Ho integrato #{r[:cambiati].size} dei tuoi preferiti (codice a barre / link Yuka).\n" \
+               "Per caricarli apri l'app → Preferiti → Ripristina.\n" \
+               "⚠️ Il ripristino sostituisce i preferiti del telefono: se dopo il backup del #{r[:ultimo_backup].to_s[0, 10]} " \
+               "ne hai aggiunti di nuovi, non ripristinare e avvisami.\n"
+    end
+    unless r[:duplicati].empty?
+      testo << "\n👯 Possibili duplicati tra i tuoi preferiti (stesso prodotto):\n"
+      r[:duplicati].each { |g| testo << "• #{g.join(' / ')}\n" }
+      testo << "Tieni quello che preferisci ed elimina gli altri."
+    end
     begin
       client.api.send_message(chat_id: r[:utente], text: testo)
       puts "Messaggio inviato a #{r[:utente]}"
