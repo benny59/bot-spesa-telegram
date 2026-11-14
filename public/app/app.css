@@ -27,6 +27,7 @@ button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 .muted { color: var(--muted); font-size: .85em; }
 .center { text-align: center; }
+#carta-codice { white-space: pre-line; }
 .grow { flex: 1; min-width: 0; }
 .error { color: #C62828; }
 

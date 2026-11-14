@@ -967,8 +967,9 @@ object ApiClient {
         return Pair(codice, formato)
     }
 
-    fun creaCarta(userId: Int, nome: String, codice: String): Boolean {
-        val payload = mapOf("user_id" to userId, "nome" to nome, "codice" to codice)
+    fun creaCarta(userId: Int, nome: String, codice: String, formato: String? = null): Boolean {
+        val payload = mutableMapOf<String, Any>("user_id" to userId, "nome" to nome, "codice" to codice)
+        if (!formato.isNullOrBlank()) payload["formato"] = formato
         val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
         return http.newCall(Request.Builder().url("$baseUrl/carte").post(body).auth().build())
             .execute().use { it.isSuccessful }

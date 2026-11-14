@@ -30,7 +30,7 @@ class BarcodeActivity : AppCompatActivity() {
         val formato = intent.getStringExtra(EXTRA_FORMATO) ?: "qrcode"
 
         findViewById<TextView>(R.id.tvNomeCarta).text = nome
-        findViewById<TextView>(R.id.tvCodiceCarta).text = codice
+        findViewById<TextView>(R.id.tvCodiceCarta).text = "🔢 $codice\n📐 $formato"
 
         generaBarcode(codice, formato)?.let {
             findViewById<ImageView>(R.id.imgBarcode).setImageBitmap(it)

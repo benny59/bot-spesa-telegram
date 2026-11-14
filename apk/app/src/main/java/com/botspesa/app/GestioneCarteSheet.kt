@@ -42,13 +42,23 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
     // Bytes dell'immagine corrente per la scansione server (usati solo nel dialog, poi scartati)
     private var scanBytes: ByteArray? = null
     private var onImagePicked: ((android.net.Uri, String?) -> Unit)? = null
+    // Formato rilevato dallo scanner (ZXing locale, server o fotocamera): null se il codice è scritto a mano
+    private var formatoLocale: String? = null
+    private var onCameraScan: ((String, String?) -> Unit)? = null
+
+    private val cameraScan = registerForActivityResult(com.journeyapps.barcodescanner.ScanContract()) { result ->
+        val testo = result.contents ?: return@registerForActivityResult
+        onCameraScan?.invoke(testo, result.formatName)
+    }
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@registerForActivityResult
         var codiceRilevato: String? = null
         val bytes = requireContext().contentResolver.openInputStream(uri)?.use { stream ->
             val bmp = BitmapFactory.decodeStream(stream) ?: return@use null
-            codiceRilevato = tryDecodeBarcode(bmp)
+            val r = tryDecodeBarcode(bmp)
+            codiceRilevato = r?.text
+            formatoLocale = r?.barcodeFormat?.name
             val scaled = if (bmp.width > 1200)
                 Bitmap.createScaledBitmap(bmp, 1200, 1200 * bmp.height / bmp.width, true)
             else bmp
@@ -58,12 +68,12 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
         onImagePicked?.invoke(uri, codiceRilevato)
     }
 
-    private fun tryDecodeBarcode(bmp: Bitmap): String? {
+    private fun tryDecodeBarcode(bmp: Bitmap): com.google.zxing.Result? {
         val pixels = IntArray(bmp.width * bmp.height)
         bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
         val source = RGBLuminanceSource(bmp.width, bmp.height, pixels)
         val binary = BinaryBitmap(HybridBinarizer(source))
-        return runCatching { MultiFormatReader().decode(binary)?.text }.getOrNull()
+        return runCatching { MultiFormatReader().decode(binary) }.getOrNull()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
@@ -183,6 +193,7 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
 
     private fun mostraDialogAggiunta() {
         scanBytes = null
+        formatoLocale = null
         val dp = resources.displayMetrics.density
 
         val layout = android.widget.LinearLayout(requireContext()).apply {
@@ -194,12 +205,42 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
             hint = "Codice (numerico o alfanumerico)"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
+        // una modifica a mano rende il formato rilevato inattendibile: lo decide il server
+        var impostando = false
+        etCodice.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { if (!impostando) formatoLocale = null }
+        })
+        fun impostaCodice(testo: String, formato: String?) {
+            impostando = true
+            etCodice.setText(testo)
+            impostando = false
+            formatoLocale = formato
+        }
+        val btnCamera = Button(requireContext()).apply {
+            text = "📷 Scansiona con la fotocamera"
+            setOnClickListener {
+                onCameraScan = { testo, formato ->
+                    impostaCodice(testo, formato)
+                    etCodice.hint = "Codice rilevato automaticamente"
+                }
+                cameraScan.launch(
+                    com.journeyapps.barcodescanner.ScanOptions()
+                        .setPrompt("Inquadra il codice della carta")
+                        .setCaptureActivity(ProductScanActivity::class.java)
+                        .setBeepEnabled(false)
+                        .setOrientationLocked(true)
+                )
+            }
+        }
         val btnFoto = Button(requireContext()).apply {
-            text = "📷 Scansiona codice da immagine"
+            text = "🖼️ Scansiona codice da immagine"
             setOnClickListener {
                 onImagePicked = { _, codiceLocale ->
+                    val formatoZxing = formatoLocale
                     if (!codiceLocale.isNullOrEmpty()) {
-                        etCodice.setText(codiceLocale)
+                        impostaCodice(codiceLocale, formatoZxing)
                         etCodice.hint = "Verifica in corso..."
                     } else {
                         etCodice.hint = "Scansione server in corso..."
@@ -211,7 +252,7 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
                         scanBytes = null  // scarta bytes dopo l'uso
                         when {
                             res != null -> {
-                                etCodice.setText(res.first)
+                                impostaCodice(res.first, res.second)
                                 etCodice.hint = "Codice rilevato automaticamente"
                             }
                             codiceLocale.isNullOrEmpty() -> {
@@ -229,6 +270,7 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
         }
         layout.addView(etNome)
         layout.addView(etCodice)
+        layout.addView(btnCamera)
         layout.addView(btnFoto)
 
         AlertDialog.Builder(requireContext())
@@ -247,7 +289,7 @@ class GestioneCarteSheet : BottomSheetDialogFragment() {
                         dlg.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
                         lifecycleScope.launch {
                             val ok = withContext(Dispatchers.IO) {
-                                runCatching { ApiClient.creaCarta(userId, nome, codice) }
+                                runCatching { ApiClient.creaCarta(userId, nome, codice, formatoLocale) }
                                     .getOrDefault(false)
                             }
                             if (ok) { dlg.dismiss(); caricaCarte() }

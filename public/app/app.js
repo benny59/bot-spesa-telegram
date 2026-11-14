@@ -1221,7 +1221,7 @@ async function openCartaDialog(carta) {
   $('#dlg-carte').close();
   resetCartaPreview();
   $('#carta-nome').textContent = carta.nome;
-  $('#carta-codice').textContent = carta.codice || '';
+  $('#carta-codice').textContent = (carta.codice || '') + (carta.formato ? `\n${carta.formato}` : '');
   $('#carta-loading').hidden = false;
   $('#dlg-carta').showModal();
   keepAwake(true);
