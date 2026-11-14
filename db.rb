@@ -666,6 +666,35 @@ class DataManager
     :nuovo
   end
 
+  # ---- Helper condivisi da server e script di manutenzione ----
+
+  def self.link_yuka?(valore)
+    valore.to_s.match?(%r{\Ahttps://app\.yuka\.io/}i)
+  end
+
+  def self.token_telegram_attivo
+    env = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") || "production"
+    chiave = env == "production" ? "token" : "token_dev"
+    DB.get_first_value("SELECT value FROM config WHERE key = ?", [chiave]) || ENV["TELEGRAM_BOT_TOKEN"]
+  end
+
+  def self.user_agent_openfood
+    DB.get_first_value("SELECT value FROM config WHERE key = 'open_food_facts_user_agent'").to_s.strip
+  end
+
+  class Simulazione < StandardError; end
+
+  # Esegue il blocco in transazione; con applica: false annulla tutto (dry-run) e ritorna nil.
+  def self.transazione(applica:)
+    DB.transaction do
+      risultato = yield
+      raise Simulazione unless applica
+      risultato
+    end
+  rescue Simulazione
+    nil
+  end
+
   # Priorità del nome di un prodotto: preferiti > storico > scontrino (o nome di origine ignota/Open Food Facts).
   DESCRIZIONE_PRIORITA = { "preferito" => 3, "storico" => 2, "scontrino" => 1 }.freeze
 
@@ -682,15 +711,13 @@ class DataManager
     return false unless riga
 
     attuale = riga["descrizione"].to_s.strip
-    if attuale.empty?
-      DB.execute("UPDATE prodotti SET descrizione = ?, descrizione_origine = ? WHERE gtin = ?", [testo, origine.to_s, gtin])
-      return true
+    unless attuale.empty?
+      return false if normalizza_alias(attuale) == normalizza_alias(testo)
+      return false unless nuova > (DESCRIZIONE_PRIORITA[riga["descrizione_origine"].to_s] || 1)
     end
-    return false if normalizza_alias(attuale) == normalizza_alias(testo)
-    return false unless nuova > (DESCRIZIONE_PRIORITA[riga["descrizione_origine"].to_s] || 1)
 
     DB.execute("UPDATE prodotti SET descrizione = ?, descrizione_origine = ? WHERE gtin = ?", [testo, origine.to_s, gtin])
-    registra_alias_prodotto(gtin, attuale, fonte: "descrizione_precedente")
+    registra_alias_prodotto(gtin, attuale, fonte: "descrizione_precedente") unless attuale.empty?
     true
   end
 
@@ -728,10 +755,6 @@ class DataManager
 
   # ---- Integrazione dei preferiti con le conoscenze del server (GTIN, link Yuka) ----
 
-  def self.link_yuka?(valore)
-    valore.to_s.match?(%r{\Ahttps://app\.yuka\.io/}i)
-  end
-
   # GTIN noto per un link Yuka (item o storico che portano lo stesso link). Match sicuro.
   def self.gtin_da_link_yuka(link)
     link = link.to_s.strip
@@ -766,7 +789,10 @@ class DataManager
     chiave = normalizza_alias(nome)
     return nil if chiave.length < 3
 
-    gtins = DB.execute("SELECT gtin, descrizione FROM prodotti").select { |r| normalizza_alias(r["descrizione"]) == chiave }.map { |r| r["gtin"] }
+    # Le descrizioni scelte da un preferito non contano: sarebbe circolare (un altro preferito con lo stesso nome
+    # ma un altro link Yuka si aggancerebbe al prodotto del primo).
+    gtins = DB.execute("SELECT gtin, descrizione FROM prodotti WHERE COALESCE(descrizione_origine, '') != 'preferito'")
+              .select { |r| normalizza_alias(r["descrizione"]) == chiave }.map { |r| r["gtin"] }
     gtins += DB.execute("SELECT DISTINCT gtin FROM prodotto_alias WHERE alias = ?", [chiave]).map { |r| r["gtin"] }
     gtins.uniq.size == 1 ? gtins.first : nil
   end
@@ -782,6 +808,36 @@ class DataManager
     end.first(limite).map { |r| [r["gtin"], r["descrizione"]] }
   end
 
+  # GTIN il cui nome OpenFood coincide ESATTAMENTE (normalizzato) con `nome`, solo se è uno solo nel catalogo.
+  # Ritorna [gtin, marca] o nil (nessuno, oppure ambiguo: stesso nome OpenFood su più prodotti).
+  def self.gtin_da_nome_openfood(nome)
+    chiave = normalizza_alias(nome)
+    return nil if chiave.length < 3
+
+    trovati = DB.execute("SELECT gtin, metadata_json FROM prodotti WHERE metadata_json IS NOT NULL AND metadata_json != ''").filter_map do |r|
+      meta = JSON.parse(r["metadata_json"])
+      [r["gtin"], meta["brand"].to_s] if meta["found"] && normalizza_alias(meta["name"]) == chiave
+    rescue JSON::ParserError
+      nil
+    end
+    trovati.size == 1 ? trovati.first : nil
+  end
+
+  # GTIN di un preferito SPECIFICO (ha un link Yuka) e il motivo, oppure nil. Un preferito generico (senza link)
+  # resta generico: un nome uguale non basta a farlo diventare un prodotto preciso.
+  # Ordine: stesso link Yuka già noto, nome identico a un prodotto/alias, nome OpenFood identico (sempre univoci).
+  def self.gtin_per_preferito(link, nome)
+    return nil unless link_yuka?(link)
+
+    if (gtin = gtin_da_link_yuka(link))
+      [gtin, "GTIN da link Yuka"]
+    elsif (gtin = gtin_da_nome_esatto(nome))
+      [gtin, "GTIN da nome identico"]
+    elsif (gtin, marca = gtin_da_nome_openfood(nome))
+      [gtin, "GTIN da nome OpenFood identico (#{gtin}#{marca.to_s.empty? ? '' : ' ' + marca})"]
+    end
+  end
+
   # Integra UN preferito (Hash del backup). Non cambia mai nome, categoria o foto: completa solo i campi vuoti.
   # Ritorna [preferito_integrato, modifiche, simili] dove modifiche = ["gtin da link", "link Yuka", ...].
   def self.integra_preferito(fav, applica: true)
@@ -789,16 +845,10 @@ class DataManager
     modifiche = []
     gtin = normalizza_gtin(fav["gtin"])
 
-    if gtin.nil?
-      trovato = gtin_da_link_yuka(fav["yukaLink"])
-      if trovato
-        gtin = trovato
-        modifiche << "GTIN da link Yuka"
-      elsif (trovato = gtin_da_nome_esatto(fav["description"]))
-        gtin = trovato
-        modifiche << "GTIN da nome identico"
-      end
-      fav["gtin"] = gtin if gtin
+    if gtin.nil? && (trovato = gtin_per_preferito(fav["yukaLink"], fav["description"]))
+      gtin, motivo = trovato
+      fav["gtin"] = gtin
+      modifiche << motivo
     end
 
     simili = gtin ? [] : gtin_simili_al_nome(fav["description"])

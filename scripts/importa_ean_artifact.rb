@@ -5,6 +5,8 @@
 #
 #   SPESA_DB=/percorso/copia.db ruby scripts/importa_ean_artifact.rb export.json           # dry-run (default)
 #   SPESA_DB=/percorso/copia.db ruby scripts/importa_ean_artifact.rb export.json --apply   # scrive
+#   ... --apply --openfood   # in più scarica da Open Food Facts la scheda dei codici che ne sono privi
+#                            # (una richiesta al secondo, esce solo il codice a barre)
 #
 # Input: il file "basket-index-AAAA-MM-GG.json" della Copia di sicurezza dell'artifact
 # (documenti kind:"product" con ean, names, store, brand/product/size, nut).
@@ -23,6 +25,8 @@
 require "json"
 
 apply = ARGV.delete("--apply")
+openfood = ARGV.delete("--openfood")
+abort "--openfood richiede --apply" if openfood && !apply
 file = ARGV.first
 abort "Uso: SPESA_DB=copia.db ruby #{$PROGRAM_NAME} export.json [--apply]" unless file && File.file?(file)
 
@@ -66,12 +70,9 @@ def scheda_da_etichetta(gtin, doc, descrizione)
   }.compact
 end
 
-class DryRun < StandardError; end
-
 conta = Hash.new(0)
 incoerenti = []
-begin
-DB.transaction do
+DataManager.transazione(applica: apply) do
   per_ean.each do |gtin, docs|
     esiste = DB.get_first_row("SELECT descrizione, metadata_json FROM prodotti WHERE gtin = ?", [gtin])
     descr = docs.map { |d| descrizione_etichetta(d) }.find { |x| !x.empty? } ||
@@ -106,10 +107,6 @@ DB.transaction do
       end
     end
   end
-  raise DryRun unless apply   # annulla la transazione
-end
-rescue DryRun
-  nil
 end
 
 puts "\n===== #{apply ? 'APPLICATO' : 'DRY-RUN (nessuna scrittura)'} su #{DB_PATH} ====="
@@ -119,3 +116,35 @@ puts "EAN con cifra di controllo errata: #{invalidi.size}#{invalidi.empty? ? '' 
 puts "EAN con etichette incoerenti:   #{incoerenti.size}#{incoerenti.empty? ? '' : ' -> ' + incoerenti.join(', ')}"
 conta.each { |k, v| puts format("%-24s %d", k.to_s.tr("_", " "), v) }
 puts "Per scrivere davvero: aggiungi --apply (fai prima una copia del DB)." unless apply
+
+if openfood
+  require File.expand_path("../models/open_food_facts_client", __dir__)
+  user_agent = DataManager.user_agent_openfood
+  abort "open_food_facts_user_agent non configurato" if user_agent.empty?
+
+  # Da scaricare: nessuna scheda, scheda senza nome, o scheda minima ricavata dall'etichetta dell'artifact.
+  def scheda_da_scaricare?(gtin)
+    meta = JSON.parse(DB.get_first_value("SELECT metadata_json FROM prodotti WHERE gtin = ?", [gtin]).to_s)
+    meta["name"].to_s.strip.empty? || !meta["source_note"].nil?
+  rescue JSON::ParserError
+    true
+  end
+
+  da_scaricare = per_ean.keys.select { |gtin| scheda_da_scaricare?(gtin) }
+  puts "\nOpen Food Facts: #{da_scaricare.size} codici da scaricare"
+  trovati = 0
+  da_scaricare.each do |gtin|
+    prodotto = OpenFoodFactsClient.lookup(gtin, user_agent: user_agent)
+    if prodotto
+      prima = DB.get_first_value("SELECT descrizione FROM prodotti WHERE gtin = ?", [gtin])
+      DataManager.salva_scheda_prodotto(prodotto)
+      DataManager.registra_alias_prodotto(gtin, prima, fonte: "descrizione_precedente")   # il nome sostituito non si perde
+      trovati += 1
+      puts "  + #{gtin} #{prodotto[:name]} (#{prodotto[:brand]})"
+    else
+      puts "  - #{gtin} non trovato"
+    end
+    sleep 1
+  end
+  puts "Schede scaricate: #{trovati} su #{da_scaricare.size}"
+end

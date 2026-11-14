@@ -26,19 +26,11 @@ abort "--notifica richiede --apply" if notifica && !apply
 
 require File.expand_path("../db", __dir__)
 
-class DryRun < StandardError; end
-
-def telegram_token
-  env = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") || "production"
-  DB.get_first_value("SELECT value FROM config WHERE key = ?", [env == "production" ? "token" : "token_dev"]) || ENV["TELEGRAM_BOT_TOKEN"]
-end
-
 righe = DB.execute("SELECT id, creato_da, link_url FROM items WHERE nome = ? AND deleted = 0 ORDER BY id", [DataManager::CONFIG_PREFERITI_NOME])
 riepilogo = []
 simili_tot = []
 
-begin
-  DB.transaction do
+DataManager.transazione(applica: apply) do
     righe.each do |riga|
       backup = begin
         JSON.parse(riga["link_url"].to_s)
@@ -63,10 +55,6 @@ begin
       backup["integratoIl"] = Time.now.utc.iso8601
       DB.execute("UPDATE items SET link_url = ? WHERE id = ?", [JSON.generate(backup), riga["id"]])
     end
-    raise DryRun unless apply
-  end
-rescue DryRun
-  nil
 end
 
 puts "\n===== #{apply ? 'APPLICATO' : 'DRY-RUN (nessuna scrittura)'} su #{DB_PATH} ====="
@@ -83,7 +71,7 @@ end
 
 if notifica
   require "telegram/bot"
-  client = Telegram::Bot::Client.new(telegram_token)
+  client = Telegram::Bot::Client.new(DataManager.token_telegram_attivo)
   riepilogo.reject { |r| r[:cambiati].empty? && r[:duplicati].empty? }.each do |r|
     testo = +""
     unless r[:cambiati].empty?

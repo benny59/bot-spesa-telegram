@@ -23,8 +23,10 @@ Dir.mktmpdir("integra-preferito-test") do |directory|
     raise "link Yuka non ricavato dal gtin" unless fav["yukaLink"] == link && mod == ["link Yuka"]
 
     # 3) nome identico a un alias -> gtin; nome solo simile -> NON applicato ma segnalato
-    fav, mod, = DataManager.integra_preferito({ "description" => "brisee stesa 230g" })
+    fav, mod, = DataManager.integra_preferito({ "description" => "brisee stesa 230g", "yukaLink" => "https://app.yuka.io/altro" })
     raise "gtin da nome identico non ricavato" unless fav["gtin"] == gtin
+    fav, = DataManager.integra_preferito({ "description" => "brisee stesa 230g" })
+    raise "un preferito generico (senza link) non deve essere abbinato per nome" if fav["gtin"]
     fav, mod, simili = DataManager.integra_preferito({ "description" => "brisee" })
     raise "nome simile applicato in automatico" if fav["gtin"] || !mod.empty?
     raise "nome simile non segnalato" unless simili.map(&:first) == [gtin]
@@ -46,12 +48,13 @@ Dir.mktmpdir("integra-preferito-test") do |directory|
 
     # 6) salvataggio backup: l'integrazione già fatta non si perde se l'app manda il preferito senza codici
     salvato = { "favorites" => [{ "id" => "a", "description" => "la sfoglia", "gtin" => gtin, "yukaLink" => link }] }
-    in_arrivo = { "favorites" => [{ "id" => "a", "description" => "la sfoglia" }, { "id" => "b", "description" => "brisee stesa 230g" }] }
+    in_arrivo = { "favorites" => [{ "id" => "a", "description" => "la sfoglia" }, { "id" => "b", "description" => "brisee stesa 230g", "yukaLink" => "https://app.yuka.io/z" }, { "id" => "g", "description" => "brisee stesa 230g" }] }
     nuovo, n = DataManager.integra_backup_preferiti(in_arrivo, salvato)
     raise "gtin/link persi nel backup" unless nuovo["favorites"][0]["gtin"] == gtin && nuovo["favorites"][0]["yukaLink"] == link
-    raise "nuovo preferito non integrato" unless nuovo["favorites"][1]["gtin"] == gtin
+    raise "nuovo preferito specifico non integrato" unless nuovo["favorites"][1]["gtin"] == gtin
+    raise "il preferito generico non deve ricevere il gtin" if nuovo["favorites"][2]["gtin"]
     raise "conteggio integrati errato (#{n})" unless n == 2
-    nuovo, = DataManager.integra_backup_preferiti({ "favorites" => [{ "id" => "b", "description" => "brisee stesa 230g" }] }, salvato)
+    nuovo, = DataManager.integra_backup_preferiti({ "favorites" => [{ "id" => "b", "description" => "brisee stesa 230g", "yukaLink" => "https://app.yuka.io/z" }] }, salvato)
     raise "un preferito cancellato dall'app deve sparire" unless nuovo["favorites"].map { |f| f["id"] } == ["b"]
 
     # 7) stesso nome ma prodotti diversi (GTIN o link in conflitto) NON sono duplicati; un generico sì col suo specifico
@@ -64,6 +67,17 @@ Dir.mktmpdir("integra-preferito-test") do |directory|
     raise "prodotti diversi segnalati come duplicati: #{diversi.inspect}" unless diversi.empty?
     generico = DataManager.duplicati_preferiti([{ "description" => "Yogurt greco" }, { "description" => "yogurt greco", "gtin" => "8076809513722" }])
     raise "generico e specifico dovrebbero essere duplicati" unless generico == [["yogurt greco", "Yogurt greco"]]
+
+    # 8) nome OpenFood identico: solo per preferiti con link Yuka, solo se unico nel catalogo
+    meraki = "8023788050977"
+    DataManager.salva_scheda_prodotto({ found: true, barcode: meraki, name: "Yogurt alla Greca Bianco", brand: "Meraki" })
+    fav, mod, = DataManager.integra_preferito({ "description" => "Yogurt alla greca bianco", "yukaLink" => "https://app.yuka.io/9C9O13Q" })
+    raise "gtin da nome OpenFood non assegnato: #{mod.inspect}" unless fav["gtin"] == meraki && mod.first.include?("Meraki")
+    fav, = DataManager.integra_preferito({ "description" => "Yogurt alla greca bianco" })
+    raise "un preferito generico (senza link) non deve diventare un prodotto preciso" if fav["gtin"]
+    DataManager.salva_scheda_prodotto({ found: true, barcode: "8000500310427", name: "Yogurt alla Greca Bianco", brand: "Altra" })
+    fav, = DataManager.integra_preferito({ "description" => "Yogurt alla greca bianco", "yukaLink" => "https://app.yuka.io/9C9O13Q" })
+    raise "stesso nome OpenFood su due prodotti: ambiguo, non assegnare" if fav["gtin"]
     puts "integra_preferito_test OK"
   end
 end

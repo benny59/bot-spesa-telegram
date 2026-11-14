@@ -43,6 +43,13 @@ Dir.mktmpdir("prodotto-alias-test") do |directory|
     DB.execute("UPDATE prodotti SET descrizione = 'LATTE PS', descrizione_origine = 'scontrino' WHERE gtin = '8000300155877'")
     raise "riallineo da preferito fallito" unless DataManager.riallinea_descrizione("8000300155877") == "preferito"
     raise "nome preferito non applicato" unless DB.get_first_value("SELECT descrizione FROM prodotti WHERE gtin = '8000300155877'") == "Latte del mattino"
+
+    # transazione: con applica false annulla, con true conferma
+    nuovo = "5900020043481"
+    DataManager.transazione(applica: false) { DataManager.upsert_prodotto(nuovo, "x") }
+    raise "dry-run ha scritto" if DB.get_first_value("SELECT COUNT(*) FROM prodotti WHERE gtin = ?", [nuovo]).to_i.positive?
+    DataManager.transazione(applica: true) { DataManager.upsert_prodotto(nuovo, "x") }
+    raise "apply non ha scritto" unless DB.get_first_value("SELECT COUNT(*) FROM prodotti WHERE gtin = ?", [nuovo]).to_i == 1
     puts "prodotto_alias_test OK"
   end
 end

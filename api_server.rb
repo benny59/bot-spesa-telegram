@@ -23,11 +23,7 @@ require_relative 'models/lista_modello'
 require_relative 'models/promemoria_ics'
 
 # Helper base: invia qualsiasi messaggio a un gruppo/topic Telegram
-def telegram_token_attivo
-  env = DB.get_first_value("SELECT value FROM config WHERE key = 'environment'") || 'production'
-  key = env == 'production' ? 'token' : 'token_dev'
-  DB.get_first_value("SELECT value FROM config WHERE key = ?", [key]) || ENV['TELEGRAM_BOT_TOKEN']
-end
+def telegram_token_attivo = DataManager.token_telegram_attivo
 
 def notifica_gruppo(gruppo_id, topic_id, testo, force: false)
   return if gruppo_id.to_i == 0
@@ -269,9 +265,7 @@ def normalizza_ricerca_prodotto(value)
     .scan(/[[:alnum:]]+/).join(' ')
 end
 
-def link_yuka?(value)
-  value.to_s.match?(%r{\Ahttps://app\.yuka\.io/}i)
-end
+def link_yuka?(value) = DataManager.link_yuka?(value)
 
 def link_yuka_per_gtin(user_id)
   links = {}
@@ -369,10 +363,7 @@ get '/prodotti/:barcode/anteprima' do
   barcode = params[:barcode].to_s
   halt 400, { error: 'barcode non valido' }.to_json unless barcode.match?(/\A\d{8,14}\z/)
 
-  user_agent = DB.get_first_value(
-    "SELECT value FROM config WHERE key = ?",
-    ['open_food_facts_user_agent']
-  ).to_s.strip
+  user_agent = DataManager.user_agent_openfood
   halt 503, { error: 'open_food_facts_user_agent non configurato' }.to_json if user_agent.empty?
 
   cached = DataManager.scheda_prodotto(barcode)
