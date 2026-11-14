@@ -706,12 +706,83 @@ class DataManager
     nil
   end
 
+  # Elenco dei preferiti contenuto nel JSON di un backup (vuoto se il JSON non è valido).
+  def self.preferiti_da_backup(link_url)
+    Array(JSON.parse(link_url.to_s)["favorites"])
+  rescue JSON::ParserError, NoMethodError, TypeError
+    []
+  end
+
   # Tutti i preferiti di tutti gli utenti (Hash del backup), dal backup più recente.
   def self.preferiti_di_tutti
-    DB.execute("SELECT link_url FROM items WHERE nome LIKE ? AND deleted = 0 ORDER BY id DESC", ["#{CONFIG_PREFERITI_PREFISSO}%"]).flat_map do |riga|
-      Array(JSON.parse(riga["link_url"].to_s)["favorites"])
-    rescue JSON::ParserError, NoMethodError, TypeError
-      []
+    DB.execute("SELECT link_url FROM items WHERE nome LIKE ? AND deleted = 0 ORDER BY id DESC", ["#{CONFIG_PREFERITI_PREFISSO}%"])
+      .flat_map { |riga| preferiti_da_backup(riga["link_url"]) }
+  end
+
+  # Preferiti dell'utente (ultimo backup salvato sul server), come elenco di hash del JSON.
+  def self.preferiti_utente(user_id)
+    return [] if user_id.to_i.zero?
+
+    riga = DB.get_first_row(
+      "SELECT link_url FROM items WHERE gruppo_id = 0 AND topic_id = 0 AND creato_da = ? AND (nome = ? OR nome LIKE ?) AND deleted = 0 ORDER BY id DESC LIMIT 1",
+      [user_id, CONFIG_PREFERITI_NOME, "#{CONFIG_PREFERITI_NOME} & %"]
+    )
+    riga ? preferiti_da_backup(riga["link_url"]) : []
+  end
+
+  # Nome e categoria con cui mettere in lista un prodotto, per GTIN ESATTO (nessuna somiglianza). La tabella
+  # prodotti non si tocca: fa da modello. Per ciascun campo vince il preferito dell'utente, poi l'archivio
+  # del gruppo/topic di destinazione. Restituisce { gtin => { nome:, categoria_id:, categoria_nome:, categoria_effimera: } }
+  # solo per i GTIN con almeno una proposta.
+  def self.proposte_per_gtin(gtins, user_id:, gruppo_id:, topic_id: 0)
+    gtins = gtins.filter_map { |g| normalizza_gtin(g) }.uniq
+    return {} if gtins.empty?
+
+    da_preferiti = {}
+    preferiti_utente(user_id).each do |f|
+      gtin = normalizza_gtin(f["gtin"])
+      next unless gtin && gtins.include?(gtin) && !da_preferiti.key?(gtin)
+
+      nome_cat = f["categoryName"].to_s.strip
+      effimera = f["categoryEphemeral"] == true && !nome_cat.empty?
+      id = f["categoryId"].to_i
+      da_preferiti[gtin] = {
+        nome: f["description"].to_s.strip,
+        categoria_id: id.positive? && !effimera ? id : nil,
+        categoria_nome: id.positive? || effimera ? nome_cat : "",
+        categoria_effimera: effimera
+      }
+    end
+
+    da_archivio = {}
+    DB.execute(<<~SQL, [gruppo_id.to_i, topic_id.to_i, *gtins]).each do |riga|
+      SELECT sap.gtin, sa.*
+      FROM storico_articolo_prodotti sap
+      JOIN storico_articoli sa ON sa.id = sap.storico_articolo_id
+      WHERE sa.gruppo_id = ? AND sa.topic_id = ? AND sap.gtin IN (#{gtins.map { '?' }.join(',')})
+      ORDER BY sap.ultimo_acquisto DESC, sap.acquisti_confermati DESC, sap.utilizzi DESC
+    SQL
+      next if da_archivio.key?(riga["gtin"])
+
+      cat = categoria_da_storico(riga, gruppo_id, topic_id)
+      da_archivio[riga["gtin"]] = {
+        nome: cat[:nome],
+        categoria_id: cat[:categoria_id].positive? ? cat[:categoria_id] : nil,
+        categoria_nome: cat[:categoria_nome],
+        categoria_effimera: cat[:effimera]
+      }
+    end
+
+    (da_preferiti.keys | da_archivio.keys).to_h do |gtin|
+      pref = da_preferiti[gtin] || {}
+      arch = da_archivio[gtin] || {}
+      con_categoria = pref[:categoria_nome].to_s.empty? ? arch : pref
+      [gtin, {
+        nome: pref[:nome].to_s.empty? ? arch[:nome].to_s : pref[:nome],
+        categoria_id: con_categoria[:categoria_id],
+        categoria_nome: con_categoria[:categoria_nome].to_s,
+        categoria_effimera: con_categoria[:categoria_effimera] == true
+      }]
     end
   end
 

@@ -267,21 +267,10 @@ def link_yuka?(value) = DataManager.link_yuka?(value)
 def link_yuka_per_gtin(user_id)
   links = {}
 
-  if user_id.to_i != 0
-    config = DB.get_first_row(
-      "SELECT link_url FROM items WHERE gruppo_id = 0 AND topic_id = 0 AND creato_da = ? AND (nome = ? OR nome LIKE ?) AND deleted = 0 ORDER BY id DESC LIMIT 1",
-      [user_id, CONFIG_PREFERITI_NOME, "#{CONFIG_PREFERITI_NOME} & %"]
-    )
-    begin
-      backup = JSON.parse(config['link_url'].to_s)
-      Array(backup['favorites']).each do |favorite|
-        gtin = DataManager.normalizza_gtin(favorite['gtin'])
-        url = favorite['yukaLink'].to_s.strip
-        links[gtin] = { url: url, fonte: 'preferito' } if gtin && link_yuka?(url)
-      end
-    rescue JSON::ParserError, NoMethodError
-      nil
-    end
+  DataManager.preferiti_utente(user_id).each do |favorite|
+    gtin = DataManager.normalizza_gtin(favorite['gtin'])
+    url = favorite['yukaLink'].to_s.strip
+    links[gtin] = { url: url, fonte: 'preferito' } if gtin && link_yuka?(url)
   end
 
   DB.execute("SELECT gtin, link_url FROM items WHERE gtin IS NOT NULL AND TRIM(COALESCE(link_url, '')) != '' ORDER BY id DESC").each do |item|
@@ -349,11 +338,19 @@ get '/prodotti' do
     ).to_h { |item| [item['gtin'], item['id']] }
   end
 
+  # Nome e categoria con cui entrerebbe in lista (preferito dell'utente > archivio del gruppo), per GTIN esatto.
+  proposte = DataManager.proposte_per_gtin(prodotti.map { |p| p['gtin'] }, user_id: user_id, gruppo_id: gruppo_id || 0, topic_id: topic_id)
+
   prodotti.map do |prodotto|
     yuka = yuka_links[prodotto['gtin']]
+    proposta = proposte[prodotto['gtin']] || {}
     {
       gtin: prodotto['gtin'],
       descrizione: prodotto['descrizione'].to_s,
+      nome: proposta[:nome].to_s.empty? ? prodotto['descrizione'].to_s : proposta[:nome],
+      categoria_id: proposta[:categoria_id],
+      categoria_nome: proposta[:categoria_nome].to_s,
+      categoria_effimera: proposta[:categoria_effimera] == true,
       yuka_url: yuka && yuka[:url],
       yuka_source: yuka && yuka[:fonte],
       in_lista: item_in_lista.key?(prodotto['gtin']),

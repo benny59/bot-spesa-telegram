@@ -65,6 +65,28 @@ Dir.mktmpdir("catalogo-prodotti-test") do |directory|
     DB.execute("UPDATE items SET comprato = '42' WHERE id = ?", [brisee_item])
     r = JSON.parse(app.get("/prodotti?query=brisee&user_id=42&gruppo_id=1&topic_id=0").body).first
     raise "un articolo già comprato non deve risultare in lista" unless r["in_lista"] == false && r["item_id"].nil?
+
+    # nome e categoria proposti per GTIN esatto: preferito dell'utente > archivio del gruppo; prodotti non toccata
+    DB.execute("INSERT INTO categorie (id, gruppo_id, topic_id, nome) VALUES (901, 1, 0, 'Latticini'), (902, 1, 0, 'Dispensa')")
+    DB.execute("INSERT INTO storico_articoli (id, gruppo_id, topic_id, nome, last_categoria_id) VALUES (700, 1, 0, 'Pasta sfoglia', 902)")
+    DB.execute("INSERT INTO storico_articolo_prodotti (storico_articolo_id, gtin, utilizzi) VALUES (700, '8000300155877', 1)")
+    prima = DB.get_first_row("SELECT descrizione, metadata_json FROM prodotti WHERE gtin = '8000300155877'")
+    arch = JSON.parse(app.get("/prodotti?query=brisee&user_id=42&gruppo_id=1&topic_id=0").body).first
+    raise "nome dall'archivio mancante (#{arch['nome']})" unless arch["nome"] == "Pasta sfoglia"
+    raise "categoria dall'archivio mancante" unless arch["categoria_id"] == 902 && arch["categoria_nome"] == "Dispensa"
+    raise "descrizione del catalogo alterata" unless arch["descrizione"] == prima["descrizione"]
+    # altro gruppo/topic: l'archivio non vale
+    DB.execute("INSERT INTO gruppi (id, nome, chat_id, creato_da) VALUES (2, 'Altro', -1002, 42)")
+    altro = JSON.parse(app.get("/prodotti?query=brisee&user_id=42&gruppo_id=2&topic_id=0").body).first
+    raise "l'archivio di un altro gruppo non deve valere" unless altro["categoria_id"].nil? && altro["nome"] == prima["descrizione"]
+    # il preferito dell'utente ha la precedenza sull'archivio (per campo)
+    backup2 = { favorites: [{ description: "Sfoglia mia", gtin: "8000300155877", categoryId: 901, categoryName: "Latticini" }] }
+    DB.execute("UPDATE items SET link_url = ? WHERE nome = ? AND creato_da = 42", [JSON.generate(backup2), "#{CONFIG_PREFERITI_NOME} & config"])
+    pref = JSON.parse(app.get("/prodotti?query=brisee&user_id=42&gruppo_id=1&topic_id=0").body).first
+    raise "il preferito deve vincere" unless pref["nome"] == "Sfoglia mia" && pref["categoria_id"] == 901
+    altro_utente = JSON.parse(app.get("/prodotti?query=brisee&user_id=43&gruppo_id=1&topic_id=0").body).first
+    raise "il preferito di un altro utente non vale" unless altro_utente["nome"] == "Pasta sfoglia"
+    raise "prodotti modificata" unless DB.get_first_row("SELECT descrizione, metadata_json FROM prodotti WHERE gtin = '8000300155877'") == prima
   end
 end
 

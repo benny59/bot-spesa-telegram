@@ -1098,9 +1098,10 @@ async function keepAwake(on) {
 // Il GTIN letto viene inviato con l'articolo; il nome è quello di OpenFoodFacts (modificabile).
 
 let addGtin = '';
+let addLink = '';
 
 $('#add-input').addEventListener('input', () => {
-  if (!$('#add-input').value.trim()) addGtin = '';
+  if (!$('#add-input').value.trim()) { addGtin = ''; addLink = ''; }
 });
 
 $('#add-scan').addEventListener('click', async () => {
@@ -1543,12 +1544,14 @@ $('#add-form').addEventListener('submit', async (e) => {
     split_items: true
   }, nome, $('#add-categoria').value);
   if (addGtin) body.gtin = addGtin;
+  if (addLink) body.link_url = addLink;
 
   input.disabled = true;
   try {
     await api('/lista', { method: 'POST', body });
     input.value = '';
     addGtin = '';
+    addLink = '';
     $('#add-categoria').value = '';
     await refreshLista();
   } catch (err) {
@@ -1656,9 +1659,10 @@ async function fetchHelperRows(tab) {
     return {
       rows: prodotti.map((p) => ({
         key: `k${p.gtin}`,
-        nome: p.descrizione,
-        label: p.descrizione,
-        meta: [p.gtin, p.yuka_url ? 'Yuka' : ''].filter(Boolean).join(' · '),
+        nome: p.nome,
+        label: p.nome,
+        meta: [p.categoria_nome ? categoriaRow(p.categoria_nome, p.categoria_effimera) : '', p.gtin, p.yuka_url ? 'Yuka' : '']
+          .filter(Boolean).join(' · '),
         inLista: p.in_lista,
         itemId: p.item_id,
         catalogo: p
@@ -1770,7 +1774,8 @@ function renderHelper() {
     const cls = `${row.inLista ? 'in-lista' : ''} ${helper.pending.has(row.key) ? 'pending' : ''}`;
     // nel catalogo ogni riga ha anche il pulsante ℹ️ (sbiadito senza dati OpenFood né link Yuka), come nella lista
     const info = row.catalogo
-      ? `<button class="icon-btn item-info${row.catalogo.ha_scheda || row.catalogo.yuka_url ? '' : ' dim'}" data-info="${esc(row.key)}" aria-label="Info prodotto">ℹ️</button>`
+      ? `<button class="icon-btn" data-edit="${esc(row.key)}" aria-label="Modifica prima di aggiungere" title="Modifica prima di aggiungere">✏️</button>
+         <button class="icon-btn item-info${row.catalogo.ha_scheda || row.catalogo.yuka_url ? '' : ' dim'}" data-info="${esc(row.key)}" aria-label="Info prodotto">ℹ️</button>`
       : '';
     html += `<li${row.catalogo ? ' class="cat-row"' : ''}><button class="sugg ${cls}" data-key="${esc(row.key)}">
       <span class="status">${row.inLista ? '✓' : '+'}</span>
@@ -1790,7 +1795,11 @@ function toggleHelperRow(row) {
   if (row.catalogo) {
     // toggle come negli altri pannelli: già in lista -> si toglie; altrimenti si aggiunge con nome, GTIN e link Yuka noti
     if (row.inLista) return api(`/lista/${row.itemId}/rimuovi`, { method: 'DELETE', query: { ...dest, user_id: user } });
-    const body = { ...dest, user_id: user, nome: row.catalogo.descrizione, split_items: false, gtin: row.catalogo.gtin };
+    // nome e categoria arrivano dal server (preferito dell'utente > archivio del gruppo), per GTIN esatto
+    const body = applicaCategoria(
+      { ...dest, user_id: user, split_items: false, gtin: row.catalogo.gtin },
+      row.catalogo.nome, categoriaValueDiItem(row.catalogo)
+    );
     if (row.catalogo.yuka_url) body.link_url = row.catalogo.yuka_url;
     return api('/lista', { method: 'POST', body });
   }
@@ -1815,7 +1824,29 @@ function toggleHelperRow(row) {
   return api('/lista', { method: 'POST', body });
 }
 
+// ✏️: porta nome, GTIN, link e categoria nella barra di inserimento per ritoccare la descrizione prima di aggiungere
+function portaNellaBarra(prodotto) {
+  const input = $('#add-input');
+  input.value = prodotto.nome;
+  addGtin = prodotto.gtin;
+  addLink = prodotto.yuka_url || '';
+  const valore = categoriaValueDiItem(prodotto);
+  const sel = $('#add-categoria');
+  if (valore && ![...sel.options].some((o) => o.value === valore)) {
+    sel.insertAdjacentHTML('beforeend', `<option value="${esc(valore)}">${valore.startsWith('e:') ? '◌ ' : ''}${esc(prodotto.categoria_nome)}</option>`);
+  }
+  sel.value = valore;
+  if (!isWide()) setHelperOpen(false);
+  input.focus();
+}
+
 $('#helper-list').addEventListener('click', async (e) => {
+  const editBtn = e.target.closest('[data-edit]');
+  if (editBtn) {
+    const r = helper.rows.find((x) => x.key === editBtn.dataset.edit);
+    if (r?.catalogo) portaNellaBarra(r.catalogo);
+    return;
+  }
   const infoBtn = e.target.closest('[data-info]');
   if (infoBtn) {
     const r = helper.rows.find((x) => x.key === infoBtn.dataset.info);

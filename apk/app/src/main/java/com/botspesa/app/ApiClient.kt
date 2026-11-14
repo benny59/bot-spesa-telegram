@@ -140,7 +140,11 @@ object ApiClient {
         val yukaSource: String,
         val inList: Boolean,
         val itemId: Int?,        // articolo attivo in lista con questo GTIN (per toglierlo)
-        val hasCard: Boolean     // esiste una scheda OpenFood con dati
+        val hasCard: Boolean,    // esiste una scheda OpenFood con dati
+        val name: String,        // nome con cui entra in lista (preferito dell'utente > archivio del gruppo > descrizione)
+        val categoryId: Int?,
+        val categoryName: String,
+        val categoryEphemeral: Boolean
     )
 
     fun getConteggiListe(userId: Int): ConteggiListe {
@@ -220,7 +224,11 @@ object ApiClient {
                     yukaSource = product["yuka_source"] as? String ?: "",
                     inList = product["in_lista"] as? Boolean ?: false,
                     itemId = (product["item_id"] as? Double)?.toInt(),
-                    hasCard = product["ha_scheda"] as? Boolean ?: false
+                    hasCard = product["ha_scheda"] as? Boolean ?: false,
+                    name = (product["nome"] as? String).orEmpty().ifBlank { product["descrizione"] as? String ?: "" },
+                    categoryId = (product["categoria_id"] as? Double)?.toInt(),
+                    categoryName = product["categoria_nome"] as? String ?: "",
+                    categoryEphemeral = product["categoria_effimera"] as? Boolean ?: false
                 )
             }
         }

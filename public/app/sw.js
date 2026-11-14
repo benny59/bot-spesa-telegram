@@ -3,7 +3,7 @@
 // la versione nuova arriva in background e si vede al lancio successivo.
 // Chiamate API: sempre rete, mai in cache (i dati offline li gestisce app.js).
 
-const CACHE = 'spesa-shell-v31';
+const CACHE = 'spesa-shell-v32';
 const SHELL = [
   './',
   'app.css',

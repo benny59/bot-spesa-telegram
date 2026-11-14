@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 class CatalogoProdottiSheet : BottomSheetDialogFragment() {
     private var onItemAdded: (() -> Unit)? = null
     private var onInfo: ((ApiClient.CatalogProduct) -> Unit)? = null
+    private var onEdit: ((ApiClient.CatalogProduct) -> Unit)? = null
 
     private val gruppoId get() = requireArguments().getInt(ARG_GRUPPO_ID)
     private val topicId get() = requireArguments().getInt(ARG_TOPIC_ID)
@@ -67,7 +68,7 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
                     empty.text = getString(R.string.nessun_prodotto_trovato)
                     empty.visibility = if (products.isEmpty()) View.VISIBLE else View.GONE
                     recycler.visibility = if (products.isEmpty()) View.GONE else View.VISIBLE
-                    recycler.adapter = CatalogAdapter(products, { toggleHandler(it) }, onInfo, ::openYuka)
+                    recycler.adapter = CatalogAdapter(products, { toggleHandler(it) }, { onEdit?.invoke(it) }, onInfo, ::openYuka)
                 }.onFailure {
                     empty.text = it.message ?: getString(R.string.errore_generico)
                     empty.visibility = View.VISIBLE
@@ -85,14 +86,17 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
                             if (!ApiClient.removeItem(gruppoId, itemId, userId)) throw IllegalStateException("rimozione non riuscita")
                             false
                         } else {
+                            // categoria proposta dal server per GTIN esatto: l'effimera usa la sintassi "nome & categoria"
+                            val effimera = product.categoryEphemeral && product.categoryName.isNotBlank()
                             ApiClient.addItem(
                                 gruppoId = gruppoId,
                                 topicId = topicId,
-                                nome = product.description,
+                                nome = if (effimera) "${product.name} & ${product.categoryName}" else product.name,
                                 userId = userId,
                                 linkUrl = product.yukaUrl.ifBlank { null },
                                 gtin = product.gtin,
-                                splitItems = false
+                                splitItems = false,
+                                categoriaId = product.categoryId.takeUnless { effimera }
                             ).also { if (it.isEmpty()) throw IllegalStateException("Articolo non creato") }
                             true
                         }
@@ -126,6 +130,11 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
         onItemAdded = listener
     }
 
+    // tocco lungo sul +: apre la finestra completa di inserimento (per ritoccare descrizione e categoria)
+    fun setOnEditListener(listener: (ApiClient.CatalogProduct) -> Unit) {
+        onEdit = listener
+    }
+
     fun setOnInfoListener(listener: (ApiClient.CatalogProduct) -> Unit) {
         onInfo = listener
     }
@@ -133,6 +142,7 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
     private class CatalogAdapter(
         private val products: List<ApiClient.CatalogProduct>,
         private val onToggle: (ApiClient.CatalogProduct) -> Unit,
+        private val onEdit: (ApiClient.CatalogProduct) -> Unit,
         private val onInfo: ((ApiClient.CatalogProduct) -> Unit)?,
         private val onYuka: (ApiClient.CatalogProduct) -> Unit
     ) : RecyclerView.Adapter<CatalogAdapter.ViewHolder>() {
@@ -152,8 +162,8 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val product = products[position]
-            holder.description.text = product.description
-            holder.gtin.text = product.gtin
+            holder.description.text = product.name
+            holder.gtin.text = listOf(product.categoryName, product.gtin).filter { it.isNotBlank() }.joinToString(" · ")
             holder.yuka.visibility = if (product.yukaUrl.isBlank()) View.GONE else View.VISIBLE
             holder.yuka.setOnClickListener { onYuka(product) }
             holder.nutrition.alpha = if (product.hasCard) 1f else 0.45f   // sbiadita senza dati OpenFood, come in lista
@@ -161,6 +171,7 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
             holder.add.text = if (product.inList) "✓" else "+"
             holder.add.setBackgroundResource(if (product.inList) R.drawable.circle_initials_green else R.drawable.circle_initials)
             holder.add.setOnClickListener { onToggle(product) }
+            holder.add.setOnLongClickListener { if (product.inList) false else { onEdit(product); true } }
         }
     }
 
