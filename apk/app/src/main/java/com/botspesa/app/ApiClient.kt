@@ -128,6 +128,9 @@ object ApiClient {
                 .filter { it.isNotBlank() }
                 .distinctBy { it.lowercase() }
                 .joinToString(" ")
+
+        val openFoodUrl: String
+            get() = sourceUrl.ifBlank { "https://world.openfoodfacts.org/product/$barcode" }
     }
 
     data class CatalogProduct(

@@ -35,6 +35,7 @@
     <string name="apri_link_prodotto">Produktlink öffnen</string>
     <string name="informazioni_prodotto">Produktinformationen</string>
     <string name="immagine_ufficiale_prodotto">Offizielles Bild von %1$s</string>
+    <string name="vedi_su_openfoodfacts">Auf OpenFoodFacts ansehen ↗</string>
     <string name="aggiorna">Aktualisieren</string>
     <string name="conferma_scopetta">Alle gekauften Artikel entfernen?</string>
     <string name="nav_collega_telegram">Telegram-Konto verbinden</string>

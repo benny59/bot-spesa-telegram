@@ -2,6 +2,8 @@ package com.botspesa.app
 
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -54,6 +56,16 @@ object ProductInfoDialog {
                 }
             }
             textSize = 14f
+        })
+
+        content.addView(TextView(context).apply {
+            text = context.getString(R.string.vedi_su_openfoodfacts)
+            textSize = 14f
+            setTextColor(android.graphics.Color.parseColor("#1A73E8"))
+            setPadding(0, (12 * density).toInt(), 0, (4 * density).toInt())
+            setOnClickListener {
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preview.openFoodUrl))) }
+            }
         })
 
         val scroll = ScrollView(context).apply { addView(content) }
