@@ -1590,12 +1590,6 @@ function categoriaRow(nome, effimera) {
 }
 
 // Una categoria effimera esiste solo finché almeno un articolo attivo la usa (vedi /categorie).
-function categoriaEffimeraEsiste(nome) {
-  const norm = String(nome || '').trim().toLowerCase();
-  if (!norm) return false;
-  return state.categorie.some((c) => c.effimera && c.nome.trim().toLowerCase() === norm);
-}
-
 // Esporta i preferiti (solo nome, categoria e codice a barre) in un file JSON, per importarlo nell'artifact Basket Index.
 $('#helper-export').addEventListener('click', async () => {
   try {
@@ -1707,19 +1701,12 @@ async function fetchHelperRows(tab) {
   const inLista = new Map((await itemsDestinazione())
     .filter((i) => !i.comprato && !i.deleted)
     .map((i) => [i.nome.trim().toLowerCase(), i.id]));
-  // Una categoria effimera esiste solo finché c'è un articolo che la usa: se il preferito
-  // ne ha una ormai non istanziata in questo contesto, va trattato come "Senza categoria".
-  const effettivaCategoria = (f) => (
-    f.categoryEphemeral && !categoriaEffimeraEsiste(f.categoryName)
-      ? { nome: '', effimera: false }
-      : { nome: f.categoryName || '', effimera: f.categoryEphemeral }
-  );
+  // come l'app Android: le categorie (anche effimere) sono quelle salvate nel preferito, ognuna fa da separatore
   const favorites = [...(backup.favorites || [])]
-    .map((f) => ({ ...f, _categoria: effettivaCategoria(f) }))
     .sort((a, b) => (
-      (!a._categoria.nome - !b._categoria.nome) ||
-      (Number(a._categoria.effimera) - Number(b._categoria.effimera)) ||
-      a._categoria.nome.localeCompare(b._categoria.nome, 'it') ||
+      (!a.categoryName - !b.categoryName) ||
+      (Number(!!a.categoryEphemeral) - Number(!!b.categoryEphemeral)) ||
+      (a.categoryName || '').localeCompare(b.categoryName || '', 'it') ||
       a.description.localeCompare(b.description, 'it')
     ));
   return {
@@ -1731,7 +1718,7 @@ async function fetchHelperRows(tab) {
         nome: f.description,
         label: f.description,
         meta: '',
-        section: categoriaRow(f._categoria.nome, f._categoria.effimera),
+        section: categoriaRow(f.categoryName || '', f.categoryEphemeral),
         inLista: itemId !== undefined,
         itemId,
         favorite: f,
