@@ -425,10 +425,10 @@ dialog ol { padding-left: 1.2em; }
 }
 
 /* --- Modifica articolo (nome, categoria, sposta gruppo/topic) --- */
-#dlg-edit-item, #dlg-ricetta, #dlg-promemoria { width: min(92vw, 420px); }
+#dlg-edit-item, #dlg-edit-pref, #dlg-ricetta, #dlg-promemoria { width: min(92vw, 420px); }
 #prodotto-foto { display: block; max-width: 60%; max-height: 180px; margin: 0 auto 10px; border-radius: 8px; }
 #ricetta-form textarea, #ricetta-form input, #promemoria-form textarea, #promemoria-form input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
-#edit-item-nome {
+#edit-item-nome, #edit-pref-nome {
   width: 100%;
   margin-bottom: 10px;
   padding: .6em .8em;

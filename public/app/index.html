@@ -329,6 +329,24 @@
     </form>
   </dialog>
 
+  <!-- Modifica di un preferito: nome e categoria -->
+  <dialog id="dlg-edit-pref">
+    <div class="foto-head">
+      <h3>✏️ Modifica preferito</h3>
+      <button id="edit-pref-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <form id="edit-pref-form">
+      <input id="edit-pref-nome" type="text" placeholder="Nome" maxlength="200" required>
+      <label class="edit-item-label muted">Categoria
+        <select id="edit-pref-categoria"></select>
+      </label>
+      <div class="foto-actions">
+        <button id="edit-pref-cancel" type="button">Annulla</button>
+        <button type="submit" class="primary wide">Salva</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Info prodotto: Yuka / OpenFoodFacts, sola lettura -->
   <dialog id="dlg-info">
     <div class="foto-head">

@@ -506,6 +506,12 @@ function nuovoPreferito(item) {
   };
 }
 
+async function salvaBackupPreferiti(backup) {
+  backup.lastBackupAt = new Date().toISOString();
+  await api('/utente/config/preferiti', { method: 'PUT', body: { user_id: state.auth.userId, backup } });
+  save('spesa.preferiti', backup);
+}
+
 async function togglePreferito(item) {
   const backup = await leggiPreferiti();
   // Con nomi uguali ma prodotti diversi se ne toglie UNO solo: prima quello con stesso GTIN/link, poi il primo che coincide.
@@ -515,9 +521,7 @@ async function togglePreferito(item) {
   const rimasti = daTogliere ? backup.favorites.filter((f) => f !== daTogliere) : backup.favorites;
   const aggiunto = !daTogliere;
   backup.favorites = aggiunto ? [...rimasti, nuovoPreferito(item)] : rimasti;
-  backup.lastBackupAt = new Date().toISOString();
-  await api('/utente/config/preferiti', { method: 'PUT', body: { user_id: state.auth.userId, backup } });
-  save('spesa.preferiti', backup);
+  await salvaBackupPreferiti(backup);
   toast(aggiunto ? 'Aggiunto ai preferiti' : 'Rimosso dai preferiti');
   if (helper.open && helper.tab === 'preferiti') loadHelper();
 }
@@ -1665,7 +1669,9 @@ async function fetchHelperRows(tab) {
           .filter(Boolean).join(' · '),
         inLista: p.in_lista,
         itemId: p.item_id,
-        catalogo: p
+        catalogo: p,
+        info: { nome: p.nome, gtin: p.gtin, link_url: p.yuka_url || '', dim: !p.ha_scheda && !p.yuka_url },
+        modifica: 'barra'
       })),
       note: prodotti.length >= 30 ? 'Primi 30 risultati: scrivi di più per restringere' : ''
     };
@@ -1728,7 +1734,9 @@ async function fetchHelperRows(tab) {
         section: categoriaRow(f._categoria.nome, f._categoria.effimera),
         inLista: itemId !== undefined,
         itemId,
-        favorite: f
+        favorite: f,
+        info: { nome: f.description, gtin: f.gtin || '', link_url: f.yukaLink || '', dim: !f.gtin && !isYukaLink(f.yukaLink) },
+        modifica: 'preferito'
       };
     })
   };
@@ -1772,12 +1780,13 @@ function renderHelper() {
       lastSection = row.section;
     }
     const cls = `${row.inLista ? 'in-lista' : ''} ${helper.pending.has(row.key) ? 'pending' : ''}`;
-    // nel catalogo ogni riga ha anche il pulsante ℹ️ (sbiadito senza dati OpenFood né link Yuka), come nella lista
-    const info = row.catalogo
-      ? `<button class="icon-btn" data-edit="${esc(row.key)}" aria-label="Modifica prima di aggiungere" title="Modifica prima di aggiungere">✏️</button>
-         <button class="icon-btn item-info${row.catalogo.ha_scheda || row.catalogo.yuka_url ? '' : ' dim'}" data-info="${esc(row.key)}" aria-label="Info prodotto">ℹ️</button>`
+    // catalogo e preferiti: ✏️ (modifica) e ℹ️ (Yuka/OpenFood, sbiadito senza dati né link), come nella lista
+    const titoloModifica = row.modifica === 'preferito' ? 'Modifica il preferito (nome, categoria)' : 'Modifica prima di aggiungere';
+    const info = row.info
+      ? `<button class="icon-btn" data-edit="${esc(row.key)}" aria-label="${titoloModifica}" title="${titoloModifica}">✏️</button>
+         <button class="icon-btn item-info${row.info.dim ? ' dim' : ''}" data-info="${esc(row.key)}" aria-label="Info prodotto">ℹ️</button>`
       : '';
-    html += `<li${row.catalogo ? ' class="cat-row"' : ''}><button class="sugg ${cls}" data-key="${esc(row.key)}">
+    html += `<li${row.info ? ' class="cat-row"' : ''}><button class="sugg ${cls}" data-key="${esc(row.key)}">
       <span class="status">${row.inLista ? '✓' : '+'}</span>
       <span class="sugg-text">
         <div class="sugg-nome">${esc(row.label)}</div>
@@ -1824,6 +1833,49 @@ function toggleHelperRow(row) {
   return api('/lista', { method: 'POST', body });
 }
 
+// ✏️ su un preferito: se ne cambiano nome e categoria (restano GTIN, link Yuka e foto) e si salva il backup
+let editPreferito = null;
+
+async function openEditPreferitoDialog(favorite) {
+  editPreferito = favorite;
+  $('#edit-pref-nome').value = favorite.description;
+  const valore = favorite.categoryId > 0 ? String(favorite.categoryId)
+    : (favorite.categoryEphemeral && favorite.categoryName ? `e:${favorite.categoryName}` : '');
+  const sel = $('#edit-pref-categoria');
+  sel.innerHTML = '<option value="">Nessuna categoria</option>' + categoriaOptions(state.categorie);
+  if (valore && ![...sel.options].some((o) => o.value === valore)) {
+    sel.insertAdjacentHTML('beforeend', `<option value="${esc(valore)}">${valore.startsWith('e:') ? '◌ ' : ''}${esc(favorite.categoryName)}</option>`);
+  }
+  sel.value = valore;
+  $('#dlg-edit-pref').showModal();
+}
+
+$('#edit-pref-close').addEventListener('click', () => $('#dlg-edit-pref').close());
+$('#edit-pref-cancel').addEventListener('click', () => $('#dlg-edit-pref').close());
+$('#edit-pref-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nome = $('#edit-pref-nome').value.trim();
+  if (!nome || !editPreferito) return;
+  const sel = $('#edit-pref-categoria');
+  const valore = sel.value;
+  const nomeCat = valore ? sel.selectedOptions[0].textContent.replace(/^◌ /, '') : '';
+  try {
+    const backup = await leggiPreferiti();
+    const f = backup.favorites.find((x) => x.id === editPreferito.id);
+    if (!f) { toast('Preferito non trovato'); return; }
+    f.description = nome;
+    f.categoryId = valore && !valore.startsWith('e:') ? Number(valore) : 0;
+    f.categoryName = nomeCat;
+    f.categoryEphemeral = valore.startsWith('e:');
+    await salvaBackupPreferiti(backup);
+    $('#dlg-edit-pref').close();
+    toast('Preferito aggiornato');
+    loadHelper();
+  } catch (err) {
+    handleError(err);
+  }
+});
+
 // ✏️: porta nome, GTIN, link e categoria nella barra di inserimento per ritoccare la descrizione prima di aggiungere
 function portaNellaBarra(prodotto) {
   const input = $('#add-input');
@@ -1844,13 +1896,14 @@ $('#helper-list').addEventListener('click', async (e) => {
   const editBtn = e.target.closest('[data-edit]');
   if (editBtn) {
     const r = helper.rows.find((x) => x.key === editBtn.dataset.edit);
-    if (r?.catalogo) portaNellaBarra(r.catalogo);
+    if (r?.modifica === 'barra') portaNellaBarra(r.catalogo);
+    else if (r?.modifica === 'preferito') openEditPreferitoDialog(r.favorite);
     return;
   }
   const infoBtn = e.target.closest('[data-info]');
   if (infoBtn) {
     const r = helper.rows.find((x) => x.key === infoBtn.dataset.info);
-    if (r?.catalogo) openInfoDialog({ nome: r.nome, gtin: r.catalogo.gtin, link_url: r.catalogo.yuka_url || '' });
+    if (r?.info) openInfoDialog({ nome: r.info.nome, gtin: r.info.gtin, link_url: r.info.link_url });
     return;
   }
   const btn = e.target.closest('button.sugg');
