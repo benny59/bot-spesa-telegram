@@ -26,8 +26,15 @@ class FavoriteItemTest {
         SpesaItem(id = 1, nome = nome, gtin = gtin, linkUrl = link, comprato = "", userInitials = "", buyerInitials = "", categoriaId = cat)
 
     @Test
-    fun `favorite enriched with gtin and link still matches a plain item`() {
-        assertTrue(fav(gtin = "8076809513722", link = "https://app.yuka.io/p/1").matches(item()))
+    fun `plain typed item is not the specific favorite just because the name is equal`() {
+        assertFalse(fav(gtin = "8076809513722", link = "https://app.yuka.io/p/1").matches(item()))
+    }
+
+    @Test
+    fun `item with the same name category link and gtin matches`() {
+        assertTrue(fav(gtin = "8076809513722", link = "https://app.yuka.io/p/1")
+            .matches(item(gtin = "8076809513722", link = "https://app.yuka.io/p/1")))
+        assertTrue(fav().matches(item()))
     }
 
     @Test
