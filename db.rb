@@ -726,6 +726,95 @@ class DataManager
     nome && imposta_descrizione(gtin, nome, origine) ? origine : nil
   end
 
+  # ---- Integrazione dei preferiti con le conoscenze del server (GTIN, link Yuka) ----
+
+  def self.link_yuka?(valore)
+    valore.to_s.match?(%r{\Ahttps://app\.yuka\.io/}i)
+  end
+
+  # GTIN noto per un link Yuka (item o storico che portano lo stesso link). Match sicuro.
+  def self.gtin_da_link_yuka(link)
+    link = link.to_s.strip
+    return nil unless link_yuka?(link)
+
+    gtin = DB.get_first_value("SELECT gtin FROM items WHERE link_url = ? AND TRIM(COALESCE(gtin, '')) != '' ORDER BY id DESC LIMIT 1", [link])
+    gtin ||= DB.get_first_value(<<~SQL, [link])
+      SELECT sap.gtin FROM storico_articolo_prodotti sap
+      JOIN storico_articoli sa ON sa.id = sap.storico_articolo_id
+      WHERE sa.link_url = ? ORDER BY sap.ultimo_acquisto DESC LIMIT 1
+    SQL
+    normalizza_gtin(gtin)
+  end
+
+  # Link Yuka noto per un GTIN (item recenti, poi storico).
+  def self.link_yuka_da_gtin(gtin)
+    gtin = normalizza_gtin(gtin)
+    return nil unless gtin
+
+    trovati = DB.execute("SELECT link_url FROM items WHERE gtin = ? AND TRIM(COALESCE(link_url, '')) != '' ORDER BY id DESC", [gtin]).map { |r| r["link_url"] }
+    trovati += DB.execute(<<~SQL, [gtin]).map { |r| r["link_url"] }
+      SELECT sa.link_url FROM storico_articolo_prodotti sap
+      JOIN storico_articoli sa ON sa.id = sap.storico_articolo_id
+      WHERE sap.gtin = ? AND TRIM(COALESCE(sa.link_url, '')) != '' ORDER BY sap.ultimo_acquisto DESC
+    SQL
+    trovati.find { |l| link_yuka?(l) }
+  end
+
+  # Un nome libero che coincide ESATTAMENTE (normalizzato) con la descrizione o un alias di UN SOLO prodotto.
+  # Ritorna il GTIN, oppure nil se non c'è o è ambiguo.
+  def self.gtin_da_nome_esatto(nome)
+    chiave = normalizza_alias(nome)
+    return nil if chiave.length < 3
+
+    gtins = DB.execute("SELECT gtin, descrizione FROM prodotti").select { |r| normalizza_alias(r["descrizione"]) == chiave }.map { |r| r["gtin"] }
+    gtins += DB.execute("SELECT DISTINCT gtin FROM prodotto_alias WHERE alias = ?", [chiave]).map { |r| r["gtin"] }
+    gtins.uniq.size == 1 ? gtins.first : nil
+  end
+
+  # Prodotti che contengono tutte le parole del nome: solo SEGNALAZIONE, mai applicati in automatico.
+  def self.gtin_simili_al_nome(nome, limite: 3)
+    parole = normalizza_alias(nome).split.reject { |p| p.length < 3 }
+    return [] if parole.empty?
+
+    DB.execute("SELECT gtin, descrizione FROM prodotti").select do |r|
+      testo = normalizza_alias(r["descrizione"]) + " " + DB.execute("SELECT alias FROM prodotto_alias WHERE gtin = ?", [r["gtin"]]).map { |a| a["alias"] }.join(" ")
+      parole.all? { |p| testo.include?(p) }
+    end.first(limite).map { |r| [r["gtin"], r["descrizione"]] }
+  end
+
+  # Integra UN preferito (Hash del backup). Non cambia mai nome, categoria o foto: completa solo i campi vuoti.
+  # Ritorna [preferito_integrato, modifiche, simili] dove modifiche = ["gtin da link", "link Yuka", ...].
+  def self.integra_preferito(fav, applica: true)
+    fav = fav.dup
+    modifiche = []
+    gtin = normalizza_gtin(fav["gtin"])
+
+    if gtin.nil?
+      trovato = gtin_da_link_yuka(fav["yukaLink"])
+      if trovato
+        gtin = trovato
+        modifiche << "GTIN da link Yuka"
+      elsif (trovato = gtin_da_nome_esatto(fav["description"]))
+        gtin = trovato
+        modifiche << "GTIN da nome identico"
+      end
+      fav["gtin"] = gtin if gtin
+    end
+
+    simili = gtin ? [] : gtin_simili_al_nome(fav["description"])
+    if gtin
+      if fav["yukaLink"].to_s.strip.empty? && (link = link_yuka_da_gtin(gtin))
+        fav["yukaLink"] = link
+        modifiche << "link Yuka"
+      end
+      if applica
+        upsert_prodotto(gtin, fav["description"])
+        imposta_descrizione(gtin, fav["description"], "preferito")
+      end
+    end
+    [fav, modifiche, simili]
+  end
+
   def self.scheda_prodotto(gtin)
     gtin = normalizza_gtin(gtin)
     return nil unless gtin
