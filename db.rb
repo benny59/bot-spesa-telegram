@@ -821,20 +821,24 @@ class DataManager
     favs = Array(favorites)
     padre = (0...favs.size).to_a
     trova = ->(i) { padre[i] == i ? i : (padre[i] = trova.call(padre[i])) }
+    conflitto = lambda do |a, b|
+      ga, gb = normalizza_gtin(a["gtin"]), normalizza_gtin(b["gtin"])
+      la, lb = a["yukaLink"].to_s.strip, b["yukaLink"].to_s.strip
+      (ga && gb && ga != gb) || (!la.empty? && !lb.empty? && la != lb)
+    end
     [
-      ->(f) { normalizza_gtin(f["gtin"]) },
-      ->(f) { l = f["yukaLink"].to_s.strip; link_yuka?(l) ? l : nil },
-      ->(f) { n = normalizza_alias(f["description"]); n.length >= 3 ? n : nil }
-    ].each do |chiave|
-      visti = {}
+      [->(f) { normalizza_gtin(f["gtin"]) }, false],
+      [->(f) { l = f["yukaLink"].to_s.strip; link_yuka?(l) ? l : nil }, false],
+      # stesso nome: duplicato solo se non ci sono prodotti diversi (GTIN o link in conflitto)
+      [->(f) { n = normalizza_alias(f["description"]); n.length >= 3 ? n : nil }, true]
+    ].each do |chiave, controlla_conflitto|
+      visti = Hash.new { |h, k| h[k] = [] }
       favs.each_with_index do |f, i|
         k = chiave.call(f)
         next unless k
-        if visti[k]
-          padre[trova.call(i)] = trova.call(visti[k])
-        else
-          visti[k] = i
-        end
+        simile = visti[k].find { |x| !controlla_conflitto || !conflitto.call(favs[x], f) }
+        padre[trova.call(i)] = trova.call(simile) if simile
+        visti[k] << i
       end
     end
     (0...favs.size).group_by { |i| trova.call(i) }.values.select { |g| g.size > 1 }

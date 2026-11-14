@@ -30,7 +30,10 @@ class FavoritesStore(context: Context) {
 
     fun toggle(item: SpesaItem): Boolean {
         val favorites = all().toMutableList()
-        val existingIndex = favorites.indexOfFirst { it.matches(item) }
+        // più preferiti possono coincidere (stesso nome, prodotti diversi): se ne toglie uno, il più vicino all'articolo
+        val existingIndex = favorites.withIndex()
+            .filter { it.value.matches(item) }
+            .maxByOrNull { closeness(it.value, item) }?.index ?: -1
         if (existingIndex >= 0) {
             favorites.removeAt(existingIndex)
             save(favorites)
@@ -62,6 +65,10 @@ class FavoritesStore(context: Context) {
         save(favorites)
         return true
     }
+
+    private fun closeness(f: FavoriteItem, item: SpesaItem): Int =
+        (if (!f.gtin.isNullOrBlank() && f.gtin == item.gtin) 2 else 0) +
+            (if (f.yukaLink.isNotBlank() && f.yukaLink == item.linkUrl) 1 else 0)
 
     private fun save(favorites: List<FavoriteItem>) {
         val temporaryFile = File(file.parentFile, "$FILE_NAME.tmp")

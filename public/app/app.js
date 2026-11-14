@@ -509,8 +509,12 @@ function nuovoPreferito(item) {
 
 async function togglePreferito(item) {
   const backup = await leggiPreferiti();
-  const rimasti = backup.favorites.filter((f) => !preferitoCoincide(f, item));
-  const aggiunto = rimasti.length === backup.favorites.length;
+  // Con nomi uguali ma prodotti diversi se ne toglie UNO solo: prima quello con stesso GTIN/link, poi il primo che coincide.
+  const vicinanza = (f) => (f.gtin && f.gtin === item.gtin ? 2 : 0) + (f.yukaLink && f.yukaLink === item.link_url ? 1 : 0);
+  const candidati = backup.favorites.filter((f) => preferitoCoincide(f, item));
+  const daTogliere = candidati.sort((a, b) => vicinanza(b) - vicinanza(a))[0];
+  const rimasti = daTogliere ? backup.favorites.filter((f) => f !== daTogliere) : backup.favorites;
+  const aggiunto = !daTogliere;
   backup.favorites = aggiunto ? [...rimasti, nuovoPreferito(item)] : rimasti;
   backup.lastBackupAt = new Date().toISOString();
   await api('/utente/config/preferiti', { method: 'PUT', body: { user_id: state.auth.userId, backup } });

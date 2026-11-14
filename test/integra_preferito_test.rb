@@ -53,6 +53,17 @@ Dir.mktmpdir("integra-preferito-test") do |directory|
     raise "conteggio integrati errato (#{n})" unless n == 2
     nuovo, = DataManager.integra_backup_preferiti({ "favorites" => [{ "id" => "b", "description" => "brisee stesa 230g" }] }, salvato)
     raise "un preferito cancellato dall'app deve sparire" unless nuovo["favorites"].map { |f| f["id"] } == ["b"]
+
+    # 7) stesso nome ma prodotti diversi (GTIN o link in conflitto) NON sono duplicati; un generico sì col suo specifico
+    diversi = DataManager.duplicati_preferiti([
+      { "description" => "Yogurt greco", "gtin" => "8076809513722" },
+      { "description" => "yogurt greco", "gtin" => "8000300155877" },
+      { "description" => "Yogurt greco 2", "yukaLink" => "https://app.yuka.io/a" },
+      { "description" => "Yogurt greco 2", "yukaLink" => "https://app.yuka.io/b" }
+    ])
+    raise "prodotti diversi segnalati come duplicati: #{diversi.inspect}" unless diversi.empty?
+    generico = DataManager.duplicati_preferiti([{ "description" => "Yogurt greco" }, { "description" => "yogurt greco", "gtin" => "8076809513722" }])
+    raise "generico e specifico dovrebbero essere duplicati" unless generico == [["yogurt greco", "Yogurt greco"]]
     puts "integra_preferito_test OK"
   end
 end
