@@ -1559,7 +1559,7 @@ $('#add-form').addEventListener('submit', async (e) => {
   }
 });
 
-// ---------- aiuto compilazione: suggeriti, storico, preferiti ----------
+// ---------- aiuto compilazione: suggeriti, storico, preferiti, catalogo ----------
 // Suggeriti (checklist) e storico condividono riga e toggle (POST /checklist/toggle).
 // I preferiti sono il backup condiviso con l'app Android (si aggiungono/tolgono dal menu ⋯ dell'articolo).
 
@@ -1568,7 +1568,8 @@ const helper = {
   tab: load('spesa.helperTab') || 'checklist',
   rows: [],              // righe normalizzate della scheda attiva
   pending: new Set(),
-  note: ''
+  note: '',
+  query: ''              // testo cercato nella scheda Catalogo
 };
 
 function formatData(value) {
@@ -1646,6 +1647,22 @@ async function fetchHelperRows(tab) {
         inLista: i.in_lista,
         gtin: i.gtin
       }))
+    };
+  }
+  if (tab === 'catalogo') {
+    const q = helper.query.trim();
+    if (q.length < 2) return { rows: [], note: 'Scrivi almeno due caratteri per cercare nel catalogo' };
+    const prodotti = await api('/prodotti', { query: { ...dest, user_id: state.auth.userId, query: q } });
+    return {
+      rows: prodotti.map((p) => ({
+        key: `k${p.gtin}`,
+        nome: p.descrizione,
+        label: p.descrizione,
+        meta: [p.gtin, p.yuka_url ? 'Yuka' : ''].filter(Boolean).join(' · '),
+        inLista: p.in_lista,
+        catalogo: p
+      })),
+      note: prodotti.length >= 30 ? 'Primi 30 risultati: scrivi di più per restringere' : ''
     };
   }
   if (tab === 'storico') {
@@ -1739,6 +1756,7 @@ function renderHelper() {
   });
   $('#helper-note').textContent = helper.note;
   $('#helper-export-row').hidden = helper.tab !== 'preferiti';
+  $('#helper-search-row').hidden = helper.tab !== 'catalogo';
   $('#helper-note').hidden = !helper.note;
 
   let html = '';
@@ -1757,13 +1775,20 @@ function renderHelper() {
       </span>
     </button></li>`;
   }
-  if (!helper.rows.length && !helper.note) html = '<li class="muted center">Nessun articolo</li>';
+  if (!helper.rows.length && !helper.note) html = `<li class="muted center">${helper.tab === 'catalogo' ? 'Nessun prodotto trovato' : 'Nessun articolo'}</li>`;
   $('#helper-list').innerHTML = html;
 }
 
 function toggleHelperRow(row) {
   const dest = { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId };
   const user = state.auth.userId;
+  if (row.catalogo) {
+    // dal catalogo si aggiunge con nome, GTIN e link Yuka già noti; chi è già in lista resta com'è
+    if (row.inLista) return Promise.resolve();
+    const body = { ...dest, user_id: user, nome: row.catalogo.descrizione, split_items: false, gtin: row.catalogo.gtin };
+    if (row.catalogo.yuka_url) body.link_url = row.catalogo.yuka_url;
+    return api('/lista', { method: 'POST', body });
+  }
   if (!row.favorite) {
     return api('/checklist/toggle', {
       method: 'POST',
@@ -1819,6 +1844,12 @@ function setHelperOpen(open) {
 $('#btn-helper').addEventListener('click', () => setHelperOpen(!helper.open));
 $('#helper-close').addEventListener('click', () => setHelperOpen(false));
 $('#helper-backdrop').addEventListener('click', () => setHelperOpen(false));
+let helperSearchTimer = null;
+$('#helper-search').addEventListener('input', (e) => {
+  helper.query = e.target.value;
+  clearTimeout(helperSearchTimer);
+  helperSearchTimer = setTimeout(loadHelper, 300);
+});
 document.querySelectorAll('#helper .tabs button').forEach((b) => b.addEventListener('click', () => {
   helper.tab = b.dataset.tab;
   save('spesa.helperTab', helper.tab);

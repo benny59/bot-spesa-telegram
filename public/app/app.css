@@ -498,6 +498,8 @@ dialog ol { padding-left: 1.2em; }
 }
 .tabs button.active { color: var(--primary); border-bottom-color: var(--primary); }
 #helper-dest, #helper-note { padding: 6px 12px 0; }
+#helper-search-row { padding: 6px 12px 0; }
+#helper-search { width: 100%; box-sizing: border-box; }
 #helper-list {
   flex: 1;
   overflow-y: auto;

@@ -260,10 +260,7 @@ get '/ping' do
   { status: 'ok', version: '1.0' }.to_json
 end
 
-def normalizza_ricerca_prodotto(value)
-  value.to_s.unicode_normalize(:nfd).gsub(/\p{Mn}/, '').downcase
-    .scan(/[[:alnum:]]+/).join(' ')
-end
+def normalizza_ricerca_prodotto(value) = DataManager.normalizza_alias(value)
 
 def link_yuka?(value) = DataManager.link_yuka?(value)
 
@@ -306,26 +303,36 @@ def link_yuka_per_gtin(user_id)
   links
 end
 
+# Quanti prodotti restituisce al massimo la ricerca nel catalogo (anche senza parametro limit).
+LIMITE_RICERCA_PRODOTTI = 30
+
 get '/prodotti' do
   query = params[:query].to_s.strip
   user_id = params[:user_id]&.to_i || 0
   gruppo_id = params[:gruppo_id]&.to_i
   topic_id = params[:topic_id]&.to_i || 0
-  limite = [[params[:limit].to_i, 1].max, 30].min
+  limite = params[:limit].to_s.empty? ? LIMITE_RICERCA_PRODOTTI : [[params[:limit].to_i, 1].max, LIMITE_RICERCA_PRODOTTI].min
   tokens = normalizza_ricerca_prodotto(query).split
   halt 400, { error: 'ricerca troppo breve' }.to_json if tokens.join.length < 2
 
   yuka_links = link_yuka_per_gtin(user_id)
+  # Si cerca nel nome del prodotto e anche nei suoi alias (descrizioni da scontrino, vecchi nomi).
+  alias_per_gtin = DB.execute("SELECT gtin, alias FROM prodotto_alias").group_by { |r| r['gtin'] }
+                     .transform_values { |righe| righe.map { |r| r['alias'] }.join(' ') }
+  frase = tokens.join(' ')
   prodotti = DB.execute("SELECT gtin, descrizione FROM prodotti").filter_map do |prodotto|
     descrizione_normalizzata = normalizza_ricerca_prodotto(prodotto['descrizione'])
-    next unless tokens.all? { |token| descrizione_normalizzata.include?(token) }
+    testo = "#{descrizione_normalizzata} #{alias_per_gtin[prodotto['gtin']]}"
+    next unless tokens.all? { |token| testo.include?(token) }
 
-    rank = if descrizione_normalizzata == tokens.join(' ')
+    rank = if descrizione_normalizzata == frase
       0
-    elsif descrizione_normalizzata.start_with?(tokens.join(' '))
+    elsif descrizione_normalizzata.start_with?(frase)
       1
-    else
+    elsif tokens.all? { |token| descrizione_normalizzata.include?(token) }
       2
+    else
+      3   # trovato solo tramite un alias
     end
     prodotto.merge('rank' => rank)
   end.sort_by { |prodotto| [prodotto['rank'], prodotto['descrizione'].to_s.downcase] }.first(limite)

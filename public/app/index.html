@@ -42,18 +42,21 @@
       <p id="empty" class="muted center" hidden>Lista vuota 🎉</p>
     </main>
 
-    <!-- Aiuto compilazione: suggeriti (checklist), storico acquisti, preferiti -->
+    <!-- Aiuto compilazione: suggeriti (checklist), storico acquisti, preferiti, catalogo prodotti -->
     <aside id="helper" hidden aria-label="Aiuto compilazione">
       <div class="helper-head">
         <div class="tabs" role="tablist">
           <button role="tab" data-tab="checklist">Suggeriti</button>
           <button role="tab" data-tab="storico">Storico</button>
           <button role="tab" data-tab="preferiti">Preferiti</button>
+          <button role="tab" data-tab="catalogo">Catalogo</button>
         </div>
         <button id="helper-close" class="icon-btn" aria-label="Chiudi">✕</button>
       </div>
       <div id="helper-dest" class="muted"></div>
       <div id="helper-note" class="muted" hidden></div>
+      <div id="helper-search-row" hidden><input id="helper-search" type="search" autocomplete="off"
+           placeholder="Cerca nel catalogo prodotti…" aria-label="Cerca nel catalogo prodotti"></div>
       <div id="helper-export-row" hidden style="padding:6px 12px 0"><button id="helper-export" type="button">⬇ Esporta preferiti (JSON)</button></div>
       <ul id="helper-list"></ul>
     </aside>
