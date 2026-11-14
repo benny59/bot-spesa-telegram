@@ -54,6 +54,17 @@ Dir.mktmpdir("catalogo-prodotti-test") do |directory|
     raise "alias non cercato" unless per_alias.map { |p| p["gtin"] } == ["8000300155877"]
     nome_prima = JSON.parse(app.get("/prodotti?query=brisee&user_id=42").body)
     raise "il match sul nome deve precedere" unless nome_prima.first["gtin"] == "8000300155877"
+
+    # item_id dell'articolo attivo (per toglierlo), ha_scheda per la I; un articolo già comprato non è "in lista"
+    brisee_item = DB.get_first_value("SELECT id FROM items WHERE gtin = '8000300155877'")
+    r = JSON.parse(app.get("/prodotti?query=brisee&user_id=42&gruppo_id=1&topic_id=0").body).first
+    raise "item_id mancante" unless r["item_id"] == brisee_item && r["in_lista"] == true
+    raise "ha_scheda senza metadati" unless r["ha_scheda"] == false
+    DataManager.salva_scheda_prodotto({ found: true, barcode: "8000300155877", name: "Brisée", brand: "Buitoni" })
+    raise "ha_scheda con metadati" unless JSON.parse(app.get("/prodotti?query=brisee&user_id=42&gruppo_id=1&topic_id=0").body).first["ha_scheda"] == true
+    DB.execute("UPDATE items SET comprato = '42' WHERE id = ?", [brisee_item])
+    r = JSON.parse(app.get("/prodotti?query=brisee&user_id=42&gruppo_id=1&topic_id=0").body).first
+    raise "un articolo già comprato non deve risultare in lista" unless r["in_lista"] == false && r["item_id"].nil?
   end
 end
 

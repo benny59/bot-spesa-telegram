@@ -161,6 +161,8 @@
     <string name="collega_account_telegram">Collega account Telegram</string>
     <string name="collega">Collega</string>
     <string name="pin_6_cifre">PIN a 6 cifre</string>
+    <string name="catalogo_aggiunto">Aggiunto alla lista</string>
+    <string name="catalogo_rimosso">Rimosso dalla lista</string>
     <string name="aggiunto_in">Aggiunto in %1$s</string>
     <string name="aggiunto_con_foto">Aggiunto con foto</string>
     <string name="errore_aggiunta">Errore aggiunta</string>

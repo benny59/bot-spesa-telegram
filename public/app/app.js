@@ -1660,6 +1660,7 @@ async function fetchHelperRows(tab) {
         label: p.descrizione,
         meta: [p.gtin, p.yuka_url ? 'Yuka' : ''].filter(Boolean).join(' · '),
         inLista: p.in_lista,
+        itemId: p.item_id,
         catalogo: p
       })),
       note: prodotti.length >= 30 ? 'Primi 30 risultati: scrivi di più per restringere' : ''
@@ -1767,13 +1768,17 @@ function renderHelper() {
       lastSection = row.section;
     }
     const cls = `${row.inLista ? 'in-lista' : ''} ${helper.pending.has(row.key) ? 'pending' : ''}`;
-    html += `<li><button class="sugg ${cls}" data-key="${esc(row.key)}">
+    // nel catalogo ogni riga ha anche il pulsante ℹ️ (sbiadito senza dati OpenFood né link Yuka), come nella lista
+    const info = row.catalogo
+      ? `<button class="icon-btn item-info${row.catalogo.ha_scheda || row.catalogo.yuka_url ? '' : ' dim'}" data-info="${esc(row.key)}" aria-label="Info prodotto">ℹ️</button>`
+      : '';
+    html += `<li${row.catalogo ? ' class="cat-row"' : ''}><button class="sugg ${cls}" data-key="${esc(row.key)}">
       <span class="status">${row.inLista ? '✓' : '+'}</span>
       <span class="sugg-text">
         <div class="sugg-nome">${esc(row.label)}</div>
         ${row.meta ? `<div class="sugg-meta">${esc(row.meta)}</div>` : ''}
       </span>
-    </button></li>`;
+    </button>${info}</li>`;
   }
   if (!helper.rows.length && !helper.note) html = `<li class="muted center">${helper.tab === 'catalogo' ? 'Nessun prodotto trovato' : 'Nessun articolo'}</li>`;
   $('#helper-list').innerHTML = html;
@@ -1783,8 +1788,8 @@ function toggleHelperRow(row) {
   const dest = { gruppo_id: state.sel.gruppoId, topic_id: state.sel.topicId };
   const user = state.auth.userId;
   if (row.catalogo) {
-    // dal catalogo si aggiunge con nome, GTIN e link Yuka già noti; chi è già in lista resta com'è
-    if (row.inLista) return Promise.resolve();
+    // toggle come negli altri pannelli: già in lista -> si toglie; altrimenti si aggiunge con nome, GTIN e link Yuka noti
+    if (row.inLista) return api(`/lista/${row.itemId}/rimuovi`, { method: 'DELETE', query: { ...dest, user_id: user } });
     const body = { ...dest, user_id: user, nome: row.catalogo.descrizione, split_items: false, gtin: row.catalogo.gtin };
     if (row.catalogo.yuka_url) body.link_url = row.catalogo.yuka_url;
     return api('/lista', { method: 'POST', body });
@@ -1811,6 +1816,12 @@ function toggleHelperRow(row) {
 }
 
 $('#helper-list').addEventListener('click', async (e) => {
+  const infoBtn = e.target.closest('[data-info]');
+  if (infoBtn) {
+    const r = helper.rows.find((x) => x.key === infoBtn.dataset.info);
+    if (r?.catalogo) openInfoDialog({ nome: r.nome, gtin: r.catalogo.gtin, link_url: r.catalogo.yuka_url || '' });
+    return;
+  }
   const btn = e.target.closest('button.sugg');
   if (!btn) return;
   const row = helper.rows.find((r) => r.key === btn.dataset.key);

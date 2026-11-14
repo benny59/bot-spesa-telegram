@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class CatalogoProdottiSheet : BottomSheetDialogFragment() {
-    private var onAdd: ((ApiClient.CatalogProduct) -> Unit)? = null
+    private var onItemAdded: (() -> Unit)? = null
     private var onInfo: ((ApiClient.CatalogProduct) -> Unit)? = null
 
     private val gruppoId get() = requireArguments().getInt(ARG_GRUPPO_ID)
@@ -39,18 +39,25 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
         val progress = view.findViewById<ProgressBar>(R.id.progressCatalogoProdotti)
         recycler.layoutManager = LinearLayoutManager(requireContext())
 
-        fun search() {
-            val query = input.text.toString().trim()
-            input.clearFocus()
-            val inputMethodManager = requireContext().getSystemService(InputMethodManager::class.java)
-            inputMethodManager.hideSoftInputFromWindow(input.windowToken, 0)
-            if (query.length < 2) {
-                input.error = getString(R.string.ricerca_minimo_due_caratteri)
-                return
+        var lastQuery = ""
+        var toggleHandler: (ApiClient.CatalogProduct) -> Unit = {}
+
+        // silent = true: ripete l'ultima ricerca senza nascondere i risultati (dopo aver aggiunto/tolto un articolo)
+        fun search(silent: Boolean = false) {
+            val query = if (silent) lastQuery else input.text.toString().trim()
+            if (!silent) {
+                input.clearFocus()
+                val inputMethodManager = requireContext().getSystemService(InputMethodManager::class.java)
+                inputMethodManager.hideSoftInputFromWindow(input.windowToken, 0)
+                if (query.length < 2) {
+                    input.error = getString(R.string.ricerca_minimo_due_caratteri)
+                    return
+                }
+                progress.visibility = View.VISIBLE
+                empty.visibility = View.GONE
+                recycler.visibility = View.GONE
             }
-            progress.visibility = View.VISIBLE
-            empty.visibility = View.GONE
-            recycler.visibility = View.GONE
+            lastQuery = query
             lifecycleScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching { ApiClient.searchProducts(query, userId, gruppoId, topicId) }
@@ -60,10 +67,43 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
                     empty.text = getString(R.string.nessun_prodotto_trovato)
                     empty.visibility = if (products.isEmpty()) View.VISIBLE else View.GONE
                     recycler.visibility = if (products.isEmpty()) View.GONE else View.VISIBLE
-                    recycler.adapter = CatalogAdapter(products, onAdd, onInfo, ::openYuka)
+                    recycler.adapter = CatalogAdapter(products, { toggleHandler(it) }, onInfo, ::openYuka)
                 }.onFailure {
                     empty.text = it.message ?: getString(R.string.errore_generico)
                     empty.visibility = View.VISIBLE
+                }
+            }
+        }
+
+        // come nei Preferiti: il + inserisce subito in lista (nome, GTIN e link Yuka del prodotto), il ✓ toglie
+        toggleHandler = { product ->
+            lifecycleScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val itemId = product.itemId
+                        if (itemId != null) {
+                            if (!ApiClient.removeItem(gruppoId, itemId, userId)) throw IllegalStateException("rimozione non riuscita")
+                            false
+                        } else {
+                            ApiClient.addItem(
+                                gruppoId = gruppoId,
+                                topicId = topicId,
+                                nome = product.description,
+                                userId = userId,
+                                linkUrl = product.yukaUrl.ifBlank { null },
+                                gtin = product.gtin,
+                                splitItems = false
+                            ).also { if (it.isEmpty()) throw IllegalStateException("Articolo non creato") }
+                            true
+                        }
+                    }
+                }
+                result.onSuccess { added ->
+                    Toast.makeText(requireContext(), if (added) R.string.catalogo_aggiunto else R.string.catalogo_rimosso, Toast.LENGTH_SHORT).show()
+                    onItemAdded?.invoke()
+                    search(silent = true)
+                }.onFailure {
+                    Toast.makeText(requireContext(), it.message ?: getString(R.string.errore_generico), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -82,8 +122,8 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
             .onFailure { Toast.makeText(requireContext(), R.string.link_non_disponibile, Toast.LENGTH_SHORT).show() }
     }
 
-    fun setOnAddListener(listener: (ApiClient.CatalogProduct) -> Unit) {
-        onAdd = listener
+    fun setOnItemAddedListener(listener: () -> Unit) {
+        onItemAdded = listener
     }
 
     fun setOnInfoListener(listener: (ApiClient.CatalogProduct) -> Unit) {
@@ -92,7 +132,7 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
 
     private class CatalogAdapter(
         private val products: List<ApiClient.CatalogProduct>,
-        private val onAdd: ((ApiClient.CatalogProduct) -> Unit)?,
+        private val onToggle: (ApiClient.CatalogProduct) -> Unit,
         private val onInfo: ((ApiClient.CatalogProduct) -> Unit)?,
         private val onYuka: (ApiClient.CatalogProduct) -> Unit
     ) : RecyclerView.Adapter<CatalogAdapter.ViewHolder>() {
@@ -116,10 +156,11 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
             holder.gtin.text = product.gtin
             holder.yuka.visibility = if (product.yukaUrl.isBlank()) View.GONE else View.VISIBLE
             holder.yuka.setOnClickListener { onYuka(product) }
+            holder.nutrition.alpha = if (product.hasCard) 1f else 0.45f   // sbiadita senza dati OpenFood, come in lista
             holder.nutrition.setOnClickListener { onInfo?.invoke(product) }
             holder.add.text = if (product.inList) "✓" else "+"
             holder.add.setBackgroundResource(if (product.inList) R.drawable.circle_initials_green else R.drawable.circle_initials)
-            holder.add.setOnClickListener { onAdd?.invoke(product) }
+            holder.add.setOnClickListener { onToggle(product) }
         }
     }
 

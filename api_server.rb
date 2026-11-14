@@ -320,7 +320,7 @@ get '/prodotti' do
   alias_per_gtin = DB.execute("SELECT gtin, alias FROM prodotto_alias").group_by { |r| r['gtin'] }
                      .transform_values { |righe| righe.map { |r| r['alias'] }.join(' ') }
   frase = tokens.join(' ')
-  prodotti = DB.execute("SELECT gtin, descrizione FROM prodotti").filter_map do |prodotto|
+  prodotti = DB.execute("SELECT gtin, descrizione, metadata_json FROM prodotti").filter_map do |prodotto|
     descrizione_normalizzata = normalizza_ricerca_prodotto(prodotto['descrizione'])
     testo = "#{descrizione_normalizzata} #{alias_per_gtin[prodotto['gtin']]}"
     next unless tokens.all? { |token| testo.include?(token) }
@@ -337,15 +337,16 @@ get '/prodotti' do
     prodotto.merge('rank' => rank)
   end.sort_by { |prodotto| [prodotto['rank'], prodotto['descrizione'].to_s.downcase] }.first(limite)
 
-  gtins_in_lista = if gruppo_id.nil? || prodotti.empty?
-    []
+  # Articolo ATTIVO (non cancellato, non già comprato) con quel GTIN nella lista di destinazione.
+  item_in_lista = if gruppo_id.nil? || prodotti.empty?
+    {}
   else
     gtins = prodotti.map { |prodotto| prodotto['gtin'] }
     placeholders = gtins.map { '?' }.join(',')
     DB.execute(
-      "SELECT DISTINCT gtin FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND gtin IN (#{placeholders})",
+      "SELECT gtin, MAX(id) AS id FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND COALESCE(comprato, '') = '' AND gtin IN (#{placeholders}) GROUP BY gtin",
       [gruppo_id, topic_id, *gtins]
-    ).map { |item| item['gtin'] }
+    ).to_h { |item| [item['gtin'], item['id']] }
   end
 
   prodotti.map do |prodotto|
@@ -355,7 +356,9 @@ get '/prodotti' do
       descrizione: prodotto['descrizione'].to_s,
       yuka_url: yuka && yuka[:url],
       yuka_source: yuka && yuka[:fonte],
-      in_lista: gtins_in_lista.include?(prodotto['gtin'])
+      in_lista: item_in_lista.key?(prodotto['gtin']),
+      item_id: item_in_lista[prodotto['gtin']],
+      ha_scheda: !DataManager.metadati_openfood(prodotto['metadata_json']).nil?
     }
   end.to_json
 end

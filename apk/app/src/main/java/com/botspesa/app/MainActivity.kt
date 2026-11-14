@@ -255,14 +255,7 @@ class MainActivity : AppCompatActivity() {
                     CatalogoProdottiSheet.newInstance(gruppoId, topicId, userId)
                         .also { sheet ->
                             sheet.setOnInfoListener(::apriInformazioniCatalogo)
-                            sheet.setOnAddListener { prodotto ->
-                                sheet.dismiss()
-                                mostraDialogAggiungi(
-                                    prefilledText = prodotto.description,
-                                    prefilledLink = prodotto.yukaUrl.ifBlank { null },
-                                    prefilledGtin = prodotto.gtin
-                                )
-                            }
+                            sheet.setOnItemAddedListener { aggiornaLista() }
                         }
                         .show(supportFragmentManager, "catalogo_prodotti")
                 }

@@ -871,6 +871,14 @@ class DataManager
     end.first(limite).map { |r| [r["gtin"], r["descrizione"]] }
   end
 
+  # Metadati di una scheda OpenFood (Hash) se il prodotto è stato trovato e ha un nome; altrimenti nil.
+  def self.metadati_openfood(metadata_json)
+    meta = JSON.parse(metadata_json.to_s)
+    meta.is_a?(Hash) && meta["found"] && !meta["name"].to_s.strip.empty? ? meta : nil
+  rescue JSON::ParserError
+    nil
+  end
+
   # GTIN il cui nome OpenFood coincide ESATTAMENTE (normalizzato) con `nome`, solo se è uno solo nel catalogo.
   # Ritorna [gtin, marca] o nil (nessuno, oppure ambiguo: stesso nome OpenFood su più prodotti).
   def self.gtin_da_nome_openfood(nome)
@@ -878,10 +886,8 @@ class DataManager
     return nil if chiave.length < 3
 
     trovati = DB.execute("SELECT gtin, metadata_json FROM prodotti WHERE metadata_json IS NOT NULL AND metadata_json != ''").filter_map do |r|
-      meta = JSON.parse(r["metadata_json"])
-      [r["gtin"], meta["brand"].to_s] if meta["found"] && normalizza_alias(meta["name"]) == chiave
-    rescue JSON::ParserError
-      nil
+      meta = metadati_openfood(r["metadata_json"])
+      [r["gtin"], meta["brand"].to_s] if meta && normalizza_alias(meta["name"]) == chiave
     end
     trovati.size == 1 ? trovati.first : nil
   end

@@ -160,6 +160,8 @@
     <string name="collega_account_telegram">Telegram-Konto verbinden</string>
     <string name="collega">Verbinden</string>
     <string name="pin_6_cifre">6-stellige PIN</string>
+    <string name="catalogo_aggiunto">Zur Liste hinzugefügt</string>
+    <string name="catalogo_rimosso">Aus der Liste entfernt</string>
     <string name="aggiunto_in">Hinzugefügt in %1$s</string>
     <string name="aggiunto_con_foto">Mit Foto hinzugefügt</string>
     <string name="errore_aggiunta">Fehler beim Hinzufügen</string>
