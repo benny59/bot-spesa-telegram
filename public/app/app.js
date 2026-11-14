@@ -1841,11 +1841,23 @@ $('#edit-pref-close').addEventListener('click', () => $('#dlg-edit-pref').close(
 $('#edit-pref-cancel').addEventListener('click', () => $('#dlg-edit-pref').close());
 $('#edit-pref-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const nome = $('#edit-pref-nome').value.trim();
+  let nome = $('#edit-pref-nome').value.trim();
   if (!nome || !editPreferito) return;
   const sel = $('#edit-pref-categoria');
-  const valore = sel.value;
-  const nomeCat = valore ? sel.selectedOptions[0].textContent.replace(/^◌ /, '') : '';
+  let valore = sel.value;
+  let nomeCat = valore ? sel.selectedOptions[0].textContent.replace(/^◌ /, '') : '';
+  // come nel bot e nella modifica articolo: "nome & categoria" assegna la categoria (fissa se esiste, altrimenti effimera)
+  const amp = nome.indexOf('&');
+  if (amp >= 0) {
+    const base = nome.slice(0, amp).replace(/\s+/g, ' ').trim();
+    const label = nome.slice(amp + 1).replace(/\s+/g, ' ').trim();
+    if (base && label) {
+      const fissa = state.categorie.find((c) => !c.effimera && c.nome.toLowerCase() === label.toLowerCase());
+      nome = base;
+      valore = fissa ? String(fissa.id) : `e:${label}`;
+      nomeCat = fissa ? fissa.nome : label.split(' ').map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    }
+  }
   try {
     const backup = await leggiPreferiti();
     const f = backup.favorites.find((x) => x.id === editPreferito.id);
