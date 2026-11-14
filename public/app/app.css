@@ -337,7 +337,7 @@ dialog ol { padding-left: 1.2em; }
 }
 
 /* --- Foto articolo --- */
-#dlg-foto { width: min(92vw, 480px); }
+#dlg-foto, #dlg-foto-sl { width: min(92vw, 480px); }
 .foto-head {
   display: flex;
   align-items: center;

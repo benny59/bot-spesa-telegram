@@ -88,14 +88,17 @@ async function apiUpload(path, { query, file, field = 'file' } = {}) {
 }
 
 // Le foto richiedono il bearer token: niente <img src> diretto, si scarica come blob.
-async function fetchFotoBlobUrl(itemId) {
+// Scarica un'immagine protetta dal token e ne restituisce un URL locale (null se non c'è).
+async function fetchBlobUrl(path) {
   const headers = {};
   if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
-  const res = await fetch(`/foto/${itemId}`, { headers, cache: 'no-store' });
+  const res = await fetch(path, { headers, cache: 'no-store' });
   if (res.status === 401) throw new AuthError('Non autorizzato');
   if (!res.ok) return null;
   return URL.createObjectURL(await res.blob());
 }
+
+const fetchFotoBlobUrl = (itemId) => fetchBlobUrl(`/foto/${itemId}`);
 
 // Scheda prodotto OpenFoodFacts (sola lettura): niente eccezione sui 404, solo un messaggio da mostrare.
 async function fetchProductInfo(gtin) {
@@ -1136,14 +1139,7 @@ $('#add-scan').addEventListener('click', async () => {
 let carteDisponibili = [];
 let cartaBlobUrl = null;
 
-async function fetchCartaBlobUrl(cartaId) {
-  const headers = {};
-  if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
-  const res = await fetch(`/carte/${cartaId}/immagine?user_id=${state.auth.userId}`, { headers, cache: 'no-store' });
-  if (res.status === 401) throw new AuthError('Non autorizzato');
-  if (!res.ok) return null;
-  return URL.createObjectURL(await res.blob());
-}
+const fetchCartaBlobUrl = (cartaId) => fetchBlobUrl(`/carte/${cartaId}/immagine?user_id=${state.auth.userId}`);
 
 function cartaMarker(carta) {
   if (carta.mia && carta.condivisa) return '🟢';
@@ -1722,6 +1718,8 @@ async function fetchHelperRows(tab) {
         inLista: itemId !== undefined,
         itemId,
         favorite: f,
+        fotoPath: f.telegramPhotoId && f.telegramPhotoFileName
+          ? `/foto/preferito/${encodeURIComponent(f.telegramPhotoFileName)}?file_id=${encodeURIComponent(f.telegramPhotoId)}` : '',
         info: { nome: f.description, gtin: f.gtin || '', link_url: f.yukaLink || '', dim: !f.gtin && !isYukaLink(f.yukaLink) },
         modifica: 'preferito'
       };
@@ -1771,6 +1769,7 @@ function renderHelper() {
     const titoloModifica = row.modifica === 'preferito' ? 'Modifica il preferito (nome, categoria)' : 'Modifica prima di aggiungere';
     const info = row.info
       ? `<button class="icon-btn" data-edit="${esc(row.key)}" aria-label="${titoloModifica}" title="${titoloModifica}">✏️</button>
+         ${row.fotoPath ? `<button class="icon-btn" data-foto="${esc(row.key)}" aria-label="Foto" title="Foto">🖼️</button>` : ''}
          <button class="icon-btn item-info${row.info.dim ? ' dim' : ''}" data-info="${esc(row.key)}" aria-label="Info prodotto">ℹ️</button>`
       : '';
     html += `<li${row.info ? ' class="cat-row"' : ''}><button class="sugg ${cls}" data-key="${esc(row.key)}">
@@ -1819,6 +1818,33 @@ function toggleHelperRow(row) {
   }
   return api('/lista', { method: 'POST', body });
 }
+
+// 🖼️ su un preferito: la foto salvata nel preferito (stesso viewer di sola lettura dell'app Android)
+let fotoSolaLetturaUrl = null;
+
+async function openFotoSolaLettura(titolo, path) {
+  if (fotoSolaLetturaUrl) { URL.revokeObjectURL(fotoSolaLetturaUrl); fotoSolaLetturaUrl = null; }
+  $('#foto-sl-title').textContent = titolo;
+  $('#foto-sl-img').hidden = true;
+  $('#foto-sl-loading').hidden = false;
+  $('#foto-sl-loading').textContent = 'Carico…';
+  $('#dlg-foto-sl').showModal();
+  try {
+    fotoSolaLetturaUrl = await fetchBlobUrl(path);
+    if (fotoSolaLetturaUrl) {
+      $('#foto-sl-img').src = fotoSolaLetturaUrl;
+      $('#foto-sl-img').hidden = false;
+      $('#foto-sl-loading').hidden = true;
+    } else {
+      $('#foto-sl-loading').textContent = 'Foto non disponibile';
+    }
+  } catch (err) {
+    $('#dlg-foto-sl').close();
+    handleError(err);
+  }
+}
+
+$('#foto-sl-close').addEventListener('click', () => $('#dlg-foto-sl').close());
 
 // ✏️ su un preferito: se ne cambiano nome e categoria (restano GTIN, link Yuka e foto) e si salva il backup
 let editPreferito = null;
@@ -1892,6 +1918,12 @@ function portaNellaBarra(prodotto) {
 }
 
 $('#helper-list').addEventListener('click', async (e) => {
+  const fotoBtn = e.target.closest('[data-foto]');
+  if (fotoBtn) {
+    const r = helper.rows.find((x) => x.key === fotoBtn.dataset.foto);
+    if (r?.fotoPath) openFotoSolaLettura(r.nome, r.fotoPath);
+    return;
+  }
   const editBtn = e.target.closest('[data-edit]');
   if (editBtn) {
     const r = helper.rows.find((x) => x.key === editBtn.dataset.edit);
