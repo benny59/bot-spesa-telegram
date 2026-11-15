@@ -212,4 +212,16 @@
     <string name="ingredienti_importati">%1$d ingredienti aggiunti, %2$d già presenti</string>
     <string name="importazione_ricetta_fallita">Importazione ricetta non riuscita</string>
     <string name="nav_viste">Viste</string>
+    <string name="unisci_articolo">Unisci con un altro articolo…</string>
+    <string name="unisci_con">Unisci «%1$s» con…</string>
+    <string name="unisci_titolo">Unisci articoli</string>
+    <string name="unisci_riepilogo">Si tiene l\'articolo più completo e gli si aggiunge ciò che manca all\'altro, che viene cancellato (si può ripristinare).\n\nRisultato: %1$s</string>
+    <string name="unisci">Unisci</string>
+    <string name="unisci_fatto">Articoli uniti</string>
+    <string name="unisci_nessun_altro">Nessun altro articolo in questa lista</string>
+    <string name="unisci_barcode">barcode %1$s</string>
+    <string name="unisci_nessun_barcode">nessun barcode</string>
+    <string name="unisci_link">link</string>
+    <string name="unisci_foto">foto</string>
+    <string name="unisci_categoria">categoria</string>
 </resources>

@@ -763,6 +763,7 @@ function aggiornaBarraSelezione() {
   document.body.classList.toggle('selecting', Boolean(state.selezione));
   $('#sel-count').textContent = state.selezione ? `${state.selezione.size} selezionati` : '';
   $('#sel-edit').disabled = !state.selezione?.size;
+  $('#sel-unisci').disabled = (state.selezione?.size || 0) < 2;
 }
 
 function entraSelezione() {
@@ -837,6 +838,56 @@ async function applicaMultipla(items, m) {
 }
 
 $('#sel-edit').addEventListener('click', openEditMultiplaDialog);
+
+// Unisci due articoli doppi: il server calcola il risultato (anteprima), si conferma o si cambia il nome
+let unisciIds = null;
+
+async function openUnisciDialog() {
+  const items = state.items.filter((i) => state.selezione?.has(i.id));
+  if (items.length < 2) return;
+  const { gruppo_id: gruppoId } = items[0];
+  unisciIds = items.map((i) => i.id);
+  try {
+    const r = await api('/lista/unisci', {
+      method: 'POST',
+      body: { gruppo_id: gruppoId, user_id: state.auth.userId, ids: unisciIds, anteprima: true }
+    });
+    $('#unisci-nome').value = r.nome;
+    $('#unisci-nomi').innerHTML = items.map((i) => `<option value="${esc(i.nome)}">`).join('');
+    const parti = [
+      r.gtin ? `Barcode ${r.gtin}` : 'Nessun barcode',
+      r.link_url ? 'link' : '',
+      r.foto ? 'foto' : '',
+      r.categoria_id ? 'categoria' : ''
+    ].filter(Boolean);
+    $('#unisci-riepilogo').textContent = `Risultato: ${parti.join(' · ')}`;
+    $('#dlg-unisci').showModal();
+  } catch (err) {
+    unisciIds = null;
+    handleError(err);
+  }
+}
+
+$('#sel-unisci').addEventListener('click', openUnisciDialog);
+$('#unisci-close').addEventListener('click', () => $('#dlg-unisci').close());
+$('#unisci-cancel').addEventListener('click', () => $('#dlg-unisci').close());
+$('#unisci-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const items = state.items.filter((i) => unisciIds?.includes(i.id));
+  if (items.length < 2) return;
+  $('#dlg-unisci').close();
+  try {
+    await api('/lista/unisci', {
+      method: 'POST',
+      body: { gruppo_id: items[0].gruppo_id, user_id: state.auth.userId, ids: unisciIds, nome: $('#unisci-nome').value.trim() }
+    });
+    toast('Articoli uniti');
+    esciSelezione();
+    await refreshLista();
+  } catch (err) {
+    handleError(err);
+  }
+});
 $('#sel-cancel').addEventListener('click', esciSelezione);
 
 // ---------- foto articolo: carica da file, trascina o incolla ----------
@@ -1571,7 +1622,8 @@ $('#add-form').addEventListener('submit', async (e) => {
 
   input.disabled = true;
   try {
-    await api('/lista', { method: 'POST', body });
+    const r = await api('/lista', { method: 'POST', body });
+    if (r.esistenti?.length) toast('Già in lista: completato');
     input.value = '';
     addGtin = '';
     addLink = '';
@@ -2040,6 +2092,7 @@ $('#dlg-menu').addEventListener('close', async () => {
 // con barcode e foto (scaricata dal server: foto_url).
 
 let importFotoUrl = '';
+let importLinkUrl = '';
 
 async function caricaCategorieImport() {
   const [gruppoId, topicId] = $('#ricetta-destinazione').value.split(':').map(Number);
@@ -2081,6 +2134,7 @@ $('#ricetta-leggi').addEventListener('click', async () => {
     $('#ricetta-comune').hidden = false;
     if (prodotto) {
       importFotoUrl = r.image_url || '';
+      importLinkUrl = r.source_url || '';
       $('#prodotto-nome').value = r.title;
       $('#prodotto-gtin').value = r.gtin || '';
       $('#prodotto-foto').hidden = !importFotoUrl;
@@ -2108,6 +2162,7 @@ function bodyImport() {
     const gtin = $('#prodotto-gtin').value.trim();
     if (gtin) body.gtin = gtin;
     if (importFotoUrl) body.foto_url = importFotoUrl;
+    if (importLinkUrl) body.link_url = importLinkUrl;
     return body;
   }
   const categoria = $('#ricetta-categoria').value.trim();
@@ -2134,7 +2189,7 @@ $('#ricetta-form').addEventListener('submit', async (e) => {
       const doppi = dati.items.length - r.item_ids.length;
       toast(`Importati ${r.item_ids.length} ingredienti${doppi ? ` (${doppi} già presenti)` : ''}`);
     } else {
-      toast(dati.foto_url && !r.foto ? 'Aggiunto, ma la foto non è stata salvata' : 'Prodotto aggiunto');
+      toast(r.esistenti?.length ? 'Già in lista: completato' : dati.foto_url && !r.foto ? 'Aggiunto, ma la foto non è stata salvata' : 'Prodotto aggiunto');
     }
     await refreshLista();
   } catch (err) {

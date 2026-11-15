@@ -773,6 +773,7 @@ post '/lista' do
     items_payload = items.map { |item| "#{item} & #{categoria_effimera}" }
   end
 
+  ultimo_id_prima = DB.get_first_value("SELECT COALESCE(MAX(id), 0) FROM items").to_i
   item_ids = DataManager.aggiungi_articoli(
     gruppo_id: gruppo_id,
     user_id: user_id,
@@ -803,7 +804,8 @@ post '/lista' do
   end
 
   status 201
-  { ok: true, item_ids: item_ids, foto: foto_allegata }.to_json
+  # esistenti: articoli già in lista (stesso nome o stesso GTIN) che sono stati completati invece di duplicarli
+  { ok: true, item_ids: item_ids, esistenti: item_ids.select { |id| id <= ultimo_id_prima }, foto: foto_allegata }.to_json
 end
 
 PROMEMORIA_RIGA_SALVATAGGIO = "\u{1F4F2} Tocca \u{1F4C4} qui sopra e premi Salva."
@@ -1170,6 +1172,27 @@ get '/storico/acquisti' do
       in_lista:     !acquisto['in_lista'].nil?
     }
   }.to_json
+end
+
+# Unisce articoli doppi della stessa lista (anteprima: true = solo il risultato previsto)
+post '/lista/unisci' do
+  body = json_body
+  gruppo_id = body['gruppo_id']&.to_i
+  user_id = body['user_id']&.to_i || 0
+  ids = Array(body['ids']).map(&:to_i)
+  halt 400, { error: 'parametri mancanti' }.to_json if gruppo_id.nil? || ids.size < 2
+  if gruppo_id != 0
+    halt 403, { error: 'accesso negato' }.to_json unless DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
+  end
+  fuori_lista = ids.any? { |id| DB.get_first_value("SELECT 1 FROM items WHERE id = ? AND gruppo_id = ?", [id, gruppo_id]).nil? }
+  halt 404, { error: 'item non trovato' }.to_json if fuori_lista
+  halt 403, { error: 'accesso negato' }.to_json if gruppo_id == 0 && ids.any? { |id| DB.get_first_value("SELECT creato_da FROM items WHERE id = ?", [id]).to_i != user_id }
+
+  anteprima = body['anteprima'] == true
+  risultato = DataManager.unisci_articoli(ids, tieni_id: body['tieni_id'], nome: body['nome'], applica: !anteprima)
+  { ok: true, anteprima: anteprima }.merge(risultato).to_json
+rescue DataManager::UnioneError => e
+  halt 422, { error: e.message }.to_json
 end
 
 delete '/lista/:id/rimuovi' do

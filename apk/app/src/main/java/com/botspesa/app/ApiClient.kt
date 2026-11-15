@@ -724,6 +724,34 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
+    // Unione di due articoli doppi della stessa lista. anteprima = true: il server restituisce solo il risultato previsto.
+    data class UnioneRisultato(val nome: String, val gtin: String, val linkUrl: String, val foto: Boolean, val hasCategoria: Boolean)
+
+    fun unisciArticoli(gruppoId: Int, userId: Int, ids: List<Int>, nome: String? = null, anteprima: Boolean = false): UnioneRisultato {
+        val payload = mutableMapOf<String, Any>("gruppo_id" to gruppoId, "user_id" to userId, "ids" to ids)
+        if (anteprima) payload["anteprima"] = true
+        if (!nome.isNullOrBlank()) payload["nome"] = nome
+        val req = Request.Builder()
+            .url("$baseUrl/lista/unisci")
+            .post(gson.toJson(payload).toRequestBody(JSON_TYPE))
+            .auth()
+            .build()
+        return http.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            val raw: Map<String, Any?> = runCatching {
+                gson.fromJson<Map<String, Any?>>(body, object : TypeToken<Map<String, Any?>>() {}.type)
+            }.getOrNull().orEmpty()
+            if (!response.isSuccessful) throw Exception(raw["error"] as? String ?: "Server ${response.code}")
+            UnioneRisultato(
+                nome = raw["nome"] as? String ?: "",
+                gtin = raw["gtin"] as? String ?: "",
+                linkUrl = raw["link_url"] as? String ?: "",
+                foto = raw["foto"] as? Boolean ?: false,
+                hasCategoria = raw["categoria_id"] != null
+            )
+        }
+    }
+
     fun deleteFoto(itemId: Int, userId: Int): Boolean {
         val req = Request.Builder()
             .url("$baseUrl/lista/$itemId/foto?user_id=$userId")

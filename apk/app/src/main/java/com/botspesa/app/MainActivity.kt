@@ -1418,6 +1418,7 @@ class MainActivity : AppCompatActivity() {
                     R.id.action_add_foto -> mostraDialogSorgenteFoto(item.id)
                     R.id.action_elimina_foto -> eliminaFotoConferma(item)
                     R.id.action_sposta_topic -> mostraDialogSpostaItem(item)
+                    R.id.action_unisci -> mostraDialogUnisci(item)
                     R.id.action_disponibile -> toggleDisponibilita(item)
                     R.id.action_oggi -> toggleOggi(item)
                     R.id.action_elimina  -> eliminaConferma(item)
@@ -1716,6 +1717,68 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Annulla", null)
             .show()
+    }
+
+    // Unisce articoli doppi della stessa lista: si scelgono gli altri, il server mostra il risultato, si conferma.
+    private fun mostraDialogUnisci(item: SpesaItem) {
+        val altri = items.filter { it.id != item.id && it.gruppoId == item.gruppoId && it.topicId == item.topicId && it.nome.isNotBlank() }
+        if (altri.isEmpty()) {
+            Toast.makeText(this, R.string.unisci_nessun_altro, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val scelti = BooleanArray(altri.size)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.unisci_con, item.nome))
+            .setMultiChoiceItems(altri.map { it.nome }.toTypedArray(), scelti) { d, index, checked ->
+                scelti[index] = checked
+                (d as AlertDialog).getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = scelti.any { it }
+            }
+            .setPositiveButton(R.string.unisci) { _, _ ->
+                anteprimaUnione(item, altri.filterIndexed { index, _ -> scelti[index] })
+            }
+            .setNegativeButton(R.string.annulla, null)
+            .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+    }
+
+    private fun anteprimaUnione(base: SpesaItem, altri: List<SpesaItem>) {
+        val ids = listOf(base.id) + altri.map { it.id }
+        lifecycleScope.launch {
+            val anteprima = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.unisciArticoli(base.gruppoId, userId, ids, anteprima = true) }
+            }
+            anteprima.onFailure {
+                Toast.makeText(this@MainActivity, it.message ?: getString(R.string.errore_generico), Toast.LENGTH_LONG).show()
+            }.onSuccess { r ->
+                val parti = listOfNotNull(
+                    if (r.gtin.isNotBlank()) getString(R.string.unisci_barcode, r.gtin) else getString(R.string.unisci_nessun_barcode),
+                    getString(R.string.unisci_link).takeIf { r.linkUrl.isNotBlank() },
+                    getString(R.string.unisci_foto).takeIf { r.foto },
+                    getString(R.string.unisci_categoria).takeIf { r.hasCategoria }
+                )
+                val nomeInput = EditText(this@MainActivity).apply { setText(r.nome); setSelectAllOnFocus(true) }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle(R.string.unisci_titolo)
+                    .setMessage(getString(R.string.unisci_riepilogo, parti.joinToString(" · ")))
+                    .setView(nomeInput)
+                    .setPositiveButton(R.string.unisci) { _, _ ->
+                        val nome = nomeInput.text.toString().trim().ifBlank { r.nome }
+                        lifecycleScope.launch {
+                            val esito = withContext(Dispatchers.IO) {
+                                runCatching { ApiClient.unisciArticoli(base.gruppoId, userId, ids, nome = nome) }
+                            }
+                            esito.onSuccess {
+                                mostraEsitoBreve(getString(R.string.unisci_fatto), true)
+                                aggiornaLista()
+                            }.onFailure {
+                                Toast.makeText(this@MainActivity, it.message ?: getString(R.string.errore_generico), Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                    .setNegativeButton(R.string.annulla, null)
+                    .show()
+            }
+        }
     }
 
     private fun mostraDialogSpostaItem(item: SpesaItem) {

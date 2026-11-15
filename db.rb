@@ -525,6 +525,118 @@ class DataManager
     DB.changes > 0
   end
 
+  # ---- Unione di articoli doppi (stesso prodotto inserito più volte con nomi/link diversi) ----
+  # Si tiene il più completo e gli si aggiunge ciò che manca agli altri; gli altri si cancellano con la
+  # cancellazione normale (annullabile). Con GTIN diversi sono prodotti diversi: non si unisce.
+  # applica: false restituisce solo l'anteprima del risultato.
+  class UnioneError < StandardError; end
+
+  MAX_ARTICOLI_UNIONE = 10
+
+  def self.unisci_articoli(ids, tieni_id: nil, nome: nil, applica: true)
+    ids = Array(ids).map(&:to_i).uniq
+    raise UnioneError, "servono almeno due articoli (al massimo #{MAX_ARTICOLI_UNIONE})" unless ids.size.between?(2, MAX_ARTICOLI_UNIONE)
+
+    righe = ids.map { |id| DB.get_first_row("SELECT * FROM items WHERE id = ?", [id]) }
+    raise UnioneError, "articolo non trovato" if righe.any?(&:nil?)
+    raise UnioneError, "gli articoli devono essere nella stessa lista" unless righe.map { |r| [r["gruppo_id"], r["topic_id"].to_i] }.uniq.size == 1
+    raise UnioneError, "articolo non unibile" if righe.any? { |r| config_preferiti?(r["nome"]) }
+    raise UnioneError, "GTIN diversi: sono prodotti diversi" if righe.filter_map { |r| normalizza_gtin(r["gtin"]) }.uniq.size > 1
+
+    ha_foto = ->(id) { DB.get_first_value("SELECT 1 FROM item_images WHERE item_id = ? LIMIT 1", [id]) ? true : false }
+    ricchezza = lambda do |r|
+      [normalizza_gtin(r["gtin"]), r["link_url"].to_s.strip, r["categoria_id"], r["nome"].to_s.include?("&") ? "c" : nil,
+       ha_foto.call(r["id"]) ? "f" : nil].count { |v| v && !v.to_s.empty? }
+    end
+    tieni = righe.find { |r| r["id"] == tieni_id.to_i } || righe.max_by { |r| [ricchezza.call(r), -r["id"]] }
+    altri = righe - [tieni]
+    tutti = [tieni] + altri
+
+    link = tutti.map { |r| r["link_url"].to_s.strip }.find { |l| link_yuka?(l) } || tutti.map { |r| r["link_url"].to_s.strip }.find { |l| !l.empty? }
+    nome_finale = nome.to_s.strip.empty? ? tieni["nome"].to_s : nome.to_s.strip
+    categoria_id = tutti.map { |r| r["categoria_id"] }.compact.first
+    # categoria effimera ("nome & categoria") di un altro articolo, se quello tenuto non ne ha nessuna
+    suffisso = altri.map { |r| r["nome"].to_s.include?("&") ? r["nome"].split("&", 2).last.strip : nil }.compact.find { |x| !x.empty? }
+    nome_finale = "#{nome_finale} & #{suffisso}" if suffisso && categoria_id.nil? && !nome_finale.include?("&")
+    gtin = tutti.filter_map { |r| normalizza_gtin(r["gtin"]) }.first
+    risultato = {
+      tieni_id: tieni["id"], elimina_ids: altri.map { |r| r["id"] }, nome: nome_finale, gtin: gtin.to_s,
+      link_url: link.to_s, categoria_id: categoria_id, foto: tutti.any? { |r| ha_foto.call(r["id"]) }
+    }
+    return risultato unless applica
+
+    DB.transaction do
+      DB.execute("UPDATE items SET nome = ?, gtin = ?, link_url = ?, categoria_id = ? WHERE id = ?",
+                 [nome_finale, gtin, link, categoria_id, tieni["id"]])
+      # la foto passa all'articolo tenuto solo se questo non ne ha già una
+      unless ha_foto.call(tieni["id"])
+        con_foto = altri.find { |r| ha_foto.call(r["id"]) }
+        DB.execute("UPDATE item_images SET item_id = ? WHERE item_id = ?", [tieni["id"], con_foto["id"]]) if con_foto
+      end
+      unisci_storico(tieni["gruppo_id"], tieni["topic_id"].to_i, tutti.map { |r| r["nome"] }, nome_finale)
+      altri.each { |r| soft_delete_item(r["id"]) }
+      upsert_prodotto(gtin, nome_finale.split("&", 2).first.strip) if gtin
+    end
+    risultato
+  end
+
+  # Le voci d'archivio dei nomi uniti diventano una: conteggio sommato, GTIN e link conservati.
+  def self.unisci_storico(gruppo_id, topic_id, nomi, nome_finale)
+    nome_pulito = ->(n) { n.to_s.split("&", 2).first.to_s.strip.downcase }
+    voci = nomi.map(&:to_s).uniq.filter_map do |n|
+      DB.get_first_row("SELECT * FROM storico_articoli WHERE gruppo_id = ? AND COALESCE(topic_id, 0) = ? AND LOWER(nome) = ?",
+                       [gruppo_id, topic_id, nome_pulito.call(n)])
+    end.uniq { |v| v["id"] }
+    return if voci.size < 2
+
+    finale = nome_pulito.call(nome_finale)
+    base = voci.find { |v| v["nome"].to_s.downcase == finale } || voci.first
+    (voci - [base]).each do |altra|
+      DB.execute("UPDATE OR IGNORE storico_articolo_prodotti SET storico_articolo_id = ? WHERE storico_articolo_id = ?", [base["id"], altra["id"]])
+      DB.execute("UPDATE storico_articoli SET conteggio = COALESCE(conteggio, 0) + ?, link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?) WHERE id = ?",
+                 [altra["conteggio"].to_i, altra["link_url"], base["id"]])
+      DB.execute("DELETE FROM storico_articolo_prodotti WHERE storico_articolo_id = ?", [altra["id"]])
+      DB.execute("DELETE FROM storico_articoli WHERE id = ?", [altra["id"]])
+    end
+  end
+
+  # Una tantum (idempotente, all'avvio): i GTIN già salvati in una forma non canonica (EAN-8 con zeri davanti)
+  # passano alla forma canonica. Se esiste già il prodotto canonico, quello duplicato si fonde con esso.
+  def self.canonicalizza_gtin_esistenti
+    cambiati = 0
+    DB.execute("SELECT gtin FROM prodotti").map { |r| r["gtin"] }.each do |vecchio|
+      nuovo = normalizza_gtin(vecchio)
+      next if nuovo.nil? || nuovo == vecchio
+
+      DB.transaction do
+        if DB.get_first_value("SELECT 1 FROM prodotti WHERE gtin = ?", [nuovo])
+          # la descrizione del duplicato resta ricercabile come alias del prodotto canonico
+          vecchia = DB.get_first_value("SELECT descrizione FROM prodotti WHERE gtin = ?", [vecchio]).to_s.strip
+          registra_alias_prodotto(nuovo, vecchia, fonte: "unione") unless vecchia.empty?
+          DB.execute("UPDATE OR IGNORE storico_articolo_prodotti SET gtin = ? WHERE gtin = ?", [nuovo, vecchio])
+          DB.execute("DELETE FROM storico_articolo_prodotti WHERE gtin = ?", [vecchio])
+          DB.execute("UPDATE OR IGNORE prodotto_alias SET gtin = ? WHERE gtin = ?", [nuovo, vecchio])
+          DB.execute("DELETE FROM prodotto_alias WHERE gtin = ?", [vecchio])
+          DB.execute("DELETE FROM prodotti WHERE gtin = ?", [vecchio])
+        else
+          DB.execute("UPDATE prodotti SET gtin = ? WHERE gtin = ?", [nuovo, vecchio])
+          DB.execute("UPDATE storico_articolo_prodotti SET gtin = ? WHERE gtin = ?", [nuovo, vecchio])
+          DB.execute("UPDATE prodotto_alias SET gtin = ? WHERE gtin = ?", [nuovo, vecchio])
+        end
+      end
+      cambiati += 1
+    end
+    DB.execute("SELECT DISTINCT gtin FROM items WHERE gtin IS NOT NULL AND gtin != ''").map { |r| r["gtin"] }.each do |vecchio|
+      nuovo = normalizza_gtin(vecchio)
+      next if nuovo.nil? || nuovo == vecchio
+
+      DB.execute("UPDATE items SET gtin = ? WHERE gtin = ?", [nuovo, vecchio])
+      cambiati += 1
+    end
+    puts "🔧 [DB] GTIN riportati alla forma canonica: #{cambiati}" if cambiati.positive?
+    cambiati
+  end
+
   def self.undo_delete_item(item_id)
     item_id = item_id.to_i
     return false if item_id <= 0
@@ -629,7 +741,11 @@ class DataManager
     somma = cifre[0...-1].reverse.each_with_index.sum do |cifra, index|
       cifra * (index.even? ? 3 : 1)
     end
-    ((10 - (somma % 10)) % 10) == cifre.last ? gtin : nil
+    return nil unless ((10 - (somma % 10)) % 10) == cifre.last
+
+    # un EAN-8 scritto in forma GTIN-13/14 (zeri davanti, come fanno certi negozi) è lo stesso prodotto
+    senza_zeri = gtin.sub(/\A0+/, "")
+    senza_zeri.length <= 8 ? senza_zeri.rjust(8, "0") : gtin
   end
 
   def self.upsert_prodotto(gtin, descrizione = nil)
@@ -2013,6 +2129,18 @@ end
         next if nome.empty?
 
         esiste = DB.get_first_value("SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND LOWER(nome) = ? AND comprato = ''", [gruppo_id, topic_id, nome_db.downcase])
+        # stesso GTIN già attivo in questa lista (con un altro nome): è lo stesso prodotto, si completa quello
+        # senza ridargli un nome e senza toccare una categoria già scelta.
+        gia_per_gtin = !esiste && gtin ? DB.get_first_value(
+          "SELECT id FROM items WHERE gruppo_id = ? AND topic_id = ? AND gtin = ? AND deleted = 0 AND comprato = '' ORDER BY id LIMIT 1",
+          [gruppo_id, topic_id, gtin]
+        ) : nil
+        if gia_per_gtin
+          DB.execute("UPDATE items SET link_url = COALESCE(NULLIF(TRIM(link_url), ''), ?) WHERE id = ?", [item_link_pulito, gia_per_gtin]) if item_link_pulito
+          DB.execute("UPDATE items SET categoria_id = ? WHERE id = ? AND categoria_id IS NULL", [categoria_effettiva, gia_per_gtin]) if categoria_effettiva
+          ids_creati << gia_per_gtin
+          next
+        end
 
         if esiste
           if item_link_pulito
@@ -2980,3 +3108,5 @@ end
     { status: :errore, messaggio: e.message }
   end
 end
+
+DataManager.canonicalizza_gtin_esistenti

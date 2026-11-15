@@ -211,4 +211,16 @@
     <string name="ingredienti_importati">%1$d Zutaten hinzugefügt, %2$d bereits vorhanden</string>
     <string name="importazione_ricetta_fallita">Rezept konnte nicht importiert werden</string>
     <string name="nav_viste">Ansichten</string>
+    <string name="unisci_articolo">Mit anderem Artikel zusammenführen…</string>
+    <string name="unisci_con">«%1$s» zusammenführen mit…</string>
+    <string name="unisci_titolo">Artikel zusammenführen</string>
+    <string name="unisci_riepilogo">Der vollständigere Artikel bleibt und erhält, was dem anderen fehlt; der andere wird gelöscht (kann wiederhergestellt werden).\n\nErgebnis: %1$s</string>
+    <string name="unisci">Zusammenführen</string>
+    <string name="unisci_fatto">Artikel zusammengeführt</string>
+    <string name="unisci_nessun_altro">Kein weiterer Artikel in dieser Liste</string>
+    <string name="unisci_barcode">Barcode %1$s</string>
+    <string name="unisci_nessun_barcode">kein Barcode</string>
+    <string name="unisci_link">Link</string>
+    <string name="unisci_foto">Foto</string>
+    <string name="unisci_categoria">Kategorie</string>
 </resources>

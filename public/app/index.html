@@ -66,6 +66,7 @@
   <div id="selbar" class="addbar">
     <span id="sel-count" class="muted"></span>
     <button id="sel-edit" type="button" class="primary" disabled>Modifica</button>
+    <button id="sel-unisci" type="button" disabled title="Unisci articoli doppi (da 2 in su)">Unisci</button>
     <button id="sel-cancel" type="button">Annulla</button>
   </div>
   <form id="add-form" class="addbar" autocomplete="off">
@@ -325,6 +326,24 @@
       <div class="foto-actions">
         <button id="edit-item-cancel" type="button">Annulla</button>
         <button type="submit" class="primary wide">Salva</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Unione di due articoli doppi: riepilogo del risultato e nome da tenere -->
+  <dialog id="dlg-unisci">
+    <div class="foto-head">
+      <h3>🔗 Unisci articoli</h3>
+      <button id="unisci-close" class="icon-btn" aria-label="Chiudi">✕</button>
+    </div>
+    <form id="unisci-form">
+      <p class="muted">Si tiene l'articolo più completo e gli si aggiunge ciò che manca all'altro, che viene cancellato (si può ripristinare).</p>
+      <input id="unisci-nome" type="text" list="unisci-nomi" maxlength="200" required>
+      <datalist id="unisci-nomi"></datalist>
+      <div id="unisci-riepilogo" class="muted"></div>
+      <div class="foto-actions">
+        <button id="unisci-cancel" type="button">Annulla</button>
+        <button type="submit" class="primary wide">Unisci</button>
       </div>
     </form>
   </dialog>
