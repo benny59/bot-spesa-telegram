@@ -2,6 +2,7 @@ require_relative "../models/recipe_importer"
 
 url = "https://spesaonline.conad.it/p/conad-acqua-minerale-naturale-6-x-15-l--400100"
 raise "URL Conad non riconosciuto" unless RecipeImporter.supports?(url) && ConadClient.supports?(url)
+raise "codice con suffisso non riconosciuto" unless ConadClient.supports?("https://spesaonline.conad.it/p/yogurt-greco-150-g--7270889-1_N")
 ["http://spesaonline.conad.it/p/x--1", "https://spesaonline.conad.it.evil.example/p/x--1", "https://evil.example/p/x--1",
  "https://spesaonline.conad.it/categoria/acqua", "https://spesaonline.conad.it/p/senza-codice"].each do |u|
   raise "accettato: #{u}" if ConadClient.supports?(u)

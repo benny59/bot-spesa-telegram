@@ -52,10 +52,10 @@ class ConadClient
     false
   end
 
-  # => true/nil: solo https://spesaonline.conad.it/p/<slug>--<codice>
+  # => true/nil: solo https://spesaonline.conad.it/p/<slug>--<codice> (il codice può avere suffissi, es. 7270889-1_N)
   def self.parse(url)
     uri = URI.parse(url.to_s.strip)
-    uri.scheme == "https" && uri.host.to_s.downcase == HOST && uri.path.match?(%r{\A/p/[^/]+--\d+/?\z}) ? true : nil
+    uri.scheme == "https" && uri.host.to_s.downcase == HOST && uri.path.match?(%r{\A/p/[^/]+--[\w-]+/?\z}) ? true : nil
   rescue URI::InvalidURIError
     nil
   end
