@@ -1106,10 +1106,30 @@ async function keepAwake(on) {
 
 let addGtin = '';
 let addLink = '';
+let addFotoUrl = '';
 
 $('#add-input').addEventListener('input', () => {
-  if (!$('#add-input').value.trim()) { addGtin = ''; addLink = ''; }
+  if (!$('#add-input').value.trim()) { addGtin = ''; addLink = ''; addFotoUrl = ''; }
 });
+
+// Un link di negozio (CoopShop, Tigros) incollato nella barra diventa nome, barcode, foto e link del prodotto:
+// si sceglie la categoria e si preme Invio. Senza EAN valido il prodotto entra senza barcode.
+async function leggiLinkNellaBarra() {
+  const input = $('#add-input');
+  const prodotto = await prodottoDaLink(input.value.trim());
+  if (!prodotto) return false;
+  input.value = prodotto.title;
+  addGtin = prodotto.gtin || '';
+  addLink = prodotto.source_url || '';
+  addFotoUrl = prodotto.image_url || '';
+  toast(addGtin ? 'Prodotto letto: scegli la categoria e aggiungi' : 'Prodotto letto, senza barcode valido: scegli la categoria e aggiungi');
+  input.focus();
+  return true;
+}
+
+$('#add-input').addEventListener('paste', () => setTimeout(() => {
+  if (/^https:\/\/\S+$/i.test($('#add-input').value.trim())) leggiLinkNellaBarra().catch(handleError);
+}, 0));
 
 $('#add-scan').addEventListener('click', async () => {
   const code = await scanBarcode('Scansiona un prodotto');
@@ -1536,6 +1556,8 @@ $('#add-form').addEventListener('submit', async (e) => {
   const input = $('#add-input');
   const nome = input.value.trim();
   if (!nome || !state.auth || state.sel.gruppoId === null) return;
+  // link scritto a mano: prima lo leggo, poi si conferma con un secondo Invio
+  if (!addLink && await leggiLinkNellaBarra().catch((err) => { handleError(err); return true; })) return;
 
   const body = applicaCategoria({
     gruppo_id: state.sel.gruppoId,
@@ -1545,6 +1567,7 @@ $('#add-form').addEventListener('submit', async (e) => {
   }, nome, $('#add-categoria').value);
   if (addGtin) body.gtin = addGtin;
   if (addLink) body.link_url = addLink;
+  if (addFotoUrl) body.foto_url = addFotoUrl;
 
   input.disabled = true;
   try {
@@ -1552,6 +1575,7 @@ $('#add-form').addEventListener('submit', async (e) => {
     input.value = '';
     addGtin = '';
     addLink = '';
+    addFotoUrl = '';
     $('#add-categoria').value = '';
     await refreshLista();
   } catch (err) {

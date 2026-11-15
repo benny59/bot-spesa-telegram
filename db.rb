@@ -1935,7 +1935,8 @@ end
 
     gtin = normalizza_gtin(gtin)
     gtin = nil if nomi.size != 1
-    upsert_prodotto(gtin, nomi.first) if gtin
+    # il catalogo resta pulito: la descrizione è il nome, senza la parte "& categoria"
+    upsert_prodotto(gtin, nomi.first.split("&", 2).first.strip) if gtin
 
     # Proprietà associativa: "A, B, C & categoria" assegna "categoria" a TUTTI gli item,
     # non solo all'ultimo segmento dove il parser "&" incontra il testo per primo.

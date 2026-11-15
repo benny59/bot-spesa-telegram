@@ -849,7 +849,10 @@ def recipe_preview_response
   url = body['url'].to_s.strip
   halt 400, { error: 'url mancante' }.to_json if url.empty?
 
-  RecipeImporter.preview(url).to_json
+  anteprima = RecipeImporter.preview(url)
+  # i negozi a volte danno un codice interno al posto dell'EAN: senza GTIN valido il prodotto entra comunque, senza barcode
+  anteprima[:gtin] = DataManager.normalizza_gtin(anteprima[:gtin]).to_s if anteprima[:kind] == 'product'
+  anteprima.to_json
 rescue RecipeImporter::Error => e
   halt 422, { error: e.message }.to_json
 end
