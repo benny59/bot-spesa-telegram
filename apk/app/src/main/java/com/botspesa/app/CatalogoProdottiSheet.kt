@@ -162,7 +162,7 @@ class CatalogoProdottiSheet : BottomSheetDialogFragment() {
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val product = products[position]
-            holder.description.text = product.name
+            holder.description.text = if (product.favorite) "★ ${product.name}" else product.name
             holder.gtin.text = listOf(product.categoryName, product.gtin).filter { it.isNotBlank() }.joinToString(" · ")
             holder.yuka.visibility = if (product.yukaUrl.isBlank()) View.GONE else View.VISIBLE
             holder.yuka.setOnClickListener { onYuka(product) }

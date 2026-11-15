@@ -144,7 +144,8 @@ object ApiClient {
         val name: String,        // nome con cui entra in lista (preferito dell'utente > archivio del gruppo > descrizione)
         val categoryId: Int?,
         val categoryName: String,
-        val categoryEphemeral: Boolean
+        val categoryEphemeral: Boolean,
+        val favorite: Boolean    // è tra i preferiti dell'utente: la stella precede la descrizione
     )
 
     fun getConteggiListe(userId: Int): ConteggiListe {
@@ -228,7 +229,8 @@ object ApiClient {
                     name = (product["nome"] as? String).orEmpty().ifBlank { product["descrizione"] as? String ?: "" },
                     categoryId = (product["categoria_id"] as? Double)?.toInt(),
                     categoryName = product["categoria_nome"] as? String ?: "",
-                    categoryEphemeral = product["categoria_effimera"] as? Boolean ?: false
+                    categoryEphemeral = product["categoria_effimera"] as? Boolean ?: false,
+                    favorite = product["preferito"] as? Boolean ?: false
                 )
             }
         }

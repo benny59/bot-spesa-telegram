@@ -734,6 +734,50 @@ class DataManager
   # prodotti non si tocca: fa da modello. Per ciascun campo vince il preferito dell'utente, poi l'archivio
   # del gruppo/topic di destinazione. Restituisce { gtin => { nome:, categoria_id:, categoria_nome:, categoria_effimera: } }
   # solo per i GTIN con almeno una proposta.
+  # Nome e categoria di un preferito (voce del backup) nel formato delle proposte.
+  def self.proposta_da_preferito(f)
+    nome_cat = f["categoryName"].to_s.strip
+    effimera = f["categoryEphemeral"] == true && !nome_cat.empty?
+    id = f["categoryId"].to_i
+    {
+      nome: f["description"].to_s.strip,
+      categoria_id: id.positive? && !effimera ? id : nil,
+      categoria_nome: id.positive? || effimera ? nome_cat : "",
+      categoria_effimera: effimera
+    }
+  end
+
+  # Voci della ricerca catalogo che non vengono da `prodotti`: i preferiti dell'utente e l'archivio del gruppo/topic
+  # (anche senza GTIN). Ogni voce: { fonte:, gtin: ("" se manca), nome:, categoria_*, yuka_url: }.
+  def self.voci_catalogo(tokens, user_id:, gruppo_id:, topic_id: 0)
+    trovato = ->(nome) { testo = normalizza_alias(nome); tokens.all? { |t| testo.include?(t) } }
+
+    voci = preferiti_utente(user_id).filter_map do |f|
+      proposta = proposta_da_preferito(f)
+      next unless trovato.call(proposta[:nome])
+
+      proposta.merge(fonte: :preferito, gtin: normalizza_gtin(f["gtin"]).to_s, yuka_url: f["yukaLink"].to_s)
+    end
+
+    gtin_per_storico = DB.execute(<<~SQL, [gruppo_id.to_i, topic_id.to_i]).group_by { |r| r["storico_articolo_id"] }
+      SELECT sap.storico_articolo_id, sap.gtin
+      FROM storico_articolo_prodotti sap JOIN storico_articoli sa ON sa.id = sap.storico_articolo_id
+      WHERE sa.gruppo_id = ? AND sa.topic_id = ?
+      ORDER BY sap.ultimo_acquisto DESC, sap.acquisti_confermati DESC, sap.utilizzi DESC
+    SQL
+    DB.execute("SELECT * FROM storico_articoli WHERE gruppo_id = ? AND topic_id = ?", [gruppo_id.to_i, topic_id.to_i]).each do |riga|
+      cat = categoria_da_storico(riga, gruppo_id, topic_id)
+      next unless trovato.call(cat[:nome])
+
+      voci << {
+        fonte: :archivio, gtin: gtin_per_storico[riga["id"]]&.first&.dig("gtin").to_s, nome: cat[:nome],
+        categoria_id: cat[:categoria_id].positive? ? cat[:categoria_id] : nil,
+        categoria_nome: cat[:categoria_nome], categoria_effimera: cat[:effimera], yuka_url: riga["link_url"].to_s
+      }
+    end
+    voci
+  end
+
   def self.proposte_per_gtin(gtins, user_id:, gruppo_id:, topic_id: 0)
     gtins = gtins.filter_map { |g| normalizza_gtin(g) }.uniq
     return {} if gtins.empty?
@@ -743,15 +787,7 @@ class DataManager
       gtin = normalizza_gtin(f["gtin"])
       next unless gtin && gtins.include?(gtin) && !da_preferiti.key?(gtin)
 
-      nome_cat = f["categoryName"].to_s.strip
-      effimera = f["categoryEphemeral"] == true && !nome_cat.empty?
-      id = f["categoryId"].to_i
-      da_preferiti[gtin] = {
-        nome: f["description"].to_s.strip,
-        categoria_id: id.positive? && !effimera ? id : nil,
-        categoria_nome: id.positive? || effimera ? nome_cat : "",
-        categoria_effimera: effimera
-      }
+      da_preferiti[gtin] = proposta_da_preferito(f)
     end
 
     da_archivio = {}

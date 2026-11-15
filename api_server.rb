@@ -295,6 +295,76 @@ end
 # Quanti prodotti restituisce al massimo la ricerca nel catalogo (anche senza parametro limit).
 LIMITE_RICERCA_PRODOTTI = 30
 
+# Ricerca testuale nel catalogo: `prodotti` + preferiti dell'utente + archivio del gruppo/topic.
+# Un prodotto presente in più fonti compare una volta sola (per GTIN; senza GTIN, per nome): vince la voce più
+# completa, cioè quella con GTIN, e `preferito` dice se è tra i preferiti (la stella precede la descrizione).
+def rank_ricerca_prodotto(testi, tokens)
+  frase = tokens.join(' ')
+  testi.map do |testo|
+    if testo == frase then 0
+    elsif testo.start_with?(frase) then 1
+    elsif tokens.all? { |token| testo.include?(token) } then 2
+    else 3   # trovato solo tramite un alias
+    end
+  end.min
+end
+
+def ricerca_catalogo(tokens, user_id:, gruppo_id:, topic_id:, limite:)
+  yuka_links = link_yuka_per_gtin(user_id)
+  # Si cerca nel nome del prodotto e anche nei suoi alias (descrizioni da scontrino, vecchi nomi).
+  alias_per_gtin = DB.execute("SELECT gtin, alias FROM prodotto_alias").group_by { |r| r['gtin'] }
+                     .transform_values { |righe| righe.map { |r| r['alias'] }.join(' ') }
+  prodotti = DB.execute("SELECT gtin, descrizione, metadata_json FROM prodotti").to_h { |p| [p['gtin'], p] }
+  voci = DataManager.voci_catalogo(tokens, user_id: user_id, gruppo_id: gruppo_id || 0, topic_id: topic_id)
+
+  da_prodotti = prodotti.values.select do |p|
+    testo = "#{normalizza_ricerca_prodotto(p['descrizione'])} #{alias_per_gtin[p['gtin']]}"
+    tokens.all? { |token| testo.include?(token) }
+  end.map { |p| p['gtin'] }
+  gtins = (da_prodotti | voci.map { |v| v[:gtin] }.reject(&:empty?)).uniq
+  proposte = DataManager.proposte_per_gtin(gtins, user_id: user_id, gruppo_id: gruppo_id || 0, topic_id: topic_id)
+  preferiti = DataManager.preferiti_utente(user_id)
+  gtin_preferiti = preferiti.filter_map { |f| DataManager.normalizza_gtin(f['gtin']) }.to_set
+
+  voci_per_gtin = voci.group_by { |v| v[:gtin] }
+  con_gtin = gtins.map do |gtin|
+    prodotto = prodotti[gtin]
+    proposta = proposte[gtin] || voci_per_gtin[gtin]&.first || {}
+    descrizione = (prodotto && prodotto['descrizione']).to_s
+    nome = proposta[:nome].to_s.empty? ? descrizione : proposta[:nome].to_s
+    yuka = yuka_links[gtin]
+    {
+      gtin: gtin, descrizione: descrizione.empty? ? nome : descrizione, nome: nome,
+      categoria_id: proposta[:categoria_id], categoria_nome: proposta[:categoria_nome].to_s,
+      categoria_effimera: proposta[:categoria_effimera] == true,
+      yuka_url: yuka && yuka[:url], yuka_source: yuka && yuka[:fonte],
+      preferito: gtin_preferiti.include?(gtin),
+      ha_scheda: prodotto ? !DataManager.metadati_openfood(prodotto['metadata_json']).nil? : false,
+      rank: rank_ricerca_prodotto([normalizza_ricerca_prodotto(descrizione), normalizza_ricerca_prodotto(nome),
+                                   "#{normalizza_ricerca_prodotto(descrizione)} #{alias_per_gtin[gtin]}"].reject(&:empty?), tokens)
+    }
+  end
+
+  # Voci senza GTIN: una per nome (il preferito prima dell'archivio), solo se nessun prodotto con GTIN ha lo stesso nome.
+  nomi_con_gtin = con_gtin.map { |v| normalizza_ricerca_prodotto(v[:nome]) }.to_set
+  senza_gtin = voci.select { |v| v[:gtin].empty? }.group_by { |v| normalizza_ricerca_prodotto(v[:nome]) }
+                   .reject { |nome, _| nomi_con_gtin.include?(nome) }.map do |nome, gruppo|
+    gruppo = gruppo.sort_by { |v| v[:fonte] == :preferito ? 0 : 1 }
+    con_categoria = gruppo.find { |v| !v[:categoria_nome].to_s.empty? } || gruppo.first
+    link = gruppo.map { |v| v[:yuka_url] }.find { |url| link_yuka?(url) }
+    {
+      gtin: '', descrizione: gruppo.first[:nome], nome: gruppo.first[:nome],
+      categoria_id: con_categoria[:categoria_id], categoria_nome: con_categoria[:categoria_nome].to_s,
+      categoria_effimera: con_categoria[:categoria_effimera] == true,
+      yuka_url: link, yuka_source: link && 'preferito',
+      preferito: gruppo.any? { |v| v[:fonte] == :preferito }, ha_scheda: false,
+      rank: rank_ricerca_prodotto([nome], tokens)
+    }
+  end
+
+  (con_gtin + senza_gtin).sort_by { |v| [v[:rank], v[:preferito] ? 0 : 1, v[:nome].downcase] }.first(limite)
+end
+
 get '/prodotti' do
   query = params[:query].to_s.strip
   user_id = params[:user_id]&.to_i || 0
@@ -304,59 +374,19 @@ get '/prodotti' do
   tokens = normalizza_ricerca_prodotto(query).split
   halt 400, { error: 'ricerca troppo breve' }.to_json if tokens.join.length < 2
 
-  yuka_links = link_yuka_per_gtin(user_id)
-  # Si cerca nel nome del prodotto e anche nei suoi alias (descrizioni da scontrino, vecchi nomi).
-  alias_per_gtin = DB.execute("SELECT gtin, alias FROM prodotto_alias").group_by { |r| r['gtin'] }
-                     .transform_values { |righe| righe.map { |r| r['alias'] }.join(' ') }
-  frase = tokens.join(' ')
-  prodotti = DB.execute("SELECT gtin, descrizione, metadata_json FROM prodotti").filter_map do |prodotto|
-    descrizione_normalizzata = normalizza_ricerca_prodotto(prodotto['descrizione'])
-    testo = "#{descrizione_normalizzata} #{alias_per_gtin[prodotto['gtin']]}"
-    next unless tokens.all? { |token| testo.include?(token) }
+  risultati = ricerca_catalogo(tokens, user_id: user_id, gruppo_id: gruppo_id, topic_id: topic_id, limite: limite)
 
-    rank = if descrizione_normalizzata == frase
-      0
-    elsif descrizione_normalizzata.start_with?(frase)
-      1
-    elsif tokens.all? { |token| descrizione_normalizzata.include?(token) }
-      2
-    else
-      3   # trovato solo tramite un alias
-    end
-    prodotto.merge('rank' => rank)
-  end.sort_by { |prodotto| [prodotto['rank'], prodotto['descrizione'].to_s.downcase] }.first(limite)
+  # Articolo ATTIVO (non cancellato, non già comprato) nella lista di destinazione: per GTIN, o per nome se manca il GTIN.
+  attivi = gruppo_id.nil? ? [] : DB.execute(
+    "SELECT id, gtin, nome FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND COALESCE(comprato, '') = '' ORDER BY id",
+    [gruppo_id, topic_id]
+  )
+  per_gtin = attivi.reject { |i| i['gtin'].to_s.empty? }.to_h { |i| [i['gtin'], i['id']] }
+  per_nome = attivi.to_h { |i| [normalizza_ricerca_prodotto(i['nome'].to_s.split('&', 2).first), i['id']] }
 
-  # Articolo ATTIVO (non cancellato, non già comprato) con quel GTIN nella lista di destinazione.
-  item_in_lista = if gruppo_id.nil? || prodotti.empty?
-    {}
-  else
-    gtins = prodotti.map { |prodotto| prodotto['gtin'] }
-    placeholders = gtins.map { '?' }.join(',')
-    DB.execute(
-      "SELECT gtin, MAX(id) AS id FROM items WHERE gruppo_id = ? AND topic_id = ? AND deleted = 0 AND COALESCE(comprato, '') = '' AND gtin IN (#{placeholders}) GROUP BY gtin",
-      [gruppo_id, topic_id, *gtins]
-    ).to_h { |item| [item['gtin'], item['id']] }
-  end
-
-  # Nome e categoria con cui entrerebbe in lista (preferito dell'utente > archivio del gruppo), per GTIN esatto.
-  proposte = DataManager.proposte_per_gtin(prodotti.map { |p| p['gtin'] }, user_id: user_id, gruppo_id: gruppo_id || 0, topic_id: topic_id)
-
-  prodotti.map do |prodotto|
-    yuka = yuka_links[prodotto['gtin']]
-    proposta = proposte[prodotto['gtin']] || {}
-    {
-      gtin: prodotto['gtin'],
-      descrizione: prodotto['descrizione'].to_s,
-      nome: proposta[:nome].to_s.empty? ? prodotto['descrizione'].to_s : proposta[:nome],
-      categoria_id: proposta[:categoria_id],
-      categoria_nome: proposta[:categoria_nome].to_s,
-      categoria_effimera: proposta[:categoria_effimera] == true,
-      yuka_url: yuka && yuka[:url],
-      yuka_source: yuka && yuka[:fonte],
-      in_lista: item_in_lista.key?(prodotto['gtin']),
-      item_id: item_in_lista[prodotto['gtin']],
-      ha_scheda: !DataManager.metadati_openfood(prodotto['metadata_json']).nil?
-    }
+  risultati.map do |v|
+    item_id = v[:gtin].empty? ? per_nome[normalizza_ricerca_prodotto(v[:nome])] : per_gtin[v[:gtin]]
+    v.except(:rank).merge(in_lista: !item_id.nil?, item_id: item_id)
   end.to_json
 end
 

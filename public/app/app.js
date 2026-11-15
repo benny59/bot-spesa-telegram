@@ -1676,9 +1676,10 @@ async function fetchHelperRows(tab) {
     const prodotti = await api('/prodotti', { query: { ...dest, user_id: state.auth.userId, query: q } });
     return {
       rows: prodotti.map((p) => ({
-        key: `k${p.gtin}`,
+        key: `k${p.gtin || p.nome}`,   // preferiti e archivio possono non avere il GTIN
         nome: p.nome,
         label: p.nome,
+        star: p.preferito,
         meta: [p.categoria_nome ? categoriaRow(p.categoria_nome, p.categoria_effimera) : '', p.gtin, p.yuka_url ? 'Yuka' : '']
           .filter(Boolean).join(' · '),
         inLista: p.in_lista,
@@ -1799,7 +1800,7 @@ function renderHelper() {
     html += `<li${row.info ? ' class="cat-row"' : ''}><button class="sugg ${cls}" data-key="${esc(row.key)}">
       <span class="status">${row.inLista ? '✓' : '+'}</span>
       <span class="sugg-text">
-        <div class="sugg-nome">${esc(row.label)}</div>
+        <div class="sugg-nome">${row.star ? '★ ' : ''}${esc(row.label)}</div>
         ${row.meta ? `<div class="sugg-meta">${esc(row.meta)}</div>` : ''}
       </span>
     </button>${info}</li>`;
@@ -1816,7 +1817,7 @@ function toggleHelperRow(row) {
     if (row.inLista) return api(`/lista/${row.itemId}/rimuovi`, { method: 'DELETE', query: { ...dest, user_id: user } });
     // nome e categoria arrivano dal server (preferito dell'utente > archivio del gruppo), per GTIN esatto
     const body = applicaCategoria(
-      { ...dest, user_id: user, split_items: false, gtin: row.catalogo.gtin },
+      { ...dest, user_id: user, split_items: false, ...(row.catalogo.gtin ? { gtin: row.catalogo.gtin } : {}) },
       row.catalogo.nome, categoriaValueDiItem(row.catalogo)
     );
     if (row.catalogo.yuka_url) body.link_url = row.catalogo.yuka_url;
