@@ -183,6 +183,7 @@ class MainActivity : AppCompatActivity() {
             url = prefs.getString("api_url", "http://10.0.2.2:4567") ?: "http://10.0.2.2:4567",
             tok = prefs.getString("api_token", "") ?: ""
         )
+        sincronizzaPreferitiDalServer()
 
         adapter = SpesaAdapter(
             items      = items,
@@ -499,6 +500,24 @@ class MainActivity : AppCompatActivity() {
         val letters = value.count { it.isLetter() }
         val bonusWords = if (words >= 2) 20 else 0
         return letters + bonusWords
+    }
+
+    // All'avvio: se il backup dei preferiti sul server (es. modificato dalla PWA) è più recente
+    // dell'ultimo salvataggio locale, lo ripristina; senza server o senza backup non fa nulla.
+    private fun sincronizzaPreferitiDalServer() {
+        if (userId == 0 || !prefs().contains("api_url")) return
+        lifecycleScope.launch {
+            val ripristinato = withContext(Dispatchers.IO) {
+                runCatching {
+                    val backup = ApiClient.getBackupPreferiti(userId)
+                    backup.kind == "favorites-backup" && backup.userId == userId && favoritesStore.restoreIfNewer(backup)
+                }.getOrDefault(false)
+            }
+            if (ripristinato) {
+                adapter.notifyDataSetChanged()
+                Toast.makeText(this@MainActivity, getString(R.string.preferiti_aggiornati_dal_server), Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun tryConsumePendingShare() {

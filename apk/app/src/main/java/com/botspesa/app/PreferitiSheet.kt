@@ -160,11 +160,13 @@ class PreferitiSheet : BottomSheetDialogFragment() {
 
     private fun backupPreferiti() {
         lifecycleScope.launch {
-            val backup = FavoritesStore(requireContext()).backup(userId)
+            val store = FavoritesStore(requireContext())
+            val backup = store.backup(userId)
             val result = withContext(Dispatchers.IO) {
                 runCatching { ApiClient.backupPreferiti(userId, backup) }
             }
             result.onSuccess { lastBackupAt ->
+                store.markSynced()
                 Toast.makeText(requireContext(), "Backup completato: $lastBackupAt", Toast.LENGTH_LONG).show()
             }.onFailure {
                 Toast.makeText(requireContext(), it.message ?: "Errore backup", Toast.LENGTH_LONG).show()

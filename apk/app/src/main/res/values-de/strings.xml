@@ -120,6 +120,7 @@
     <string name="articolo_ripristinato">Artikel wiederhergestellt</string>
     <string name="cancellazione_non_riuscita">Löschen fehlgeschlagen</string>
     <string name="ripristino_non_riuscito">Wiederherstellen fehlgeschlagen</string>
+    <string name="preferiti_aggiornati_dal_server">Favoriten vom Server aktualisiert</string>
     <string name="aggiornamento_disponibilita_non_riuscito">Verfügbarkeitsupdate fehlgeschlagen</string>
     <string name="lista_personale">Persönliche Liste</string>
     <string name="principale">Haupt</string>

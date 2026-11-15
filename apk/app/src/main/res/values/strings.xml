@@ -120,6 +120,7 @@
     <string name="articolo_ripristinato">Articolo ripristinato</string>
     <string name="cancellazione_non_riuscita">Cancellazione non riuscita</string>
     <string name="ripristino_non_riuscito">Ripristino non riuscito</string>
+    <string name="preferiti_aggiornati_dal_server">Preferiti aggiornati dal server</string>
     <string name="aggiornamento_disponibilita_non_riuscito">Aggiornamento disponibilità non riuscito</string>
     <string name="lista_personale">Lista Personale</string>
     <string name="principale">Principale</string>

@@ -28,6 +28,23 @@ class FavoritesStore(context: Context) {
         save(backup.favorites)
     }
 
+    // L'"ultimo salvataggio" è la data del file locale: ogni modifica la aggiorna, e anche backup e ripristino
+    // (markSynced), così un backup già in linea con il server non viene riscaricato.
+    fun lastSavedAt(): Long = if (file.exists()) file.lastModified() else 0L
+
+    fun markSynced() {
+        if (file.exists()) file.setLastModified(System.currentTimeMillis())
+    }
+
+    // Ripristino all'avvio: solo se il backup sul server è più recente dell'ultimo salvataggio locale,
+    // così le modifiche fatte qui e non ancora salvate sul server non vengono mai sovrascritte.
+    fun restoreIfNewer(backup: FavoriteBackup): Boolean {
+        val serverAt = runCatching { Instant.parse(backup.lastBackupAt).toEpochMilli() }.getOrNull() ?: return false
+        if (serverAt <= lastSavedAt()) return false
+        restore(backup)
+        return true
+    }
+
     fun toggle(item: SpesaItem): Boolean {
         val favorites = all().toMutableList()
         // più preferiti possono coincidere (stesso nome, prodotti diversi): se ne toglie uno, il più vicino all'articolo
