@@ -167,6 +167,19 @@ main {
   border: 0;
   text-align: left;
 }
+/* il cestino resta lontano dalle icone (foto, info, azioni): margine a destra e filo di separazione */
+.item-main { padding-right: 18px; }
+.item-foto, .item-info, .item-more { margin-left: 2px; }
+.item-main + .icon-btn { margin-left: 10px; position: relative; }
+.item-main + .icon-btn::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: rgba(128, 128, 128, .3);
+}
 .item-text { flex: 1; min-width: 0; }
 .item-nome { overflow-wrap: anywhere; }
 .item-cat { font-size: .8em; color: var(--muted); }

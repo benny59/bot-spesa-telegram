@@ -223,4 +223,6 @@
     <string name="unisci_link">Link</string>
     <string name="unisci_foto">Foto</string>
     <string name="unisci_categoria">Kategorie</string>
+    <string name="scheda_non_disponibile">Für dieses Produkt gibt es keine Nährwertangaben.</string>
+    <string name="apri_sito_negozio">Im Shop öffnen</string>
 </resources>

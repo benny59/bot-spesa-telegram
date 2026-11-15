@@ -608,7 +608,9 @@ object ApiClient {
                 val ogTitle = ogTitleRegex.find(html)?.groupValues?.getOrNull(1)?.trim()
                 val title = titleRegex.find(html)?.groupValues?.getOrNull(1)?.trim()
                 val resolvedTitle = sanitizeResolvedTitle(ogTitle ?: title) ?: return@use null
+                // l'URL arriva con le entità HTML (&#x27;, &amp;): senza decodifica Yuka non restituisce l'immagine
                 val image = ogImageRegex.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+                    .let { androidx.core.text.HtmlCompat.fromHtml(it, androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY).toString() }
                 SharedProductPreview(
                     title = resolvedTitle,
                     imageUrl = image.takeIf { it.isNotEmpty() }
@@ -621,11 +623,8 @@ object ApiClient {
         val value = raw?.trim().orEmpty()
         if (value.isEmpty()) return null
 
-        val cleaned = value
-            .replace("&amp;", "&")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace("&apos;", "'")
+        // entità HTML di ogni forma (&#x27;, &#39;, &amp;, ...): Yuka scrive l'apostrofo come &#x27;
+        val cleaned = androidx.core.text.HtmlCompat.fromHtml(value, androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY).toString()
             .replace(Regex("\\s+"), " ")
             .replace(Regex("\\s*[|•-]\\s*Yuka.*$", RegexOption.IGNORE_CASE), "")
             .trim()

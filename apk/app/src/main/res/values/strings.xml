@@ -224,4 +224,6 @@
     <string name="unisci_link">link</string>
     <string name="unisci_foto">foto</string>
     <string name="unisci_categoria">categoria</string>
+    <string name="scheda_non_disponibile">Nessuna scheda nutrizionale per questo prodotto.</string>
+    <string name="apri_sito_negozio">Apri sul sito</string>
 </resources>
