@@ -223,7 +223,7 @@ end
 def allega_foto_da_url(item_ids, user_id, foto_url)
   return false if foto_url.to_s.empty? || user_id.to_i == 0 || item_ids.empty?
 
-  image_data = EbsnShopClient.fetch_image(foto_url)
+  image_data = RecipeImporter.fetch_image(foto_url)
   item_ids.each { |item_id| allega_foto(item_id, user_id, image_data) }
   true
 rescue EbsnShopClient::Error, FotoError => e

@@ -55,10 +55,20 @@ class EbsnShopClient
   end
 
   # Scarica la foto solo dai negozi noti (l'URL arriva dal client: niente fetch arbitrari)
-  def self.fetch_image(url, connection: nil)
+  def self.fetch_image(url, connection: nil) = download_image(url, hosts: SHOPS.keys, connection: connection)
+
+  def self.image_host?(url)
+    host = URI.parse(url.to_s.strip).host.to_s.downcase
+    SHOPS.key?(host)
+  rescue URI::InvalidURIError
+    false
+  end
+
+  # Scarico condiviso con gli altri negozi (ConadClient): https e solo gli host indicati
+  def self.download_image(url, hosts:, connection: nil)
     uri = URI.parse(url.to_s.strip)
     host = uri.host.to_s.downcase
-    raise Error, "Immagine non valida" unless uri.scheme == "https" && SHOPS.key?(host)
+    raise Error, "Immagine non valida" unless uri.scheme == "https" && hosts.include?(host)
 
     http = connection || connection_for("https://#{host}")
     response = get(http, uri.request_uri)
@@ -103,5 +113,5 @@ class EbsnShopClient
     end
   end
 
-  private_class_method :parse, :connection_for, :get
+  private_class_method :parse
 end
