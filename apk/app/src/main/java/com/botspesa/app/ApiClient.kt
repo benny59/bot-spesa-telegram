@@ -908,6 +908,20 @@ object ApiClient {
         return http.newCall(req).execute().use { it.isSuccessful }
     }
 
+    /** Scarica la lista in PDF (B5). Ritorna null se non c'è nulla da comprare. */
+    fun scaricaListaPdf(gruppoId: Int, topicId: Int, userId: Int): ByteArray? {
+        val req = Request.Builder()
+            .url("$baseUrl/lista/pdf?gruppo_id=$gruppoId&topic_id=$topicId&user_id=$userId")
+            .auth()
+            .build()
+        val lungo = http.newBuilder().readTimeout(90, TimeUnit.SECONDS).build()
+        return lungo.newCall(req).execute().use {
+            if (it.code == 404) null
+            else if (!it.isSuccessful) throw java.io.IOException("HTTP ${it.code}")
+            else it.body!!.bytes()
+        }
+    }
+
     fun getFotoUrl(itemId: Int): String = "$baseUrl/foto/$itemId"
 
     fun getFavoriteFotoUrl(fileId: String, fileUniqueId: String): String =

@@ -8,6 +8,7 @@ require_relative "../models/carte_fedelta"
 require_relative "../models/carte_fedelta_gruppo"
 require_relative "../models/lista_modello"
 require_relative "./storico_manager"
+require_relative "./lista_pdf"
 require_relative "../db"
 require_relative "./cleanup_manager"  # needed for /cleanup command
 
@@ -281,6 +282,11 @@ class MessageHandler
     end
   end  
     
+    when "/pdf"
+      g_id = context.config["db_id"].to_i
+      t_id = context.config["topic_id"].to_i
+      self.handle_pdf(bot, msg, g_id, t_id)
+
     when /^\/(start|help)/
       self.core_start(bot, context)
       KeyboardGenerator.show_private_keyboard(bot, context.chat_id, context) if context.private_chat?
@@ -441,6 +447,27 @@ def self.core_aggiunta(bot, context, contenuto, force_personal = false, msg = ni
     text: context.private_chat? ? "✅ <b>#{testo_pulito}</b> aggiunto alla lista <b>#{nome_lista}</b>." : "✅ <b>#{testo_pulito}</b> aggiunto",
     parse_mode: "HTML"
   )
+end
+
+def self.handle_pdf(bot, msg, g_id, t_id)
+  thread = (msg.chat.id < 0 && t_id > 0) ? t_id : nil
+  path = ListaPdf.genera(bot, g_id, t_id, user_id: msg.from.id)
+  if path.nil?
+    bot.api.send_message(chat_id: msg.chat.id, message_thread_id: thread, text: "📝 Nessun articolo da comprare: niente da stampare.")
+    return
+  end
+  bot.api.send_document(
+    chat_id: msg.chat.id,
+    message_thread_id: thread,
+    document: Faraday::UploadIO.new(path, "application/pdf"),
+    caption: "📋 Lista della spesa (B5): stampala o inoltrala, ogni articolo ha il riquadro da spuntare a matita.",
+  )
+rescue => e
+  puts "❌ [PDF] #{e.class}: #{e.message}"
+  puts e.backtrace.first(5)
+  bot.api.send_message(chat_id: msg.chat.id, message_thread_id: thread, text: "❌ Non sono riuscito a generare il PDF.")
+ensure
+  File.delete(path) if path && File.exist?(path)
 end
 
 def self.handle_share_text(bot, msg, gruppo, topic_id)

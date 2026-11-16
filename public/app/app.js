@@ -2083,8 +2083,35 @@ $('#dlg-menu').addEventListener('close', async () => {
     openRicettaDialog();
   } else if (action === 'promemoria') {
     openPromemoriaDialog();
+  } else if (action === 'pdf') {
+    condividiPdf();
   }
 });
+
+// ---------- lista in PDF (B5): scarico dal server e condivido (o apro) il file ----------
+async function condividiPdf() {
+  if (state.sel.vista || state.sel.gruppoId === null || state.sel.gruppoId === undefined) {
+    toast('Apri una lista specifica per creare il PDF');
+    return;
+  }
+  try {
+    const url = new URL('/lista/pdf', location.origin);
+    url.searchParams.set('gruppo_id', state.sel.gruppoId);
+    url.searchParams.set('topic_id', state.sel.topicId || 0);
+    url.searchParams.set('user_id', state.auth.userId);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${state.auth.token}` }, cache: 'no-store' });
+    if (res.status === 404) { toast('Nessun articolo da comprare'); return; }
+    if (!res.ok) throw new Error(`Errore ${res.status}`);
+    const file = new File([await res.blob()], 'lista-spesa.pdf', { type: 'application/pdf' });
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Lista della spesa' }); return; }
+      catch (e) { if (e.name === 'AbortError') return; }
+    }
+    window.open(URL.createObjectURL(file), '_blank');
+  } catch (e) {
+    toast(e.message);
+  }
+}
 
 // ---------- import da link: ricetta (Monsieur Cuisine, GialloZafferano) o prodotto (CoopShop, Tigros) ----------
 // Il server legge il link (POST /import/recipe/preview). Una ricetta entra come articoli di una

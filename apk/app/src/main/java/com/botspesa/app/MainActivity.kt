@@ -693,6 +693,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         menu.findItem(R.id.action_condividi)?.isVisible = vistaAttuale.isEmpty()
+        menu.findItem(R.id.action_pdf)?.isVisible = vistaAttuale.isEmpty()
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -700,8 +701,33 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.action_scopetta -> { mostraScopettaConferma(); true }
             R.id.action_condividi -> { condividiListaCorrente(); true }
+            R.id.action_pdf -> { condividiListaPdf(); true }
             R.id.action_carte    -> { CarteSheet.newInstance(gruppoId, userId).show(supportFragmentManager, "carte"); true }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun condividiListaPdf() {
+        lifecycleScope.launch {
+            val risultato = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.scaricaListaPdf(gruppoId, topicId, userId) }
+            }
+            val bytes = risultato.getOrElse {
+                Toast.makeText(this@MainActivity, R.string.lista_pdf_errore, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            if (bytes == null) {
+                Toast.makeText(this@MainActivity, R.string.lista_pdf_vuota, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val file = File(cacheDir, "lista-spesa.pdf").apply { writeBytes(bytes) }
+            val uri = FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, getString(R.string.lista_pdf)))
         }
     }
 

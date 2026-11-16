@@ -16,4 +16,8 @@
         android:icon="@drawable/ic_nav_carte"
         android:title="@string/nav_carte"
         app:showAsAction="always" />
+    <item
+        android:id="@+id/action_pdf"
+        android:title="@string/lista_pdf"
+        app:showAsAction="never" />
 </menu>

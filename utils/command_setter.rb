@@ -12,6 +12,7 @@ class CommandSetter
       Telegram::Bot::Types::BotCommand.new(command: "delcartagruppo", description: "Rimuovi carta dal gruppo"),
       Telegram::Bot::Types::BotCommand.new(command: "lista", description: "Mostra lista della spesa"),
       Telegram::Bot::Types::BotCommand.new(command: "checklist", description: "Controlla lista completata"),
+      Telegram::Bot::Types::BotCommand.new(command: "pdf", description: "Lista in PDF (B5) da stampare o inoltrare"),
       #      Telegram::Bot::Types::BotCommand.new(command: "ss", description: "Screenshot lista (PDF)"),
       Telegram::Bot::Types::BotCommand.new(command: "delgroup", description: "Cancella gruppo"),
       Telegram::Bot::Types::BotCommand.new(command: "listagruppi", description: "Mostra gruppi registrati"),
