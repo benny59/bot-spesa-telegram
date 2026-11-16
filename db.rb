@@ -363,6 +363,20 @@ SQL
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_nome_gruppo ON storico_articoli (nome, gruppo_id, topic_id);"
   db.execute "CREATE INDEX IF NOT EXISTS idx_storico_last_categoria ON storico_articoli (gruppo_id, topic_id, LOWER(nome), last_categoria_id);"
 
+  # Album foto aperti da 📸 (per poterli chiudere/riaprire senza lasciare messaggi)
+  db.execute <<-SQL
+    CREATE TABLE IF NOT EXISTS photo_albums (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id INTEGER NOT NULL,
+      thread_id INTEGER NOT NULL DEFAULT 0,
+      gruppo_id INTEGER,
+      topic_id INTEGER,
+      tutti INTEGER NOT NULL DEFAULT 0,
+      message_ids TEXT NOT NULL DEFAULT '[]',
+      creato_il DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  SQL
+
   puts "✅ [DB] Database inizializzato correttamente."
   db
 end

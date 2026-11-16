@@ -1,5 +1,6 @@
 # handlers/callback_handler.rb
 require_relative "storico_manager"
+require_relative "photo_album"
 require_relative "../models/carte_fedelta"
 require_relative "../models/whitelist"
 require_relative "../models/lista_modello"
@@ -470,61 +471,24 @@ when /^trigger_list:(-?\d*):(\d*)$/
 
       # Eseguiamo il refresh sulla pagina 0
       self.refresh_ui(bot, callback, context, g_id, t_id, 0, 0)
-    when /^show_photos:(\d+):(\d+)$/
+    when /^show_photos:(-?\d+):(\d+)$/
       g_id, t_id = $1.to_i, $2.to_i
-      c_id = callback.message.chat.id
-
-      # DEFINIZIONE DELLA VARIABILE (Il pezzo mancante!)
-      # Se la chat è privata (>0), il thread_id deve essere nil
-      actual_thread_id = (c_id > 0) ? nil : t_id
-
-      articoli = DataManager.prendi_articoli_ordinati(g_id, t_id).select { |i| i["ha_foto"].to_i > 0 }
-
-      if articoli.empty?
+      esito = PhotoAlbum.apri(bot, callback.message.chat.id, g_id, t_id, tutti: false)
+      if esito == :vuoto
         bot.api.answer_callback_query(callback_query_id: callback.id, text: "Nessuna 📸 in questa lista.")
       else
         bot.api.answer_callback_query(callback_query_id: callback.id)
-
-        articoli.each do |art|
-          foto_ids = DataManager.prendi_foto_articolo(art["id"])
-          foto_ids.each do |f|
-            begin
-              photo = f["file_id"]
-              if photo.to_s.start_with?("local:")
-                cache_path = File.join(__dir__, "..", "data", "foto_cache", "#{f["file_unique_id"]}.jpg")
-                unless File.exist?(cache_path)
-                  puts "❌ Foto locale non trovata: #{cache_path}"
-                  next
-                end
-                photo = Faraday::UploadIO.new(cache_path, "image/jpeg")
-              end
-
-              sent = bot.api.send_photo(
-                chat_id: c_id,
-                photo: photo,
-                caption: "📸 Articolo: <b>#{art["nome"]}</b>",
-                parse_mode: "HTML",
-                message_thread_id: actual_thread_id, # Ora la variabile esiste!
-                reply_markup: Telegram::Bot::Types::InlineKeyboardMarkup.new(
-                  inline_keyboard: [[
-                    # Usiamo il tuo ui_close che è già perfetto e DRY
-                    Telegram::Bot::Types::InlineKeyboardButton.new(text: "🗑️ Chiudi", callback_data: "ui_close"),
-                  ]],
-                ),
-              )
-
-              if f["file_id"].to_s.start_with?("local:") && sent.photo&.last
-                tg_foto = sent.photo.last
-                DB.execute(
-                  "UPDATE item_images SET file_id = ?, file_unique_id = ? WHERE item_id = ? AND file_id = ?",
-                  [tg_foto.file_id, tg_foto.file_unique_id, art["id"], f["file_id"]]
-                )
-              end
-            rescue => e
-              puts "❌ Errore API durante invio foto: #{e.message}"
-            end
-          end
-        end
+      end
+    when /^photo_switch:(\d+):([01])$/
+      album_id, tutti = $1.to_i, $2 == "1"
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+      PhotoAlbum.cambia(bot, callback.message.chat.id, album_id, tutti)
+    when /^photo_close:(\d+)$/
+      album_id = $1.to_i
+      bot.api.answer_callback_query(callback_query_id: callback.id)
+      unless PhotoAlbum.chiudi(bot, callback.message.chat.id, album_id)
+        # Album non più registrato: almeno togliamo il messaggio di controllo
+        bot.api.delete_message(chat_id: callback.message.chat.id, message_id: callback.message.message_id) rescue nil
       end
 
       # --------------------------------------------------------------------------
