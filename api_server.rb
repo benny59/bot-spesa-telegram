@@ -18,6 +18,7 @@ require_relative 'models/open_food_facts_client'
 require_relative 'models/recipe_importer'
 require_relative 'handlers/storico_manager'
 require_relative 'handlers/lista_pdf'
+require_relative 'handlers/lista_html'
 require_relative 'models/item_action_message'
 require_relative 'models/group_manager'
 require_relative 'models/lista_modello'
@@ -1636,6 +1637,26 @@ get '/lista/pdf' do
   content_type 'application/pdf'
   headers 'Content-Disposition' => 'inline; filename="lista-spesa.pdf"'
   bytes
+end
+
+# Stessa lista come pagina HTML autosufficiente (caselle spuntabili in qualsiasi browser)
+get '/lista/html' do
+  gruppo_id = params[:gruppo_id].to_i
+  topic_id  = params[:topic_id].to_i
+  user_id   = params[:user_id].to_i
+  halt 400, { error: 'user_id mancante' }.to_json if user_id == 0
+  if gruppo_id != 0 && !DataManager.utente_ha_accesso_al_gruppo?(user_id, gruppo_id)
+    halt 403, { error: 'accesso negato' }.to_json
+  end
+
+  token = telegram_token_attivo
+  bot = token ? Telegram::Bot::Client.new(token) : nil
+  html = ListaHtml.genera(bot, gruppo_id, topic_id, user_id: user_id)
+  halt 404, { error: 'Nessun articolo da comprare' }.to_json unless html
+
+  content_type 'text/html;charset=utf-8'
+  headers 'Content-Disposition' => 'inline; filename="lista-spesa.html"'
+  html
 end
 
 get '/lista/conteggi' do

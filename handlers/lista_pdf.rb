@@ -34,18 +34,10 @@ module ListaPdf
   # Genera il PDF e ritorna il percorso del file temporaneo (nil se nulla da comprare).
   # user_id serve per la lista personale (gruppo 0): ognuno vede solo i propri articoli.
   def self.genera(bot, g_id, t_id, user_id: nil)
-    tutti = if g_id.to_i == 0 && user_id.to_i != 0
-        Lista.personale(user_id.to_i)
-      else
-        DataManager.prendi_articoli_ordinati(g_id, t_id)
-      end
-    items = tutti.select do |i|
-      i["deleted"].to_i == 0 && i["comprato"].to_s.strip.empty?
-    end
+    items = articoli_da_comprare(g_id, t_id, user_id: user_id)
     return nil if items.empty?
 
     info = DataManager.recupera_nomi_contesto(g_id.to_i, t_id.to_i)
-    items.each { |i| i["gruppo_id"] ||= g_id; i["topic_id"] ||= t_id }
     sezioni = raggruppa(items, g_id, t_id)
     path = File.join(Dir.tmpdir, "lista_spesa_#{Time.now.to_i}.pdf")
     tmp_foto = []
@@ -70,6 +62,18 @@ module ListaPdf
     path
   ensure
     tmp_foto&.each { |f| File.delete(f) if File.exist?(f) }
+  end
+
+  # Articoli ancora da comprare, con gruppo/topic valorizzati (usata anche dalla lista HTML).
+  def self.articoli_da_comprare(g_id, t_id, user_id: nil)
+    tutti = if g_id.to_i == 0 && user_id.to_i != 0
+        Lista.personale(user_id.to_i)
+      else
+        DataManager.prendi_articoli_ordinati(g_id, t_id)
+      end
+    items = tutti.select { |i| i["deleted"].to_i == 0 && i["comprato"].to_s.strip.empty? }
+    items.each { |i| i["gruppo_id"] ||= g_id; i["topic_id"] ||= t_id }
+    items
   end
 
   # ---------------------------------------------------------------------------
@@ -268,12 +272,12 @@ module ListaPdf
 
   # ---------------------------------------------------------------------------
   # Foto: cache locale, altrimenti scarico da Telegram; ridimensiono se possibile.
-  def self.prima_foto(bot, art, tmp)
+  def self.prima_foto(bot, art, tmp, **opz)
     f = DataManager.prendi_foto_articolo(art["id"]).first
     return nil unless f
     grezzo = file_foto(bot, f)
     return nil unless grezzo
-    ridotta = riduci(grezzo)
+    ridotta = riduci(grezzo, **opz)
     tmp << ridotta if ridotta != grezzo && !tmp.include?(ridotta)
     ridotta
   rescue => e
@@ -295,12 +299,12 @@ module ListaPdf
 
   # Le foto caricate dall'app possono pesare >1 MB: se c'è ImageMagick le riduco,
   # così il PDF resta leggero da inoltrare.
-  def self.riduci(path)
-    return path if File.size(path) < 120_000
+  def self.riduci(path, lato: 400, qualita: 75, soglia: 120_000)
+    return path if File.size(path) < soglia
     tool = %w[magick convert].find { |t| system("which #{t} > /dev/null 2>&1") }
     return path unless tool
     out = Tempfile.new(["miniatura", ".jpg"]).path
-    ok = system(tool, path, "-auto-orient", "-resize", "400x400>", "-quality", "75", "-strip", out)
+    ok = system(tool, path, "-auto-orient", "-resize", "#{lato}x#{lato}>", "-quality", qualita.to_s, "-strip", out)
     ok && File.size?(out) ? out : path
   end
 end

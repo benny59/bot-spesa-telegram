@@ -2085,6 +2085,8 @@ $('#dlg-menu').addEventListener('close', async () => {
     openPromemoriaDialog();
   } else if (action === 'pdf') {
     condividiPdf();
+  } else if (action === 'html') {
+    preparaListaHtml();
   }
 });
 
@@ -2112,6 +2114,52 @@ async function condividiPdf() {
     toast(e.message);
   }
 }
+
+// ---------- lista in HTML: stessa lista del PDF come pagina autosufficiente ----------
+let listaHtmlBlob = null;
+
+async function preparaListaHtml() {
+  if (state.sel.vista || state.sel.gruppoId === null || state.sel.gruppoId === undefined) {
+    toast('Apri una lista specifica per creare la pagina');
+    return;
+  }
+  try {
+    const url = new URL('/lista/html', location.origin);
+    url.searchParams.set('gruppo_id', state.sel.gruppoId);
+    url.searchParams.set('topic_id', state.sel.topicId || 0);
+    url.searchParams.set('user_id', state.auth.userId);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${state.auth.token}` }, cache: 'no-store' });
+    if (res.status === 404) { toast('Nessun articolo da comprare'); return; }
+    if (!res.ok) throw new Error(`Errore ${res.status}`);
+    listaHtmlBlob = await res.blob();
+    $('#dlg-lista-html').showModal();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+$('#dlg-lista-html').addEventListener('close', async () => {
+  const action = $('#dlg-lista-html').returnValue;
+  $('#dlg-lista-html').returnValue = '';
+  if (!listaHtmlBlob || !action) return;
+  const blob = listaHtmlBlob;
+  if (action === 'anteprima') {
+    window.open(URL.createObjectURL(blob), '_blank');
+  } else if (action === 'invia') {
+    const file = new File([blob], 'lista-spesa.html', { type: 'text/html' });
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Lista della spesa' }); return; }
+      catch (e) { if (e.name === 'AbortError') return; }
+    }
+    // niente condivisione di file: scarico il file
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = 'lista-spesa.html';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+});
 
 // ---------- import da link: ricetta (Monsieur Cuisine, GialloZafferano) o prodotto (CoopShop, Tigros) ----------
 // Il server legge il link (POST /import/recipe/preview). Una ricetta entra come articoli di una
