@@ -2,10 +2,11 @@ require_relative "giallo_zafferano_client"
 require_relative "monsieur_cuisine_client"
 require_relative "ebsn_shop_client"
 require_relative "conad_client"
+require_relative "guacci_client"
 
 class RecipeImporter
-  PROVIDERS = [MonsieurCuisineClient, GialloZafferanoClient, EbsnShopClient, ConadClient].freeze
-  SHOP_PROVIDERS = [EbsnShopClient, ConadClient].freeze
+  PROVIDERS = [MonsieurCuisineClient, GialloZafferanoClient, EbsnShopClient, ConadClient, GuacciClient].freeze
+  SHOP_PROVIDERS = [EbsnShopClient, ConadClient, GuacciClient].freeze
 
   class Error < StandardError; end
 
@@ -26,7 +27,7 @@ class RecipeImporter
     raise Error, "Sito di ricette non supportato" unless provider
 
     provider.preview(url)
-  rescue MonsieurCuisineClient::Error, GialloZafferanoClient::Error, EbsnShopClient::Error => e # ConadClient::Error è lo stesso di EbsnShopClient
+  rescue MonsieurCuisineClient::Error, GialloZafferanoClient::Error, EbsnShopClient::Error => e # ConadClient e GuacciClient::Error sono lo stesso di EbsnShopClient
     raise Error, e.message
   end
 end

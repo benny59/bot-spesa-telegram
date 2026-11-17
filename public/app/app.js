@@ -640,6 +640,15 @@ function categoriaOptions(categorie) {
   )).join('');
 }
 
+// Preseleziona la categoria suggerita da un negozio (es. "(Para)farmacia") se la lista ne ha una con quel nome
+function preselezionaCategoria(select, nome) {
+  const cerca = String(nome || '').trim().toLowerCase();
+  if (!cerca) return false;
+  const opzione = [...select.options].find((o) => o.value && o.textContent.replace(/^◌\s*/, '').trim().toLowerCase() === cerca);
+  if (opzione) select.value = opzione.value;
+  return Boolean(opzione);
+}
+
 // Applica la categoria scelta a un nuovo articolo: effimera = sintassi "nome & categoria" del bot
 function applicaCategoria(body, nome, categoria) {
   if (categoria.startsWith('e:')) return { ...body, nome: `${nome} & ${categoria.slice(2)}` };
@@ -1173,7 +1182,9 @@ async function leggiLinkNellaBarra() {
   addGtin = prodotto.gtin || '';
   addLink = prodotto.source_url || '';
   addFotoUrl = prodotto.image_url || '';
-  toast(addGtin ? 'Prodotto letto: scegli la categoria e aggiungi' : 'Prodotto letto, senza barcode valido: scegli la categoria e aggiungi');
+  const categoriaScelta = preselezionaCategoria($('#add-categoria'), prodotto.categoria);
+  toast(categoriaScelta ? `Prodotto letto, categoria ${prodotto.categoria}: controlla e aggiungi`
+    : addGtin ? 'Prodotto letto: scegli la categoria e aggiungi' : 'Prodotto letto, senza barcode valido: scegli la categoria e aggiungi');
   input.focus();
   return true;
 }
@@ -2215,7 +2226,8 @@ $('#ricetta-leggi').addEventListener('click', async () => {
       $('#prodotto-foto').hidden = !importFotoUrl;
       $('#prodotto-foto').src = importFotoUrl;
       $('#prodotto-categoria').value = '';
-      caricaCategorieImport();
+      await caricaCategorieImport();
+      preselezionaCategoria($('#prodotto-categoria'), r.categoria);
     } else {
       $('#ricetta-categoria').value = r.title;
       $('#ricetta-ingredienti').value = r.ingredients.join('\n');
