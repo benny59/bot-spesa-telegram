@@ -32,6 +32,9 @@
     <string name="scopetta">Stubb</string>
     <string name="condividi_lista">Liste teilen</string>
     <string name="lista_pdf">Liste als PDF (drucken / senden)</string>
+    <string name="lista_pdf_anteprima">Vorschau</string>
+    <string name="lista_pdf_condividi">Teilen</string>
+    <string name="lista_pdf_nessun_lettore">Keine App zum Öffnen von PDFs</string>
     <string name="lista_pdf_vuota">Keine Artikel zu kaufen</string>
     <string name="lista_pdf_errore">PDF konnte nicht erstellt werden</string>
     <string name="scegli_app_condivisione">Liste teilen mit</string>

@@ -22,6 +22,7 @@
             android:layout_height="?attr/actionBarSize"
             android:background="@color/colorPrimary"
             android:elevation="4dp"
+            app:popupTheme="@style/ThemeOverlay.AppCompat.Light"
             app:title="@string/app_name"
             app:titleTextColor="@android:color/white" />
 

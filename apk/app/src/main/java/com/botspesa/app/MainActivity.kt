@@ -722,12 +722,27 @@ class MainActivity : AppCompatActivity() {
             }
             val file = File(cacheDir, "lista-spesa.pdf").apply { writeBytes(bytes) }
             val uri = FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/pdf"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(intent, getString(R.string.lista_pdf)))
+            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle(R.string.lista_pdf)
+                .setPositiveButton(R.string.lista_pdf_anteprima) { _, _ ->
+                    val view = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "application/pdf")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    runCatching { startActivity(view) }.onFailure {
+                        Toast.makeText(this@MainActivity, R.string.lista_pdf_nessun_lettore, Toast.LENGTH_LONG).show()
+                    }
+                }
+                .setNeutralButton(R.string.lista_pdf_condividi) { _, _ ->
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(send, getString(R.string.lista_pdf)))
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
     }
 

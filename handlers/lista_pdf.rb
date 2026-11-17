@@ -47,6 +47,7 @@ module ListaPdf
     sezioni = raggruppa(items, g_id, t_id)
     path = File.join(Dir.tmpdir, "lista_spesa_#{Time.now.to_i}.pdf")
     tmp_foto = []
+    campi = []
 
     Prawn::Document.generate(path, page_size: PAGINA, margin: MARGINE, info: { Title: "Lista della spesa", Creator: "Bot Spesa" }) do |pdf|
       imposta_font(pdf)
@@ -57,11 +58,12 @@ module ListaPdf
         titolo_categoria(pdf, categoria)
         articoli.each do |art|
           foto = prima_foto(bot, art, tmp_foto)
-          riga_articolo(pdf, art, foto)
+          riga_articolo(pdf, art, foto, campi)
         end
       end
 
       numera_pagine(pdf)
+      registra_form(pdf, campi)
     end
     path
   ensure
@@ -124,7 +126,7 @@ module ListaPdf
     pdf.move_down 5
   end
 
-  def self.riga_articolo(pdf, art, foto)
+  def self.riga_articolo(pdf, art, foto, campi)
     nome = pulisci(PhotoAlbum.nome_pulito(art, art["gruppo_id"], art["topic_id"]))
     img_w = img_h = 0
     if foto
@@ -147,7 +149,9 @@ module ListaPdf
     # riquadro per la matita, centrato in verticale sulla riga
     pdf.stroke_color "000000"
     pdf.line_width 1
-    pdf.stroke_rectangle [0, top - (altezza - QUADRATO) / 2.0], QUADRATO, QUADRATO
+    y_quadrato = top - (altezza - QUADRATO) / 2.0
+    pdf.stroke_rectangle [0, y_quadrato], QUADRATO, QUADRATO
+    aggiungi_spunta(pdf, art["id"], [0, y_quadrato], campi)
 
     if foto
       pdf.image foto, at: [QUADRATO + GAP + (MINIATURA - img_w) / 2, top - (altezza - img_h) / 2.0], width: img_w, height: img_h
@@ -164,6 +168,44 @@ module ListaPdf
     pdf.line_width 0.4
     pdf.stroke_horizontal_line x_nome, pdf.bounds.width
     pdf.move_down 3
+  end
+
+  # --- Form PDF: una casella cliccabile (AcroForm) sopra ogni riquadro -------
+  # Il riquadro disegnato resta (si stampa e si spunta a matita); in un lettore
+  # PDF con moduli la casella si tocca e compare la spunta.
+  def self.aggiungi_spunta(pdf, item_id, punto, campi)
+    @ap ||= {}
+    @ap[pdf.object_id] ||= {
+      on: ap_stream(pdf, "1.8 w 0 0 0 RG #{QUADRATO * 0.2} #{QUADRATO * 0.5} m #{QUADRATO * 0.42} #{QUADRATO * 0.2} l #{QUADRATO * 0.82} #{QUADRATO * 0.82} l S"),
+      off: ap_stream(pdf, ""),
+    }
+    ap = @ap[pdf.object_id]
+    x = pdf.bounds.absolute_left + punto[0]
+    y = pdf.bounds.absolute_bottom + punto[1]
+    widget = pdf.ref!(
+      Type: :Annot, Subtype: :Widget, FT: :Btn,
+      T: "art_#{item_id}", TU: "Preso",
+      Rect: [x, y - QUADRATO, x + QUADRATO, y],
+      F: 4, V: :Off, AS: :Off,
+      MK: {},
+      AP: { N: { Yes: ap[:on], Off: ap[:off] } },
+      P: pdf.page.dictionary,
+    )
+    pdf.page.dictionary.data[:Annots] ||= []
+    pdf.page.dictionary.data[:Annots] << widget
+    campi << widget
+  end
+
+  def self.ap_stream(pdf, contenuto)
+    ref = pdf.ref!(Type: :XObject, Subtype: :Form, BBox: [0, 0, QUADRATO, QUADRATO], Resources: {})
+    ref << contenuto
+    ref
+  end
+
+  def self.registra_form(pdf, campi)
+    return if campi.empty?
+    pdf.state.store.root.data[:AcroForm] = pdf.ref!(Fields: campi, NeedAppearances: false)
+    @ap&.delete(pdf.object_id)
   end
 
   def self.dimensioni(path)
