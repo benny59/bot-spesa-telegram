@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "json"
 require "prawn"
 require "tempfile"
 require "fileutils"
@@ -158,7 +159,7 @@ module ListaPdf
       pdf.image foto, at: [QUADRATO + GAP + (MINIATURA - img_w) / 2, top - (altezza - img_h) / 2.0], width: img_w, height: img_h
     end
 
-    link = link_valido(art["link_url"])
+    link = link_articolo(art)
     pdf.fill_color(link ? COLORE_LINK : "000000")
     pdf.bounding_box([x_nome, top], width: pdf.bounds.width - x_nome, height: altezza) do
       pdf.text_box nome, at: [0, altezza], width: pdf.bounds.width, height: altezza, size: 12, style: :bold,
@@ -188,8 +189,8 @@ module ListaPdf
   def self.aggiungi_spunta(pdf, item_id, punto, campi)
     @ap ||= {}
     @ap[pdf.object_id] ||= {
-      on: ap_stream(pdf, "1.8 w 0 0 0 RG #{QUADRATO * 0.2} #{QUADRATO * 0.5} m #{QUADRATO * 0.42} #{QUADRATO * 0.2} l #{QUADRATO * 0.82} #{QUADRATO * 0.82} l S"),
-      off: ap_stream(pdf, ""),
+      on: ap_stream(pdf, "q 1.8 w 0 0 0 RG #{QUADRATO * 0.2} #{QUADRATO * 0.5} m #{QUADRATO * 0.42} #{QUADRATO * 0.2} l #{QUADRATO * 0.82} #{QUADRATO * 0.82} l S Q"),
+      off: ap_stream(pdf, "q Q"),
     }
     ap = @ap[pdf.object_id]
     x = pdf.bounds.absolute_left + punto[0]
@@ -199,7 +200,9 @@ module ListaPdf
       T: "art_#{item_id}", TU: "Preso",
       Rect: [x, y - QUADRATO, x + QUADRATO, y],
       F: 4, V: :Off, AS: :Off,
-      MK: {},
+      MK: { CA: PDF::Core::ByteString.new("4") },
+      DA: PDF::Core::ByteString.new("/ZaDb 0 Tf 0 g"),
+      Ff: 0,
       AP: { N: { Yes: ap[:on], Off: ap[:off] } },
       P: pdf.page.dictionary,
     )
@@ -216,8 +219,27 @@ module ListaPdf
 
   def self.registra_form(pdf, campi)
     return if campi.empty?
-    pdf.state.store.root.data[:AcroForm] = pdf.ref!(Fields: campi, NeedAppearances: false)
+    zadb = pdf.ref!(Type: :Font, Subtype: :Type1, BaseFont: :ZapfDingbats)
+    pdf.state.store.root.data[:AcroForm] = pdf.ref!(
+      Fields: campi,
+      NeedAppearances: false,
+      DA: PDF::Core::ByteString.new("/ZaDb 0 Tf 0 g"),
+      DR: { Font: { ZaDb: zadb } },
+    )
     @ap&.delete(pdf.object_id)
+  end
+
+  # Scheda di approfondimento: il link salvato sull'articolo (Yuka, negozio); se manca,
+  # la pagina Open Food Facts del suo barcode (come il tasto "i" delle app).
+  def self.link_articolo(art)
+    diretto = link_valido(art["link_url"])
+    return diretto if diretto
+
+    gtin = art["gtin"].to_s.strip
+    return nil unless gtin.match?(/\A\d{8,14}\z/)
+    meta = DB.get_first_value("SELECT metadata_json FROM prodotti WHERE gtin = ?", [gtin])
+    sorgente = (JSON.parse(meta.to_s)["source_url"] rescue nil)
+    link_valido(sorgente) || link_valido("https://world.openfoodfacts.org/product/#{gtin}")
   end
 
   # Solo http/https: niente schemi strani dentro un PDF che l'amico apre sul telefono.
