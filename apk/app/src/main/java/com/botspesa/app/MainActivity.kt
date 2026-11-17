@@ -694,6 +694,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         menu.findItem(R.id.action_condividi)?.isVisible = vistaAttuale.isEmpty()
         menu.findItem(R.id.action_pdf)?.isVisible = vistaAttuale.isEmpty()
+        menu.findItem(R.id.action_html)?.isVisible = vistaAttuale.isEmpty()
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -702,6 +703,7 @@ class MainActivity : AppCompatActivity() {
             R.id.action_scopetta -> { mostraScopettaConferma(); true }
             R.id.action_condividi -> { condividiListaCorrente(); true }
             R.id.action_pdf -> { condividiListaPdf(); true }
+            R.id.action_html -> { condividiListaHtml(); true }
             R.id.action_carte    -> { CarteSheet.newInstance(gruppoId, userId).show(supportFragmentManager, "carte"); true }
             else -> super.onOptionsItemSelected(item)
         }
@@ -744,6 +746,56 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton(android.R.string.cancel, null)
                 .show()
         }
+    }
+
+    private fun condividiListaHtml() {
+        lifecycleScope.launch {
+            val risultato = withContext(Dispatchers.IO) {
+                runCatching { ApiClient.scaricaListaHtml(gruppoId, topicId, userId) }
+            }
+            val html = risultato.getOrElse {
+                Toast.makeText(this@MainActivity, R.string.lista_pdf_errore, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            if (html == null) {
+                Toast.makeText(this@MainActivity, R.string.lista_pdf_vuota, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle(R.string.lista_html)
+                .setPositiveButton(R.string.lista_pdf_anteprima) { _, _ -> mostraAnteprimaHtml(html) }
+                .setNeutralButton(R.string.lista_pdf_condividi) { _, _ ->
+                    val file = File(cacheDir, "lista-spesa.html").apply { writeText(html) }
+                    val uri = FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/html"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(send, getString(R.string.lista_html)))
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    // Anteprima dentro l'app: la pagina è autosufficiente, le spunte funzionano anche qui.
+    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    private fun mostraAnteprimaHtml(html: String) {
+        val web = android.webkit.WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            webViewClient = object : android.webkit.WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: android.webkit.WebView, request: android.webkit.WebResourceRequest): Boolean {
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
+                    return true
+                }
+            }
+            loadDataWithBaseURL("https://lista.spesa.local/", html, "text/html", "utf-8", null)
+        }
+        val dialog = android.app.Dialog(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
+        dialog.setContentView(web)
+        dialog.show()
     }
 
     private fun condividiListaCorrente() {
@@ -1108,10 +1160,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Link di un negozio online (CoopShop/Tigros/Conad): non è un link Yuka, niente carota
+    // Link di un negozio online (CoopShop/Tigros/Conad/Farmacia Guacci): non è un link Yuka, niente carota
     fun linkDiNegozio(url: String): Boolean {
         val host = runCatching { Uri.parse(url.trim()).host.orEmpty().lowercase() }.getOrDefault("")
-        return listOf("coopshop.it", "tigros.it", "conad.it").any { host == it || host.endsWith(".$it") }
+        return listOf("coopshop.it", "tigros.it", "conad.it", "farmaciaguacci.it").any { host == it || host.endsWith(".$it") }
     }
 
     private fun associaProdotto(item: SpesaItem, barcode: String) {

@@ -31,6 +31,7 @@
     <string name="sposta_topic">Sposta in un altro topic</string>
     <string name="scopetta">Scopetta</string>
     <string name="condividi_lista">Condividi lista</string>
+    <string name="lista_html">Lista in HTML (spuntabile da chiunque)</string>
     <string name="lista_pdf">Lista in PDF (stampa / invia)</string>
     <string name="lista_pdf_anteprima">Anteprima</string>
     <string name="lista_pdf_condividi">Condividi</string>

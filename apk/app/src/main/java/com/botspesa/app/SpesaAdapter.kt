@@ -170,7 +170,7 @@ class SpesaAdapter(
         }
 
         val linkNegozio = Uri.parse(item.linkUrl.trim()).host.orEmpty().lowercase()
-            .let { h -> listOf("coopshop.it", "tigros.it", "conad.it").any { h == it || h.endsWith(".$it") } }
+            .let { h -> listOf("coopshop.it", "tigros.it", "conad.it", "farmaciaguacci.it").any { h == it || h.endsWith(".$it") } }
         holder.ivLink.visibility = if (item.linkUrl.isNotBlank() && !linkNegozio) View.VISIBLE else View.GONE
         holder.ivLink.setOnClickListener { onLink(item) }
 

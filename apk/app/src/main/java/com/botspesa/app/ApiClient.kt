@@ -922,6 +922,20 @@ object ApiClient {
         }
     }
 
+    /** Scarica la lista come pagina HTML autosufficiente. Ritorna null se non c'è nulla da comprare. */
+    fun scaricaListaHtml(gruppoId: Int, topicId: Int, userId: Int): String? {
+        val req = Request.Builder()
+            .url("$baseUrl/lista/html?gruppo_id=$gruppoId&topic_id=$topicId&user_id=$userId")
+            .auth()
+            .build()
+        val lungo = http.newBuilder().readTimeout(90, TimeUnit.SECONDS).build()
+        return lungo.newCall(req).execute().use {
+            if (it.code == 404) null
+            else if (!it.isSuccessful) throw java.io.IOException("HTTP ${it.code}")
+            else it.body!!.string()
+        }
+    }
+
     fun getFotoUrl(itemId: Int): String = "$baseUrl/foto/$itemId"
 
     fun getFavoriteFotoUrl(fileId: String, fileUniqueId: String): String =
