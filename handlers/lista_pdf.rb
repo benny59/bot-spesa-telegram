@@ -27,6 +27,7 @@ module ListaPdf
   ].freeze
   CACHE_FOTO = File.expand_path("../data/foto_cache", __dir__)
   GRIGIO = "777777"
+  COLORE_LINK = "1A4FA0"
   LINEA = "CCCCCC"
 
   # Genera il PDF e ritorna il percorso del file temporaneo (nil se nulla da comprare).
@@ -157,11 +158,22 @@ module ListaPdf
       pdf.image foto, at: [QUADRATO + GAP + (MINIATURA - img_w) / 2, top - (altezza - img_h) / 2.0], width: img_w, height: img_h
     end
 
-    pdf.fill_color "000000"
+    link = link_valido(art["link_url"])
+    pdf.fill_color(link ? COLORE_LINK : "000000")
     pdf.bounding_box([x_nome, top], width: pdf.bounds.width - x_nome, height: altezza) do
       pdf.text_box nome, at: [0, altezza], width: pdf.bounds.width, height: altezza, size: 12, style: :bold,
                          valign: :center, overflow: :shrink_to_fit, min_font_size: 8
     end
+
+    if link
+      # clic su nome e miniatura: apre la scheda prodotto nel browser
+      sx = pdf.bounds.absolute_left + QUADRATO + GAP
+      dx = pdf.bounds.absolute_right
+      basso = pdf.bounds.absolute_bottom + top - altezza
+      alto = pdf.bounds.absolute_bottom + top
+      pdf.link_annotation([sx, basso, dx, alto], Border: [0, 0, 0], A: { Type: :Action, S: :URI, URI: link })
+    end
+    pdf.fill_color "000000"
 
     pdf.move_cursor_to top - altezza
     pdf.stroke_color "E3E3E3"
@@ -206,6 +218,15 @@ module ListaPdf
     return if campi.empty?
     pdf.state.store.root.data[:AcroForm] = pdf.ref!(Fields: campi, NeedAppearances: false)
     @ap&.delete(pdf.object_id)
+  end
+
+  # Solo http/https: niente schemi strani dentro un PDF che l'amico apre sul telefono.
+  def self.link_valido(url)
+    u = url.to_s.strip
+    return nil unless u.match?(%r{\Ahttps?://[^\s]+\z}i)
+    # URI in ASCII puro (richiesto dalla specifica PDF): il resto in %XX, e ByteString
+    # perché Prawn non la converta in UTF-16 come fa con le stringhe di testo.
+    PDF::Core::ByteString.new(u.b.gsub(/[^\x21-\x7e]/n) { |c| format("%%%02X", c.ord) })
   end
 
   def self.dimensioni(path)
