@@ -1143,7 +1143,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching { ApiClient.getProductPreview(item.gtin) }.getOrNull()
             }
             if (preview == null) {
-                if (linkDiNegozio(item.linkUrl)) {
+                if (item.linkNegozio) {
                     // prodotto importato da un negozio, senza scheda nutrizionale: si offre la pagina del negozio
                     androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
                         .setTitle(item.nome)
@@ -1158,12 +1158,6 @@ class MainActivity : AppCompatActivity() {
                 mostraInformazioniProdotto(preview)
             }
         }
-    }
-
-    // Link di un negozio online (CoopShop/Tigros/Conad/Farmacia Guacci): non è un link Yuka, niente carota
-    fun linkDiNegozio(url: String): Boolean {
-        val host = runCatching { Uri.parse(url.trim()).host.orEmpty().lowercase() }.getOrDefault("")
-        return listOf("coopshop.it", "tigros.it", "conad.it", "farmaciaguacci.it").any { host == it || host.endsWith(".$it") }
     }
 
     private fun associaProdotto(item: SpesaItem, barcode: String) {

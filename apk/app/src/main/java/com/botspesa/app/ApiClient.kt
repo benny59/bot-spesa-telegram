@@ -271,6 +271,7 @@ object ApiClient {
                 nome         = parsedCategoria.first,
                 gtin         = item["gtin"] as? String ?: "",
                 linkUrl      = decoded.second,
+                linkNegozio  = item["link_negozio"] as? Boolean ?: false,
                 comprato     = item["comprato"] as? String ?: "",
                 userInitials = item["user_initials"] as? String ?: "",
                 buyerInitials = item["buyer_initials"] as? String ?: "",

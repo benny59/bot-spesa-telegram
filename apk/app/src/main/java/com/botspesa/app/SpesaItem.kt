@@ -5,6 +5,8 @@ data class SpesaItem(
     val nome: String,
     val gtin: String = "",
     val linkUrl: String = "",
+    // scheda prodotto di un negozio online (lo stabilisce il server): non è un link Yuka, niente carota
+    val linkNegozio: Boolean = false,
     val comprato: String,
     val userInitials: String,
     val buyerInitials: String,

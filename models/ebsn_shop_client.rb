@@ -2,13 +2,16 @@ require "faraday"
 require "json"
 require "uri"
 
-# Schede prodotto dei negozi online costruiti sulla piattaforma EBSN (CoopShop, Tigros, ...):
-# stessa API pubblica /ebsn/api/products?slug=..., stessi campi. Aggiungere un negozio = una riga in SHOPS.
+# Schede prodotto dei negozi online costruiti sulla piattaforma EBSN (CoopShop, Tigros, NaturaSì, ...):
+# stessa API pubblica /ebsn/api/products?slug=... Aggiungere un negozio = una riga in SHOPS.
 class EbsnShopClient
+  # path: cartella delle schede nel sito; brand e quantity: dove stanno marca e formato nella risposta
+  DEFAULTS = { path: "product", brand: %w[shortDescr], quantity: %w[description] }.freeze
   SHOPS = {
-    "www.coopshop.it" => "CoopShop",
-    "www.tigros.it" => "Tigros"
-  }.freeze
+    "www.coopshop.it" => { name: "CoopShop" },
+    "www.tigros.it" => { name: "Tigros" },
+    "www.naturasi.it" => { name: "NaturaSì", path: "prodotti", brand: %w[vendor name], quantity: %w[shortDescr] }
+  }.transform_values { |shop| DEFAULTS.merge(shop).freeze }.freeze
   USER_AGENT = "BotSpesa/1.0"
   MAX_IMAGE_BYTES = 5 * 1024 * 1024
   OPEN_TIMEOUT = 8
@@ -25,11 +28,12 @@ class EbsnShopClient
     host, slug = parse(url)
     raise Error, "Link negozio non supportato" unless host
 
+    shop = SHOPS[host]
     http = connection || connection_for("https://#{host}")
     response = get(http, "/ebsn/api/products", slug: slug)
-    raise Error, "Prodotto #{SHOPS[host]} non disponibile" unless response.success?
+    raise Error, "Prodotto #{shop[:name]} non disponibile" unless response.success?
 
-    normalize(JSON.parse(response.body), url: "https://#{host}/product/#{slug}")
+    normalize(JSON.parse(response.body), url: "https://#{host}/#{shop[:path]}/#{slug}")
   rescue Faraday::Error, JSON::ParserError => e
     raise Error, "Impossibile leggere il prodotto: #{e.message}"
   end
@@ -41,14 +45,15 @@ class EbsnShopClient
     name = product["name"].to_s.strip
     raise Error, "Prodotto non trovato" if name.empty?
 
-    brand = product["shortDescr"].to_s.strip
+    shop = SHOPS.fetch(host_of(url), DEFAULTS)
+    brand, quantity = shop.values_at(:brand, :quantity).map { |keys| product.dig(*keys).to_s.strip }
     front = Array(product["media"]).find { |media| media["type"] == "front" } || Array(product["media"]).first
 
     {
       kind: "product",
       title: [name, brand].reject(&:empty?).join(" ").gsub("&", "e"),
       gtin: product["barcode"].to_s.strip,
-      quantity: product["description"].to_s.strip,
+      quantity: quantity,
       image_url: front && (front["medium"] || front["large"]),
       source_url: url.to_s
     }
@@ -57,11 +62,12 @@ class EbsnShopClient
   # Scarica la foto solo dai negozi noti (l'URL arriva dal client: niente fetch arbitrari)
   def self.fetch_image(url, connection: nil) = download_image(url, hosts: SHOPS.keys, connection: connection)
 
-  def self.image_host?(url)
-    host = URI.parse(url.to_s.strip).host.to_s.downcase
-    SHOPS.key?(host)
+  def self.image_host?(url) = SHOPS.key?(host_of(url))
+
+  def self.host_of(url)
+    URI.parse(url.to_s.strip).host.to_s.downcase
   rescue URI::InvalidURIError
-    false
+    ""
   end
 
   # Scarico condiviso con gli altri negozi (ConadClient): https e solo gli host indicati
@@ -88,8 +94,9 @@ class EbsnShopClient
     return nil unless uri.scheme == "https"
 
     host = "www.#{uri.host.to_s.downcase.delete_prefix('www.')}"
-    slug = uri.path[%r{\A/(?:shop/)?product/([\w-]+)/?\z}, 1]
-    SHOPS.key?(host) && slug ? [host, slug] : nil
+    shop = SHOPS[host]
+    slug = shop && uri.path[%r{\A/(?:shop/)?#{shop[:path]}/([\w-]+)/?\z}, 1]
+    slug ? [host, slug] : nil
   rescue URI::InvalidURIError
     nil
   end
@@ -113,5 +120,5 @@ class EbsnShopClient
     end
   end
 
-  private_class_method :parse
+  private_class_method :parse, :host_of
 end

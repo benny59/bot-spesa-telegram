@@ -568,7 +568,7 @@ get '/lista' do
       topic_id:      i['topic_id'],
       nome:          nome_ritornato,
       gtin:          i['gtin'].to_s,
-      link_url:      i['link_url'].to_s,
+      **campi_link(i['link_url']),
       categoria_id:  i['categoria_id']&.to_i,
       categoria_nome: categoria_ritornata,
       comprato:      i['comprato'].to_s.empty? ? '' : i['buyer_initials'].to_s,
@@ -1578,6 +1578,9 @@ delete '/admin/utenti/:target_id' do
   { ok: true, user_id: target_id }.to_json
 end
 
+# Link di un articolo come lo vedono i client
+def campi_link(url) = { link_url: url.to_s, link_negozio: RecipeImporter.shop_link?(url) }
+
 # Helper condiviso per serializzare un item verso l'app Android
 def serializza_item(i, nome_gruppo: '')
   # Combina gruppo e topic in un'unica etichetta
@@ -1596,7 +1599,7 @@ def serializza_item(i, nome_gruppo: '')
     nome_topic:    i['nome_topic'].to_s,
     nome:          nome_ritornato,
     gtin:          i['gtin'].to_s,
-    link_url:      i['link_url'].to_s,
+    **campi_link(i['link_url']),
     categoria_id:  categoria_id.nil? ? nil : categoria_id.to_i,
     categoria_nome: categoria_nome,
     comprato:      i['comprato'].to_s.empty? ? '' : i['buyer_initials'].to_s,

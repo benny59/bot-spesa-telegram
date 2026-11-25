@@ -1,7 +1,6 @@
 package com.botspesa.app
 
 import android.graphics.Paint
-import android.net.Uri
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -169,9 +168,7 @@ class SpesaAdapter(
             }
         }
 
-        val linkNegozio = Uri.parse(item.linkUrl.trim()).host.orEmpty().lowercase()
-            .let { h -> listOf("coopshop.it", "tigros.it", "conad.it", "farmaciaguacci.it").any { h == it || h.endsWith(".$it") } }
-        holder.ivLink.visibility = if (item.linkUrl.isNotBlank() && !linkNegozio) View.VISIBLE else View.GONE
+        holder.ivLink.visibility = if (item.linkUrl.isNotBlank() && !item.linkNegozio) View.VISIBLE else View.GONE
         holder.ivLink.setOnClickListener { onLink(item) }
 
         holder.ivNutrition.alpha = if (item.gtin.isBlank()) 0.45f else 1f

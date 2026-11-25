@@ -14,6 +14,11 @@ class RecipeImporter
     PROVIDERS.any? { |provider| provider.supports?(url) }
   end
 
+  # Link a una scheda prodotto di un negozio noto: i client lo ricevono già calcolato, senza elenchi di domini propri
+  def self.shop_link?(url)
+    SHOP_PROVIDERS.any? { |provider| provider.supports?(url) }
+  end
+
   # Foto di un prodotto: scaricata solo dal negozio a cui appartiene l'URL
   def self.fetch_image(url)
     provider = SHOP_PROVIDERS.find { |candidate| candidate.image_host?(url) }
